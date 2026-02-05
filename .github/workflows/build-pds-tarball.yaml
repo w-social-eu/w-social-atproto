@@ -15,6 +15,7 @@ on:
       - 'packages/xrpc-server/**'
       - 'packages/oauth-provider/**'
       - 'pnpm-lock.yaml'
+      - '.github/workflows/build-pds-tarball.yaml'
   workflow_dispatch:
     inputs:
       environment:
