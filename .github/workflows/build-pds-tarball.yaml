@@ -29,7 +29,7 @@ on:
       skip_pds_trigger:
         description: 'Skip triggering PDS build'
         required: false
-        default: 'false'
+        default: false
         type: boolean
 
 env:
