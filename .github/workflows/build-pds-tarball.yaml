@@ -95,7 +95,7 @@ jobs:
         run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Build packages
-        run: pnpm build --filter @atproto/pds...
+        run: pnpm --filter @atproto/pds... build
 
       - name: Pack PDS tarball
         id: pack
