@@ -7,15 +7,6 @@ on:
       - develop
     tags:
       - 'v*.*.*'
-    paths:
-      - 'packages/pds/**'
-      - 'packages/common/**'
-      - 'packages/common-web/**'
-      - 'packages/api/**'
-      - 'packages/xrpc-server/**'
-      - 'packages/oauth-provider/**'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/build-pds-tarball.yaml'
   workflow_dispatch:
     inputs:
       environment:
@@ -80,6 +71,18 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
+      - name: Cache build outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/*/dist
+            packages/*/.tsbuildinfo
+            node_modules/.cache
+          key: build-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('packages/*/src/**') }}
+          restore-keys: |
+            build-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            build-${{ runner.os }}-
+
       - name: Get version info
         id: version
         run: |
@@ -89,10 +92,10 @@ jobs:
           echo "version=$PDS_VERSION" >> $GITHUB_OUTPUT
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Build packages
-        run: pnpm build
+        run: pnpm build --filter @atproto/pds...
 
       - name: Pack PDS tarball
         id: pack
