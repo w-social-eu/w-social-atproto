@@ -1,22 +1,22 @@
-import express, { Router } from 'express'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
+import { Server } from '../../../../lexicon'
 import {
   NeuroCallbackPayload,
   createAccountViaQuickLogin,
-  deriveAvailableHandle,
   extractEmail,
   extractUserName,
   getHandleForDid,
 } from './helpers'
 
-export function callbackQuickLogin(router: Router, ctx: AppContext) {
-  router.post('/api/quicklogin/callback', express.json(), async (req, res) => {
-    try {
+export default function (server: Server, ctx: AppContext) {
+  server.io.trustanchor.quicklogin.callback({
+    handler: async ({ input, req }) => {
       if (!ctx.cfg.quicklogin) {
-        return res.status(400).json({ error: 'QuickLogin not enabled' })
+        throw new InvalidRequestError('QuickLogin not enabled')
       }
 
-      const payload = req.body as NeuroCallbackPayload
+      const payload = input.body as NeuroCallbackPayload
 
       req.log.info(
         {
@@ -24,27 +24,27 @@ export function callbackQuickLogin(router: Router, ctx: AppContext) {
           key: payload.Key,
           state: payload.State,
         },
-        'QuickLogin callback received',
+        'QuickLogin callback received (XRPC)',
       )
 
       // The provider sends back its own SessionId, but we need to look up by Key (serviceId)
       const serviceId = payload.Key
       if (!serviceId) {
         req.log.warn({ payload }, 'Missing Key/serviceId in callback')
-        return res.status(400).json({ error: 'Missing Key' })
+        throw new InvalidRequestError('Missing Key')
       }
 
       // Find session by serviceId
       const session = ctx.quickloginStore.getSessionByServiceId(serviceId)
       if (!session) {
         req.log.warn({ serviceId }, 'Session not found for serviceId')
-        return res.status(404).json({ error: 'Session not found' })
+        throw new InvalidRequestError('Session not found', 'NotFound')
       }
 
       // Check if session expired
       if (new Date() > new Date(session.expiresAt)) {
         req.log.warn({ sessionId: payload.SessionId }, 'Session expired')
-        return res.status(400).json({ error: 'Session expired' })
+        throw new InvalidRequestError('Session expired')
       }
 
       // Validate state (mTLS handles signature verification)
@@ -57,7 +57,7 @@ export function callbackQuickLogin(router: Router, ctx: AppContext) {
           status: 'failed',
           error: `QuickLogin ${payload.State}`,
         })
-        return res.status(400).json({ error: `QuickLogin ${payload.State}` })
+        throw new InvalidRequestError(`QuickLogin ${payload.State}`)
       }
 
       // Extract JID from payload
@@ -68,7 +68,7 @@ export function callbackQuickLogin(router: Router, ctx: AppContext) {
           status: 'failed',
           error: 'JID missing',
         })
-        return res.status(400).json({ error: 'JID missing from callback' })
+        throw new InvalidRequestError('JID missing from callback')
       }
 
       req.log.info({ jid }, 'Processing QuickLogin for JID')
@@ -106,7 +106,7 @@ export function callbackQuickLogin(router: Router, ctx: AppContext) {
         const account = await ctx.accountManager.getAccount(did)
         if (!account) {
           req.log.error({ did }, 'Account not found for linked DID')
-          return res.status(500).json({ error: 'Account not found' })
+          throw new InvalidRequestError('Account not found')
         }
 
         const tokens = await ctx.accountManager.createSession(did, null, false)
@@ -114,14 +114,6 @@ export function callbackQuickLogin(router: Router, ctx: AppContext) {
         refreshJwt = tokens.refreshJwt
       } else {
         // No existing link - this is user's first QuickLogin (but account should exist)
-        //
-        // IMPORTANT: QuickLogin is ONLY for login, not account creation.
-        // The W ID app enforces that users cannot scan QR codes until both their
-        // W ID account AND W Social account have been provisioned. Account provisioning
-        // happens via the /neuro/provision/account endpoint when Neuro sends a
-        // LegalIdUpdated notification. Therefore, when we reach this code, the account
-        // must already exist - we just need to create the neuro_identity_link.
-
         const email = extractEmail(payload.Properties)
         const userName = extractUserName(payload.Properties)
 
@@ -131,7 +123,7 @@ export function callbackQuickLogin(router: Router, ctx: AppContext) {
             status: 'failed',
             error: 'Email required',
           })
-          return res.status(400).json({ error: 'Email required' })
+          throw new InvalidRequestError('Email required')
         }
 
         // Check if invitation is required and exists
@@ -152,11 +144,10 @@ export function callbackQuickLogin(router: Router, ctx: AppContext) {
               status: 'failed',
               error: 'Invitation required',
             })
-            return res.status(403).json({
-              error: 'InvitationRequired',
-              message:
-                'An invitation is required to create an account. Please contact support.',
-            })
+            throw new InvalidRequestError(
+              'An invitation is required to create an account. Please contact support.',
+              'InvitationRequired',
+            )
           }
 
           req.log.info(
@@ -178,16 +169,15 @@ export function callbackQuickLogin(router: Router, ctx: AppContext) {
         if (!existingAccount) {
           // Account doesn't exist yet
           if (inviteRequired && !invitation) {
-            // Should never reach here due to earlier check, but defensive
             req.log.error({ jid, email }, 'No invitation and account not found')
             ctx.quickloginStore.updateSession(session.sessionId, {
               status: 'failed',
               error: 'Invitation required',
             })
-            return res.status(403).json({
-              error: 'InvitationRequired',
-              message: 'An invitation is required to create an account.',
-            })
+            throw new InvalidRequestError(
+              'An invitation is required to create an account.',
+              'InvitationRequired',
+            )
           }
 
           // Create new account with invitation (if available)
@@ -250,7 +240,7 @@ export function callbackQuickLogin(router: Router, ctx: AppContext) {
           accessJwt = tokens.accessJwt
           refreshJwt = tokens.refreshJwt
 
-          // Delete the invitation if it exists (account already created via other means)
+          // Delete the invitation if it exists
           if (invitation) {
             await ctx.invitationManager.deleteInvitation(invitation.id)
             req.log.info(
@@ -279,22 +269,10 @@ export function callbackQuickLogin(router: Router, ctx: AppContext) {
       )
 
       // Return success to provider
-      return res.json({ success: true })
-    } catch (error) {
-      req.log.error(
-        {
-          error:
-            error instanceof Error
-              ? {
-                  message: error.message,
-                  stack: error.stack,
-                  name: error.name,
-                }
-              : error,
-        },
-        'QuickLogin callback failed',
-      )
-      return res.status(500).json({ error: 'Internal server error' })
-    }
+      return {
+        encoding: 'application/json',
+        body: { success: true },
+      }
+    },
   })
 }

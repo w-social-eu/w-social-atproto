@@ -1,20 +1,21 @@
 import { randomUUID } from 'node:crypto'
-import express, { Router } from 'express'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { dbLogger as logger } from '../../../../logger'
+import { Server } from '../../../../lexicon'
 
-export function initQuickLogin(router: Router, ctx: AppContext) {
-  router.post('/api/quicklogin/init', express.json(), async (req, res) => {
-    try {
+export default function (server: Server, ctx: AppContext) {
+  server.io.trustanchor.quicklogin.init({
+    handler: async ({ input, req }) => {
       if (!ctx.cfg.quicklogin) {
-        return res.status(400).json({ error: 'QuickLogin not enabled' })
+        throw new InvalidRequestError('QuickLogin not enabled')
       }
 
-      const allowCreate = req.body?.allowCreate ?? true
+      const allowCreate = input.body?.allowCreate ?? true
 
       // Call provider to register session
       const providerUrl = `${ctx.cfg.quicklogin.apiBaseUrl}/QuickLogin`
-      const callbackUrl = `${ctx.cfg.service.publicUrl}/api/quicklogin/callback`
+      // Use XRPC endpoint for callback when called via XRPC
+      const callbackUrl = `${ctx.cfg.service.publicUrl}/xrpc/io.trustanchor.quicklogin.callback`
 
       // Create temporary session ID for provider registration
       const tempSessionId = randomUUID()
@@ -34,9 +35,7 @@ export function initQuickLogin(router: Router, ctx: AppContext) {
           { status: providerResponse.status, error: errorText },
           'Provider registration failed',
         )
-        return res
-          .status(500)
-          .json({ error: 'Failed to initialize QuickLogin session' })
+        throw new InvalidRequestError('Failed to initialize QuickLogin session')
       }
 
       const providerData = await providerResponse.json()
@@ -44,7 +43,7 @@ export function initQuickLogin(router: Router, ctx: AppContext) {
 
       if (!serviceId) {
         req.log.error({ providerData }, 'Provider response missing serviceId')
-        return res.status(500).json({ error: 'Invalid provider response' })
+        throw new InvalidRequestError('Invalid provider response')
       }
 
       // Create session in our store
@@ -70,7 +69,7 @@ export function initQuickLogin(router: Router, ctx: AppContext) {
         })
       } catch (err) {
         req.log.error({ err, qrUrl }, 'QR fetch request failed')
-        return res.status(500).json({ error: 'QR code fetch failed' })
+        throw new InvalidRequestError('QR code fetch failed')
       }
 
       if (!qrResponse.ok) {
@@ -79,15 +78,15 @@ export function initQuickLogin(router: Router, ctx: AppContext) {
           { status: qrResponse.status, body },
           'QR code fetch failed',
         )
-        return res.status(500).json({ error: 'QR code generation failed' })
+        throw new InvalidRequestError('QR code generation failed')
       }
 
       const qrData = await qrResponse.json()
-      req.log.info({ qrData }, 'QR code received')
+      req.log.info({ qrData }, 'QR code received (XRPC)')
 
       if (!(qrData as any).src || !(qrData as any).signUrl) {
         req.log.error({ qrData }, 'QR data missing src or signUrl')
-        return res.status(500).json({ error: 'Invalid QR response' })
+        throw new InvalidRequestError('Invalid QR response')
       }
 
       // Extract the key from signUrl (format: "tagsign:provider,KEY")
@@ -95,7 +94,7 @@ export function initQuickLogin(router: Router, ctx: AppContext) {
       const signKey = signUrl.split(',')[1]
       if (!signKey) {
         req.log.error({ signUrl }, 'Could not extract key from signUrl')
-        return res.status(500).json({ error: 'Invalid signUrl format' })
+        throw new InvalidRequestError('Invalid signUrl format')
       }
 
       // Update session with the signKey for callback lookup
@@ -103,27 +102,19 @@ export function initQuickLogin(router: Router, ctx: AppContext) {
 
       req.log.info(
         { sessionId: session.sessionId, serviceId, signKey },
-        'QuickLogin session initialized',
+        'QuickLogin session initialized (XRPC)',
       )
 
-      return res.json({
-        sessionId: session.sessionId,
-        sessionToken: session.sessionToken,
-        serviceId,
-        expiresAt: session.expiresAt,
-        qrCodeUrl: (qrData as any).src,
-        signUrl: (qrData as any).signUrl,
-      })
-    } catch (error: any) {
-      req.log.error(
-        {
-          error: error?.message || error,
-          stack: error?.stack,
-          cause: error?.cause,
+      return {
+        encoding: 'application/json',
+        body: {
+          sessionId: session.sessionId,
+          sessionToken: session.sessionToken,
+          serviceId,
+          expiresAt: session.expiresAt,
+          providerBaseUrl: ctx.cfg.quicklogin.apiBaseUrl,
         },
-        'QuickLogin init failed',
-      )
-      return res.status(500).json({ error: 'Internal server error' })
-    }
+      }
+    },
   })
 }
