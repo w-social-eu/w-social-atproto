@@ -36,6 +36,11 @@ import * as AppBskyContactRemoveData from './types/app/bsky/contact/removeData.j
 import * as AppBskyContactSendNotification from './types/app/bsky/contact/sendNotification.js'
 import * as AppBskyContactStartPhoneVerification from './types/app/bsky/contact/startPhoneVerification.js'
 import * as AppBskyContactVerifyPhone from './types/app/bsky/contact/verifyPhone.js'
+import * as AppBskyDraftCreateDraft from './types/app/bsky/draft/createDraft.js'
+import * as AppBskyDraftDefs from './types/app/bsky/draft/defs.js'
+import * as AppBskyDraftDeleteDraft from './types/app/bsky/draft/deleteDraft.js'
+import * as AppBskyDraftGetDrafts from './types/app/bsky/draft/getDrafts.js'
+import * as AppBskyDraftUpdateDraft from './types/app/bsky/draft/updateDraft.js'
 import * as AppBskyEmbedDefs from './types/app/bsky/embed/defs.js'
 import * as AppBskyEmbedExternal from './types/app/bsky/embed/external.js'
 import * as AppBskyEmbedImages from './types/app/bsky/embed/images.js'
@@ -174,14 +179,20 @@ import * as ComAtprotoAdminEnableAccountInvites from './types/com/atproto/admin/
 import * as ComAtprotoAdminGetAccountInfo from './types/com/atproto/admin/getAccountInfo.js'
 import * as ComAtprotoAdminGetAccountInfos from './types/com/atproto/admin/getAccountInfos.js'
 import * as ComAtprotoAdminGetInviteCodes from './types/com/atproto/admin/getInviteCodes.js'
+import * as ComAtprotoAdminGetNeuroLink from './types/com/atproto/admin/getNeuroLink.js'
 import * as ComAtprotoAdminGetSubjectStatus from './types/com/atproto/admin/getSubjectStatus.js'
+import * as ComAtprotoAdminImportAccount from './types/com/atproto/admin/importAccount.js'
+import * as ComAtprotoAdminListNeuroAccounts from './types/com/atproto/admin/listNeuroAccounts.js'
+import * as ComAtprotoAdminMigrateAccount from './types/com/atproto/admin/migrateAccount.js'
 import * as ComAtprotoAdminSearchAccounts from './types/com/atproto/admin/searchAccounts.js'
 import * as ComAtprotoAdminSendEmail from './types/com/atproto/admin/sendEmail.js'
 import * as ComAtprotoAdminUpdateAccountEmail from './types/com/atproto/admin/updateAccountEmail.js'
 import * as ComAtprotoAdminUpdateAccountHandle from './types/com/atproto/admin/updateAccountHandle.js'
 import * as ComAtprotoAdminUpdateAccountPassword from './types/com/atproto/admin/updateAccountPassword.js'
 import * as ComAtprotoAdminUpdateAccountSigningKey from './types/com/atproto/admin/updateAccountSigningKey.js'
+import * as ComAtprotoAdminUpdateNeuroLink from './types/com/atproto/admin/updateNeuroLink.js'
 import * as ComAtprotoAdminUpdateSubjectStatus from './types/com/atproto/admin/updateSubjectStatus.js'
+import * as ComAtprotoAdminValidateMigrationTarget from './types/com/atproto/admin/validateMigrationTarget.js'
 import * as ComAtprotoIdentityDefs from './types/com/atproto/identity/defs.js'
 import * as ComAtprotoIdentityGetRecommendedDidCredentials from './types/com/atproto/identity/getRecommendedDidCredentials.js'
 import * as ComAtprotoIdentityRefreshIdentity from './types/com/atproto/identity/refreshIdentity.js'
@@ -261,6 +272,7 @@ import * as ComAtprotoTempDereferenceScope from './types/com/atproto/temp/derefe
 import * as ComAtprotoTempFetchLabels from './types/com/atproto/temp/fetchLabels.js'
 import * as ComAtprotoTempRequestPhoneVerification from './types/com/atproto/temp/requestPhoneVerification.js'
 import * as ComAtprotoTempRevokeAccountCredentials from './types/com/atproto/temp/revokeAccountCredentials.js'
+import * as ComGermnetworkDeclaration from './types/com/germnetwork/declaration.js'
 import * as ToolsOzoneCommunicationCreateTemplate from './types/tools/ozone/communication/createTemplate.js'
 import * as ToolsOzoneCommunicationDefs from './types/tools/ozone/communication/defs.js'
 import * as ToolsOzoneCommunicationDeleteTemplate from './types/tools/ozone/communication/deleteTemplate.js'
@@ -343,6 +355,11 @@ export * as AppBskyContactRemoveData from './types/app/bsky/contact/removeData.j
 export * as AppBskyContactSendNotification from './types/app/bsky/contact/sendNotification.js'
 export * as AppBskyContactStartPhoneVerification from './types/app/bsky/contact/startPhoneVerification.js'
 export * as AppBskyContactVerifyPhone from './types/app/bsky/contact/verifyPhone.js'
+export * as AppBskyDraftCreateDraft from './types/app/bsky/draft/createDraft.js'
+export * as AppBskyDraftDefs from './types/app/bsky/draft/defs.js'
+export * as AppBskyDraftDeleteDraft from './types/app/bsky/draft/deleteDraft.js'
+export * as AppBskyDraftGetDrafts from './types/app/bsky/draft/getDrafts.js'
+export * as AppBskyDraftUpdateDraft from './types/app/bsky/draft/updateDraft.js'
 export * as AppBskyEmbedDefs from './types/app/bsky/embed/defs.js'
 export * as AppBskyEmbedExternal from './types/app/bsky/embed/external.js'
 export * as AppBskyEmbedImages from './types/app/bsky/embed/images.js'
@@ -481,14 +498,20 @@ export * as ComAtprotoAdminEnableAccountInvites from './types/com/atproto/admin/
 export * as ComAtprotoAdminGetAccountInfo from './types/com/atproto/admin/getAccountInfo.js'
 export * as ComAtprotoAdminGetAccountInfos from './types/com/atproto/admin/getAccountInfos.js'
 export * as ComAtprotoAdminGetInviteCodes from './types/com/atproto/admin/getInviteCodes.js'
+export * as ComAtprotoAdminGetNeuroLink from './types/com/atproto/admin/getNeuroLink.js'
 export * as ComAtprotoAdminGetSubjectStatus from './types/com/atproto/admin/getSubjectStatus.js'
+export * as ComAtprotoAdminImportAccount from './types/com/atproto/admin/importAccount.js'
+export * as ComAtprotoAdminListNeuroAccounts from './types/com/atproto/admin/listNeuroAccounts.js'
+export * as ComAtprotoAdminMigrateAccount from './types/com/atproto/admin/migrateAccount.js'
 export * as ComAtprotoAdminSearchAccounts from './types/com/atproto/admin/searchAccounts.js'
 export * as ComAtprotoAdminSendEmail from './types/com/atproto/admin/sendEmail.js'
 export * as ComAtprotoAdminUpdateAccountEmail from './types/com/atproto/admin/updateAccountEmail.js'
 export * as ComAtprotoAdminUpdateAccountHandle from './types/com/atproto/admin/updateAccountHandle.js'
 export * as ComAtprotoAdminUpdateAccountPassword from './types/com/atproto/admin/updateAccountPassword.js'
 export * as ComAtprotoAdminUpdateAccountSigningKey from './types/com/atproto/admin/updateAccountSigningKey.js'
+export * as ComAtprotoAdminUpdateNeuroLink from './types/com/atproto/admin/updateNeuroLink.js'
 export * as ComAtprotoAdminUpdateSubjectStatus from './types/com/atproto/admin/updateSubjectStatus.js'
+export * as ComAtprotoAdminValidateMigrationTarget from './types/com/atproto/admin/validateMigrationTarget.js'
 export * as ComAtprotoIdentityDefs from './types/com/atproto/identity/defs.js'
 export * as ComAtprotoIdentityGetRecommendedDidCredentials from './types/com/atproto/identity/getRecommendedDidCredentials.js'
 export * as ComAtprotoIdentityRefreshIdentity from './types/com/atproto/identity/refreshIdentity.js'
@@ -568,6 +591,7 @@ export * as ComAtprotoTempDereferenceScope from './types/com/atproto/temp/derefe
 export * as ComAtprotoTempFetchLabels from './types/com/atproto/temp/fetchLabels.js'
 export * as ComAtprotoTempRequestPhoneVerification from './types/com/atproto/temp/requestPhoneVerification.js'
 export * as ComAtprotoTempRevokeAccountCredentials from './types/com/atproto/temp/revokeAccountCredentials.js'
+export * as ComGermnetworkDeclaration from './types/com/germnetwork/declaration.js'
 export * as ToolsOzoneCommunicationCreateTemplate from './types/tools/ozone/communication/createTemplate.js'
 export * as ToolsOzoneCommunicationDefs from './types/tools/ozone/communication/defs.js'
 export * as ToolsOzoneCommunicationDeleteTemplate from './types/tools/ozone/communication/deleteTemplate.js'
@@ -767,6 +791,7 @@ export class AppBskyNS {
   ageassurance: AppBskyAgeassuranceNS
   bookmark: AppBskyBookmarkNS
   contact: AppBskyContactNS
+  draft: AppBskyDraftNS
   embed: AppBskyEmbedNS
   feed: AppBskyFeedNS
   graph: AppBskyGraphNS
@@ -782,6 +807,7 @@ export class AppBskyNS {
     this.ageassurance = new AppBskyAgeassuranceNS(client)
     this.bookmark = new AppBskyBookmarkNS(client)
     this.contact = new AppBskyContactNS(client)
+    this.draft = new AppBskyDraftNS(client)
     this.embed = new AppBskyEmbedNS(client)
     this.feed = new AppBskyFeedNS(client)
     this.graph = new AppBskyGraphNS(client)
@@ -1236,6 +1262,51 @@ export class AppBskyContactNS {
       .catch((e) => {
         throw AppBskyContactVerifyPhone.toKnownErr(e)
       })
+  }
+}
+
+export class AppBskyDraftNS {
+  _client: XrpcClient
+
+  constructor(client: XrpcClient) {
+    this._client = client
+  }
+
+  createDraft(
+    data?: AppBskyDraftCreateDraft.InputSchema,
+    opts?: AppBskyDraftCreateDraft.CallOptions,
+  ): Promise<AppBskyDraftCreateDraft.Response> {
+    return this._client
+      .call('app.bsky.draft.createDraft', opts?.qp, data, opts)
+      .catch((e) => {
+        throw AppBskyDraftCreateDraft.toKnownErr(e)
+      })
+  }
+
+  deleteDraft(
+    data?: AppBskyDraftDeleteDraft.InputSchema,
+    opts?: AppBskyDraftDeleteDraft.CallOptions,
+  ): Promise<AppBskyDraftDeleteDraft.Response> {
+    return this._client.call('app.bsky.draft.deleteDraft', opts?.qp, data, opts)
+  }
+
+  getDrafts(
+    params?: AppBskyDraftGetDrafts.QueryParams,
+    opts?: AppBskyDraftGetDrafts.CallOptions,
+  ): Promise<AppBskyDraftGetDrafts.Response> {
+    return this._client.call(
+      'app.bsky.draft.getDrafts',
+      params,
+      undefined,
+      opts,
+    )
+  }
+
+  updateDraft(
+    data?: AppBskyDraftUpdateDraft.InputSchema,
+    opts?: AppBskyDraftUpdateDraft.CallOptions,
+  ): Promise<AppBskyDraftUpdateDraft.Response> {
+    return this._client.call('app.bsky.draft.updateDraft', opts?.qp, data, opts)
   }
 }
 
@@ -3802,10 +3873,12 @@ export class ChatBskyModerationNS {
 export class ComNS {
   _client: XrpcClient
   atproto: ComAtprotoNS
+  germnetwork: ComGermnetworkNS
 
   constructor(client: XrpcClient) {
     this._client = client
     this.atproto = new ComAtprotoNS(client)
+    this.germnetwork = new ComGermnetworkNS(client)
   }
 }
 
@@ -3926,6 +3999,18 @@ export class ComAtprotoAdminNS {
     )
   }
 
+  getNeuroLink(
+    params?: ComAtprotoAdminGetNeuroLink.QueryParams,
+    opts?: ComAtprotoAdminGetNeuroLink.CallOptions,
+  ): Promise<ComAtprotoAdminGetNeuroLink.Response> {
+    return this._client.call(
+      'com.atproto.admin.getNeuroLink',
+      params,
+      undefined,
+      opts,
+    )
+  }
+
   getSubjectStatus(
     params?: ComAtprotoAdminGetSubjectStatus.QueryParams,
     opts?: ComAtprotoAdminGetSubjectStatus.CallOptions,
@@ -3936,6 +4021,40 @@ export class ComAtprotoAdminNS {
       undefined,
       opts,
     )
+  }
+
+  importAccount(
+    data?: ComAtprotoAdminImportAccount.InputSchema,
+    opts?: ComAtprotoAdminImportAccount.CallOptions,
+  ): Promise<ComAtprotoAdminImportAccount.Response> {
+    return this._client
+      .call('com.atproto.admin.importAccount', opts?.qp, data, opts)
+      .catch((e) => {
+        throw ComAtprotoAdminImportAccount.toKnownErr(e)
+      })
+  }
+
+  listNeuroAccounts(
+    params?: ComAtprotoAdminListNeuroAccounts.QueryParams,
+    opts?: ComAtprotoAdminListNeuroAccounts.CallOptions,
+  ): Promise<ComAtprotoAdminListNeuroAccounts.Response> {
+    return this._client.call(
+      'com.atproto.admin.listNeuroAccounts',
+      params,
+      undefined,
+      opts,
+    )
+  }
+
+  migrateAccount(
+    data?: ComAtprotoAdminMigrateAccount.InputSchema,
+    opts?: ComAtprotoAdminMigrateAccount.CallOptions,
+  ): Promise<ComAtprotoAdminMigrateAccount.Response> {
+    return this._client
+      .call('com.atproto.admin.migrateAccount', opts?.qp, data, opts)
+      .catch((e) => {
+        throw ComAtprotoAdminMigrateAccount.toKnownErr(e)
+      })
   }
 
   searchAccounts(
@@ -4010,6 +4129,17 @@ export class ComAtprotoAdminNS {
     )
   }
 
+  updateNeuroLink(
+    data?: ComAtprotoAdminUpdateNeuroLink.InputSchema,
+    opts?: ComAtprotoAdminUpdateNeuroLink.CallOptions,
+  ): Promise<ComAtprotoAdminUpdateNeuroLink.Response> {
+    return this._client
+      .call('com.atproto.admin.updateNeuroLink', opts?.qp, data, opts)
+      .catch((e) => {
+        throw ComAtprotoAdminUpdateNeuroLink.toKnownErr(e)
+      })
+  }
+
   updateSubjectStatus(
     data?: ComAtprotoAdminUpdateSubjectStatus.InputSchema,
     opts?: ComAtprotoAdminUpdateSubjectStatus.CallOptions,
@@ -4018,6 +4148,18 @@ export class ComAtprotoAdminNS {
       'com.atproto.admin.updateSubjectStatus',
       opts?.qp,
       data,
+      opts,
+    )
+  }
+
+  validateMigrationTarget(
+    params?: ComAtprotoAdminValidateMigrationTarget.QueryParams,
+    opts?: ComAtprotoAdminValidateMigrationTarget.CallOptions,
+  ): Promise<ComAtprotoAdminValidateMigrationTarget.Response> {
+    return this._client.call(
+      'com.atproto.admin.validateMigrationTarget',
+      params,
+      undefined,
       opts,
     )
   }
@@ -4962,6 +5104,104 @@ export class ComAtprotoTempNS {
       opts?.qp,
       data,
       opts,
+    )
+  }
+}
+
+export class ComGermnetworkNS {
+  _client: XrpcClient
+  declaration: ComGermnetworkDeclarationRecord
+
+  constructor(client: XrpcClient) {
+    this._client = client
+    this.declaration = new ComGermnetworkDeclarationRecord(client)
+  }
+}
+
+export class ComGermnetworkDeclarationRecord {
+  _client: XrpcClient
+
+  constructor(client: XrpcClient) {
+    this._client = client
+  }
+
+  async list(
+    params: OmitKey<ComAtprotoRepoListRecords.QueryParams, 'collection'>,
+  ): Promise<{
+    cursor?: string
+    records: { uri: string; value: ComGermnetworkDeclaration.Record }[]
+  }> {
+    const res = await this._client.call('com.atproto.repo.listRecords', {
+      collection: 'com.germnetwork.declaration',
+      ...params,
+    })
+    return res.data
+  }
+
+  async get(
+    params: OmitKey<ComAtprotoRepoGetRecord.QueryParams, 'collection'>,
+  ): Promise<{
+    uri: string
+    cid: string
+    value: ComGermnetworkDeclaration.Record
+  }> {
+    const res = await this._client.call('com.atproto.repo.getRecord', {
+      collection: 'com.germnetwork.declaration',
+      ...params,
+    })
+    return res.data
+  }
+
+  async create(
+    params: OmitKey<
+      ComAtprotoRepoCreateRecord.InputSchema,
+      'collection' | 'record'
+    >,
+    record: Un$Typed<ComGermnetworkDeclaration.Record>,
+    headers?: Record<string, string>,
+  ): Promise<{ uri: string; cid: string }> {
+    const collection = 'com.germnetwork.declaration'
+    const res = await this._client.call(
+      'com.atproto.repo.createRecord',
+      undefined,
+      {
+        collection,
+        rkey: 'self',
+        ...params,
+        record: { ...record, $type: collection },
+      },
+      { encoding: 'application/json', headers },
+    )
+    return res.data
+  }
+
+  async put(
+    params: OmitKey<
+      ComAtprotoRepoPutRecord.InputSchema,
+      'collection' | 'record'
+    >,
+    record: Un$Typed<ComGermnetworkDeclaration.Record>,
+    headers?: Record<string, string>,
+  ): Promise<{ uri: string; cid: string }> {
+    const collection = 'com.germnetwork.declaration'
+    const res = await this._client.call(
+      'com.atproto.repo.putRecord',
+      undefined,
+      { collection, ...params, record: { ...record, $type: collection } },
+      { encoding: 'application/json', headers },
+    )
+    return res.data
+  }
+
+  async delete(
+    params: OmitKey<ComAtprotoRepoDeleteRecord.InputSchema, 'collection'>,
+    headers?: Record<string, string>,
+  ): Promise<void> {
+    await this._client.call(
+      'com.atproto.repo.deleteRecord',
+      undefined,
+      { collection: 'com.germnetwork.declaration', ...params },
+      { headers },
     )
   }
 }

@@ -251,6 +251,10 @@ export const schemaDict = {
             type: 'ref',
             ref: 'lex:app.bsky.actor.defs#profileAssociatedActivitySubscription',
           },
+          germ: {
+            type: 'ref',
+            ref: 'lex:app.bsky.actor.defs#profileAssociatedGerm',
+          },
         },
       },
       profileAssociatedChat: {
@@ -260,6 +264,20 @@ export const schemaDict = {
           allowIncoming: {
             type: 'string',
             knownValues: ['all', 'none', 'following'],
+          },
+        },
+      },
+      profileAssociatedGerm: {
+        type: 'object',
+        required: ['showButtonTo', 'messageMeUrl'],
+        properties: {
+          messageMeUrl: {
+            type: 'string',
+            format: 'uri',
+          },
+          showButtonTo: {
+            type: 'string',
+            knownValues: ['usersIFollow', 'everyone'],
           },
         },
       },
@@ -411,6 +429,7 @@ export const schemaDict = {
             'lex:app.bsky.actor.defs#labelersPref',
             'lex:app.bsky.actor.defs#postInteractionSettingsPref',
             'lex:app.bsky.actor.defs#verificationPrefs',
+            'lex:app.bsky.actor.defs#liveEventPreferences',
           ],
         },
       },
@@ -775,6 +794,25 @@ export const schemaDict = {
           },
         },
       },
+      liveEventPreferences: {
+        type: 'object',
+        description: 'Preferences for live events.',
+        properties: {
+          hiddenFeedIds: {
+            description:
+              'A list of feed IDs that the user has hidden from live events.',
+            type: 'array',
+            items: {
+              type: 'string',
+            },
+          },
+          hideAllFeeds: {
+            description: 'Whether to hide all feeds from live events.',
+            type: 'boolean',
+            default: false,
+          },
+        },
+      },
       postInteractionSettingsPref: {
         type: 'object',
         description:
@@ -812,6 +850,14 @@ export const schemaDict = {
         type: 'object',
         required: ['status', 'record'],
         properties: {
+          uri: {
+            type: 'string',
+            format: 'at-uri',
+          },
+          cid: {
+            type: 'string',
+            format: 'cid',
+          },
           status: {
             type: 'string',
             description: 'The status for the account.',
@@ -835,6 +881,11 @@ export const schemaDict = {
             type: 'boolean',
             description:
               'True if the status is not expired, false if it is expired. Only present if expiration was set.',
+          },
+          isDisabled: {
+            type: 'boolean',
+            description:
+              "True if the user's go-live access has been disabled by a moderator, false otherwise.",
           },
         },
       },
@@ -1345,7 +1396,7 @@ export const schemaDict = {
       configRegion: {
         type: 'object',
         description: 'The Age Assurance configuration for a specific region.',
-        required: ['countryCode', 'rules'],
+        required: ['countryCode', 'minAccessAge', 'rules'],
         properties: {
           countryCode: {
             type: 'string',
@@ -1356,6 +1407,11 @@ export const schemaDict = {
             type: 'string',
             description:
               'The ISO 3166-2 region code this configuration applies to. If omitted, the configuration applies to the entire country.',
+          },
+          minAccessAge: {
+            type: 'integer',
+            description:
+              'The minimum age (as a whole integer) required to use Bluesky in this region.',
           },
           rules: {
             type: 'array',
@@ -2200,6 +2256,375 @@ export const schemaDict = {
       },
     },
   },
+  AppBskyDraftCreateDraft: {
+    lexicon: 1,
+    id: 'app.bsky.draft.createDraft',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Inserts a draft using private storage (stash). An upper limit of drafts might be enforced. Requires authentication.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['draft'],
+            properties: {
+              draft: {
+                type: 'ref',
+                ref: 'lex:app.bsky.draft.defs#draft',
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['id'],
+            properties: {
+              id: {
+                type: 'string',
+                description: 'The ID of the created draft.',
+              },
+            },
+          },
+        },
+        errors: [
+          {
+            name: 'DraftLimitReached',
+            description:
+              'Trying to insert a new draft when the limit was already reached.',
+          },
+        ],
+      },
+    },
+  },
+  AppBskyDraftDefs: {
+    lexicon: 1,
+    id: 'app.bsky.draft.defs',
+    defs: {
+      draftWithId: {
+        description:
+          'A draft with an identifier, used to store drafts in private storage (stash).',
+        type: 'object',
+        required: ['id', 'draft'],
+        properties: {
+          id: {
+            description: 'A TID to be used as a draft identifier.',
+            type: 'string',
+            format: 'tid',
+          },
+          draft: {
+            type: 'ref',
+            ref: 'lex:app.bsky.draft.defs#draft',
+          },
+        },
+      },
+      draft: {
+        description: 'A draft containing an array of draft posts.',
+        type: 'object',
+        required: ['posts'],
+        properties: {
+          posts: {
+            description: 'Array of draft posts that compose this draft.',
+            type: 'array',
+            minLength: 1,
+            maxLength: 100,
+            items: {
+              type: 'ref',
+              ref: 'lex:app.bsky.draft.defs#draftPost',
+            },
+          },
+          langs: {
+            type: 'array',
+            description:
+              'Indicates human language of posts primary text content.',
+            maxLength: 3,
+            items: {
+              type: 'string',
+              format: 'language',
+            },
+          },
+          postgateEmbeddingRules: {
+            description:
+              'Embedding rules for the postgates to be created when this draft is published.',
+            type: 'array',
+            maxLength: 5,
+            items: {
+              type: 'union',
+              refs: ['lex:app.bsky.feed.postgate#disableRule'],
+            },
+          },
+          threadgateAllow: {
+            description:
+              'Allow-rules for the threadgate to be created when this draft is published.',
+            type: 'array',
+            maxLength: 5,
+            items: {
+              type: 'union',
+              refs: [
+                'lex:app.bsky.feed.threadgate#mentionRule',
+                'lex:app.bsky.feed.threadgate#followerRule',
+                'lex:app.bsky.feed.threadgate#followingRule',
+                'lex:app.bsky.feed.threadgate#listRule',
+              ],
+            },
+          },
+        },
+      },
+      draftPost: {
+        description: 'One of the posts that compose a draft.',
+        type: 'object',
+        required: ['text'],
+        properties: {
+          text: {
+            type: 'string',
+            maxLength: 3000,
+            maxGraphemes: 300,
+            description: 'The primary post content.',
+          },
+          labels: {
+            type: 'union',
+            description:
+              'Self-label values for this post. Effectively content warnings.',
+            refs: ['lex:com.atproto.label.defs#selfLabels'],
+          },
+          embedImages: {
+            type: 'array',
+            items: {
+              type: 'ref',
+              ref: 'lex:app.bsky.draft.defs#draftEmbedImage',
+            },
+            maxLength: 4,
+          },
+          embedVideos: {
+            type: 'array',
+            items: {
+              type: 'ref',
+              ref: 'lex:app.bsky.draft.defs#draftEmbedVideo',
+            },
+            maxLength: 1,
+          },
+          embedExternals: {
+            type: 'array',
+            items: {
+              type: 'ref',
+              ref: 'lex:app.bsky.draft.defs#draftEmbedExternal',
+            },
+            maxLength: 1,
+          },
+          embedRecords: {
+            type: 'array',
+            items: {
+              type: 'ref',
+              ref: 'lex:app.bsky.draft.defs#draftEmbedRecord',
+            },
+            maxLength: 1,
+          },
+        },
+      },
+      draftView: {
+        description: 'View to present drafts data to users.',
+        type: 'object',
+        required: ['id', 'draft', 'createdAt', 'updatedAt'],
+        properties: {
+          id: {
+            description: 'A TID to be used as a draft identifier.',
+            type: 'string',
+            format: 'tid',
+          },
+          draft: {
+            type: 'ref',
+            ref: 'lex:app.bsky.draft.defs#draft',
+          },
+          createdAt: {
+            description: 'The time the draft was created.',
+            type: 'string',
+            format: 'datetime',
+          },
+          updatedAt: {
+            description: 'The time the draft was last updated.',
+            type: 'string',
+            format: 'datetime',
+          },
+        },
+      },
+      draftEmbedLocalRef: {
+        type: 'object',
+        required: ['path'],
+        properties: {
+          path: {
+            type: 'string',
+            description:
+              'Local, on-device ref to file to be embedded. Embeds are currently device-bound for drafts.',
+            minLength: 1,
+            maxLength: 1024,
+          },
+        },
+      },
+      draftEmbedCaption: {
+        type: 'object',
+        required: ['lang', 'content'],
+        properties: {
+          lang: {
+            type: 'string',
+            format: 'language',
+          },
+          content: {
+            type: 'string',
+            maxLength: 10000,
+          },
+        },
+      },
+      draftEmbedImage: {
+        type: 'object',
+        required: ['localRef'],
+        properties: {
+          localRef: {
+            type: 'ref',
+            ref: 'lex:app.bsky.draft.defs#draftEmbedLocalRef',
+          },
+          alt: {
+            type: 'string',
+            maxGraphemes: 2000,
+          },
+        },
+      },
+      draftEmbedVideo: {
+        type: 'object',
+        required: ['localRef'],
+        properties: {
+          localRef: {
+            type: 'ref',
+            ref: 'lex:app.bsky.draft.defs#draftEmbedLocalRef',
+          },
+          alt: {
+            type: 'string',
+            maxGraphemes: 2000,
+          },
+          captions: {
+            type: 'array',
+            items: {
+              type: 'ref',
+              ref: 'lex:app.bsky.draft.defs#draftEmbedCaption',
+            },
+            maxLength: 20,
+          },
+        },
+      },
+      draftEmbedExternal: {
+        type: 'object',
+        required: ['uri'],
+        properties: {
+          uri: {
+            type: 'string',
+            format: 'uri',
+          },
+        },
+      },
+      draftEmbedRecord: {
+        type: 'object',
+        required: ['record'],
+        properties: {
+          record: {
+            type: 'ref',
+            ref: 'lex:com.atproto.repo.strongRef',
+          },
+        },
+      },
+    },
+  },
+  AppBskyDraftDeleteDraft: {
+    lexicon: 1,
+    id: 'app.bsky.draft.deleteDraft',
+    defs: {
+      main: {
+        type: 'procedure',
+        description: 'Deletes a draft by ID. Requires authentication.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['id'],
+            properties: {
+              id: {
+                type: 'string',
+                format: 'tid',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  AppBskyDraftGetDrafts: {
+    lexicon: 1,
+    id: 'app.bsky.draft.getDrafts',
+    defs: {
+      main: {
+        type: 'query',
+        description: 'Gets views of user drafts. Requires authentication.',
+        parameters: {
+          type: 'params',
+          properties: {
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 100,
+              default: 50,
+            },
+            cursor: {
+              type: 'string',
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['drafts'],
+            properties: {
+              cursor: {
+                type: 'string',
+              },
+              drafts: {
+                type: 'array',
+                items: {
+                  type: 'ref',
+                  ref: 'lex:app.bsky.draft.defs#draftView',
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  AppBskyDraftUpdateDraft: {
+    lexicon: 1,
+    id: 'app.bsky.draft.updateDraft',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          "Updates a draft using private storage (stash). If the draft ID points to a non-existing ID, the update will be silently ignored. This is done because updates don't enforce draft limit, so it accepts all writes, but will ignore invalid ones. Requires authentication.",
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['draft'],
+            properties: {
+              draft: {
+                type: 'ref',
+                ref: 'lex:app.bsky.draft.defs#draftWithId',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   AppBskyEmbedDefs: {
     lexicon: 1,
     id: 'app.bsky.embed.defs',
@@ -2593,6 +3018,11 @@ export const schemaDict = {
             type: 'ref',
             ref: 'lex:app.bsky.embed.defs#aspectRatio',
           },
+          presentation: {
+            type: 'string',
+            description: 'A hint to the client about how to present the video.',
+            knownValues: ['default', 'gif'],
+          },
         },
       },
       caption: {
@@ -2634,6 +3064,11 @@ export const schemaDict = {
           aspectRatio: {
             type: 'ref',
             ref: 'lex:app.bsky.embed.defs#aspectRatio',
+          },
+          presentation: {
+            type: 'string',
+            description: 'A hint to the client about how to present the video.',
+            knownValues: ['default', 'gif'],
           },
         },
       },
@@ -8012,6 +8447,11 @@ export const schemaDict = {
                   ref: 'lex:app.bsky.actor.defs#profileView',
                 },
               },
+              recId: {
+                type: 'string',
+                description:
+                  'Snowflake for this recommendation, use when submitting recommendation events.',
+              },
             },
           },
         },
@@ -8059,6 +8499,11 @@ export const schemaDict = {
                   type: 'string',
                   format: 'did',
                 },
+              },
+              recId: {
+                type: 'string',
+                description:
+                  'Snowflake for this recommendation, use when submitting recommendation events.',
               },
             },
           },
@@ -10410,6 +10855,58 @@ export const schemaDict = {
       },
     },
   },
+  ComAtprotoAdminGetNeuroLink: {
+    lexicon: 1,
+    id: 'com.atproto.admin.getNeuroLink',
+    defs: {
+      main: {
+        type: 'query',
+        description: 'Get Neuro/W ID link for an account.',
+        parameters: {
+          type: 'params',
+          required: ['did'],
+          properties: {
+            did: {
+              type: 'string',
+              format: 'did',
+              description: 'The DID of the account.',
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['did', 'handle'],
+            properties: {
+              did: {
+                type: 'string',
+                format: 'did',
+              },
+              handle: {
+                type: 'string',
+              },
+              email: {
+                type: 'string',
+              },
+              neuroJid: {
+                type: 'string',
+                description: 'Neuro Legal ID (W ID)',
+              },
+              linkedAt: {
+                type: 'string',
+                format: 'datetime',
+              },
+              lastLoginAt: {
+                type: 'string',
+                format: 'datetime',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   ComAtprotoAdminGetSubjectStatus: {
     lexicon: 1,
     id: 'com.atproto.admin.getSubjectStatus',
@@ -10457,6 +10954,332 @@ export const schemaDict = {
                 type: 'ref',
                 ref: 'lex:com.atproto.admin.defs#statusAttr',
               },
+            },
+          },
+        },
+      },
+    },
+  },
+  ComAtprotoAdminImportAccount: {
+    lexicon: 1,
+    id: 'com.atproto.admin.importAccount',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Import an account from another PDS. Called by source PDS during migration. Service-auth or admin-auth required.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['did', 'handle'],
+            properties: {
+              did: {
+                type: 'string',
+                format: 'did',
+              },
+              handle: {
+                type: 'string',
+                description: 'Account handle',
+              },
+              email: {
+                type: 'string',
+                description: 'Account email (optional for Neuro accounts)',
+              },
+              emailConfirmed: {
+                type: 'boolean',
+                description: 'Whether email was confirmed on source PDS',
+              },
+              neuroLink: {
+                type: 'ref',
+                ref: 'lex:com.atproto.admin.importAccount#neuroLinkData',
+                description: 'W ID (Neuro Legal ID) link to restore',
+              },
+              appPasswords: {
+                type: 'array',
+                description:
+                  'App passwords to restore (preserves third-party client access)',
+                items: {
+                  type: 'ref',
+                  ref: 'lex:com.atproto.admin.importAccount#appPasswordItem',
+                },
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['did'],
+            properties: {
+              did: {
+                type: 'string',
+                format: 'did',
+              },
+              importStatus: {
+                type: 'ref',
+                ref: 'lex:com.atproto.admin.importAccount#importStatusData',
+              },
+            },
+          },
+        },
+        errors: [
+          {
+            name: 'AccountExists',
+          },
+          {
+            name: 'DuplicateNeuroId',
+          },
+          {
+            name: 'HandleTaken',
+          },
+        ],
+      },
+      neuroLinkData: {
+        type: 'object',
+        required: ['neuroJid'],
+        properties: {
+          neuroJid: {
+            type: 'string',
+            description: 'Neuro Legal ID (W ID) in format: uuid@legal.domain',
+          },
+          linkedAt: {
+            type: 'string',
+            format: 'datetime',
+            description: 'When the link was originally created',
+          },
+          lastLoginAt: {
+            type: 'string',
+            format: 'datetime',
+            description: 'Last Neuro authentication time',
+          },
+        },
+      },
+      appPasswordItem: {
+        type: 'object',
+        required: ['name', 'passwordScrypt', 'createdAt'],
+        properties: {
+          name: {
+            type: 'string',
+            description: 'App password name',
+          },
+          passwordScrypt: {
+            type: 'string',
+            description: 'Scrypt hash of app password',
+          },
+          privileged: {
+            type: 'boolean',
+            description: 'Whether app password has privileged access',
+          },
+          createdAt: {
+            type: 'string',
+            format: 'datetime',
+          },
+        },
+      },
+      importStatusData: {
+        type: 'object',
+        properties: {
+          accountCreated: {
+            type: 'boolean',
+            description: 'Whether account was created successfully',
+          },
+          neuroLinkRestored: {
+            type: 'boolean',
+            description: 'Whether W ID link was restored',
+          },
+          appPasswordsRestored: {
+            type: 'integer',
+            description: 'Number of app passwords restored',
+          },
+        },
+      },
+    },
+  },
+  ComAtprotoAdminListNeuroAccounts: {
+    lexicon: 1,
+    id: 'com.atproto.admin.listNeuroAccounts',
+    defs: {
+      main: {
+        type: 'query',
+        description: 'List all accounts with their Neuro/W ID links.',
+        parameters: {
+          type: 'params',
+          properties: {
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 1000,
+              default: 100,
+              description: 'Maximum number of accounts to return.',
+            },
+            cursor: {
+              type: 'string',
+              description: 'Pagination cursor.',
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['accounts'],
+            properties: {
+              accounts: {
+                type: 'array',
+                items: {
+                  type: 'ref',
+                  ref: 'lex:com.atproto.admin.listNeuroAccounts#neuroAccountView',
+                },
+              },
+              cursor: {
+                type: 'string',
+              },
+            },
+          },
+        },
+      },
+      neuroAccountView: {
+        type: 'object',
+        required: ['did', 'handle'],
+        properties: {
+          did: {
+            type: 'string',
+            format: 'did',
+          },
+          handle: {
+            type: 'string',
+          },
+          email: {
+            type: 'string',
+          },
+          neuroJid: {
+            type: 'string',
+            description: 'Neuro Legal ID (W ID)',
+          },
+          linkedAt: {
+            type: 'string',
+            format: 'datetime',
+          },
+          lastLoginAt: {
+            type: 'string',
+            format: 'datetime',
+          },
+        },
+      },
+    },
+  },
+  ComAtprotoAdminMigrateAccount: {
+    lexicon: 1,
+    id: 'com.atproto.admin.migrateAccount',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Migrate an account to a different PDS. Admin only. Transfers all account data, blobs, and W ID links.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['did', 'targetPdsUrl'],
+            properties: {
+              did: {
+                type: 'string',
+                format: 'did',
+                description: 'DID of account to migrate',
+              },
+              targetPdsUrl: {
+                type: 'string',
+                format: 'uri',
+                description:
+                  'URL of destination PDS (e.g., https://pds2.wsocial.eu)',
+              },
+              targetHandle: {
+                type: 'string',
+                description:
+                  'Optional: New handle on target PDS (default: keep existing)',
+              },
+              skipDeactivation: {
+                type: 'boolean',
+                description:
+                  "If true, don't deactivate account on source PDS after migration",
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['did', 'sourcePds', 'targetPds', 'status', 'migratedAt'],
+            properties: {
+              did: {
+                type: 'string',
+                format: 'did',
+              },
+              sourcePds: {
+                type: 'string',
+                description: 'Source PDS hostname',
+              },
+              targetPds: {
+                type: 'string',
+                description: 'Target PDS URL',
+              },
+              status: {
+                type: 'string',
+                description: 'Migration status: completed, partial, failed',
+              },
+              migratedAt: {
+                type: 'string',
+                format: 'datetime',
+              },
+              details: {
+                type: 'ref',
+                ref: 'lex:com.atproto.admin.migrateAccount#migrationDetails',
+              },
+            },
+          },
+        },
+        errors: [
+          {
+            name: 'AccountNotFound',
+          },
+          {
+            name: 'InvalidTargetPds',
+          },
+          {
+            name: 'MigrationFailed',
+          },
+        ],
+      },
+      migrationDetails: {
+        type: 'object',
+        properties: {
+          repoBlocks: {
+            type: 'integer',
+            description: 'Number of repo blocks migrated',
+          },
+          blobsTransferred: {
+            type: 'integer',
+            description: 'Number of blobs successfully transferred',
+          },
+          blobsFailed: {
+            type: 'integer',
+            description: 'Number of blobs that failed to transfer',
+          },
+          neuroLinkMigrated: {
+            type: 'boolean',
+            description: 'Whether W ID link was migrated',
+          },
+          appPasswordsMigrated: {
+            type: 'integer',
+            description: 'Number of app passwords migrated',
+          },
+          errors: {
+            type: 'array',
+            items: {
+              type: 'string',
             },
           },
         },
@@ -10669,6 +11492,73 @@ export const schemaDict = {
       },
     },
   },
+  ComAtprotoAdminUpdateNeuroLink: {
+    lexicon: 1,
+    id: 'com.atproto.admin.updateNeuroLink',
+    defs: {
+      main: {
+        type: 'procedure',
+        description: 'Update the Neuro/W ID link for an account.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['did', 'newLegalId'],
+            properties: {
+              did: {
+                type: 'string',
+                format: 'did',
+                description: 'The DID of the account.',
+              },
+              newLegalId: {
+                type: 'string',
+                description:
+                  'The new Neuro Legal ID (W ID) to link to this account.',
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['success', 'did', 'newLegalId', 'updatedAt'],
+            properties: {
+              success: {
+                type: 'boolean',
+              },
+              did: {
+                type: 'string',
+                format: 'did',
+              },
+              oldLegalId: {
+                type: 'string',
+                description: 'Previous Legal ID (if any)',
+              },
+              newLegalId: {
+                type: 'string',
+              },
+              updatedAt: {
+                type: 'string',
+                format: 'datetime',
+              },
+            },
+          },
+        },
+        errors: [
+          {
+            name: 'NotFound',
+          },
+          {
+            name: 'InvalidLegalId',
+          },
+          {
+            name: 'LegalIdInUse',
+          },
+        ],
+      },
+    },
+  },
   ComAtprotoAdminUpdateSubjectStatus: {
     lexicon: 1,
     id: 'com.atproto.admin.updateSubjectStatus',
@@ -10721,6 +11611,76 @@ export const schemaDict = {
                 ref: 'lex:com.atproto.admin.defs#statusAttr',
               },
             },
+          },
+        },
+      },
+    },
+  },
+  ComAtprotoAdminValidateMigrationTarget: {
+    lexicon: 1,
+    id: 'com.atproto.admin.validateMigrationTarget',
+    defs: {
+      main: {
+        type: 'query',
+        description:
+          'Validate that target PDS can accept account migration. Pre-flight check. Admin only.',
+        parameters: {
+          type: 'params',
+          required: ['did'],
+          properties: {
+            did: {
+              type: 'string',
+              format: 'did',
+              description: 'DID to migrate',
+            },
+            neuroJid: {
+              type: 'string',
+              description: 'W ID (Neuro Legal ID) if account has one',
+            },
+            targetHandle: {
+              type: 'string',
+              description: 'New handle on target (if changing)',
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['canAccept'],
+            properties: {
+              canAccept: {
+                type: 'boolean',
+                description: 'Whether target PDS can accept this migration',
+              },
+              checks: {
+                type: 'ref',
+                ref: 'lex:com.atproto.admin.validateMigrationTarget#validationChecks',
+                description: 'Detailed validation results',
+              },
+              error: {
+                type: 'string',
+                description: 'Error message if canAccept is false',
+              },
+            },
+          },
+        },
+      },
+      validationChecks: {
+        type: 'object',
+        description: 'Detailed validation check results',
+        properties: {
+          didAvailable: {
+            type: 'boolean',
+            description: 'True if DID does not exist on target',
+          },
+          neuroJidAvailable: {
+            type: 'boolean',
+            description: 'True if W ID is not linked to another account',
+          },
+          handleAvailable: {
+            type: 'boolean',
+            description: 'True if handle is available on target',
           },
         },
       },
@@ -20100,6 +21060,11 @@ export const ids = {
   AppBskyContactStartPhoneVerification:
     'app.bsky.contact.startPhoneVerification',
   AppBskyContactVerifyPhone: 'app.bsky.contact.verifyPhone',
+  AppBskyDraftCreateDraft: 'app.bsky.draft.createDraft',
+  AppBskyDraftDefs: 'app.bsky.draft.defs',
+  AppBskyDraftDeleteDraft: 'app.bsky.draft.deleteDraft',
+  AppBskyDraftGetDrafts: 'app.bsky.draft.getDrafts',
+  AppBskyDraftUpdateDraft: 'app.bsky.draft.updateDraft',
   AppBskyEmbedDefs: 'app.bsky.embed.defs',
   AppBskyEmbedExternal: 'app.bsky.embed.external',
   AppBskyEmbedImages: 'app.bsky.embed.images',
@@ -20257,7 +21222,11 @@ export const ids = {
   ComAtprotoAdminGetAccountInfo: 'com.atproto.admin.getAccountInfo',
   ComAtprotoAdminGetAccountInfos: 'com.atproto.admin.getAccountInfos',
   ComAtprotoAdminGetInviteCodes: 'com.atproto.admin.getInviteCodes',
+  ComAtprotoAdminGetNeuroLink: 'com.atproto.admin.getNeuroLink',
   ComAtprotoAdminGetSubjectStatus: 'com.atproto.admin.getSubjectStatus',
+  ComAtprotoAdminImportAccount: 'com.atproto.admin.importAccount',
+  ComAtprotoAdminListNeuroAccounts: 'com.atproto.admin.listNeuroAccounts',
+  ComAtprotoAdminMigrateAccount: 'com.atproto.admin.migrateAccount',
   ComAtprotoAdminSearchAccounts: 'com.atproto.admin.searchAccounts',
   ComAtprotoAdminSendEmail: 'com.atproto.admin.sendEmail',
   ComAtprotoAdminUpdateAccountEmail: 'com.atproto.admin.updateAccountEmail',
@@ -20266,7 +21235,10 @@ export const ids = {
     'com.atproto.admin.updateAccountPassword',
   ComAtprotoAdminUpdateAccountSigningKey:
     'com.atproto.admin.updateAccountSigningKey',
+  ComAtprotoAdminUpdateNeuroLink: 'com.atproto.admin.updateNeuroLink',
   ComAtprotoAdminUpdateSubjectStatus: 'com.atproto.admin.updateSubjectStatus',
+  ComAtprotoAdminValidateMigrationTarget:
+    'com.atproto.admin.validateMigrationTarget',
   ComAtprotoIdentityDefs: 'com.atproto.identity.defs',
   ComAtprotoIdentityGetRecommendedDidCredentials:
     'com.atproto.identity.getRecommendedDidCredentials',

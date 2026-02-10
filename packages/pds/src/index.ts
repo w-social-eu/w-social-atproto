@@ -27,9 +27,10 @@ import { AppContext, AppContextOptions } from './context'
 import * as error from './error'
 import { createServer } from './lexicon'
 import * as AppBskyFeedGetFeedSkeleton from './lexicon/types/app/bsky/feed/getFeedSkeleton'
-import { loggerMiddleware } from './logger'
+import { httpLogger, loggerMiddleware } from './logger'
 import { proxyHandler } from './pipethrough'
 import compression from './util/compression'
+import { BUILD_HASH, BUILD_TIME } from './version'
 import * as wellKnown from './well-known'
 
 export { createSecretKeyObject } from './auth-verifier'
@@ -60,6 +61,7 @@ export class PDS {
   private dbStatsInterval?: NodeJS.Timeout
   private sequencerStatsInterval?: NodeJS.Timeout
   private neuroCleanupInterval?: NodeJS.Timeout
+  private invitationCleanupInterval?: NodeJS.Timeout
 
   constructor(opts: { ctx: AppContext; app: express.Application }) {
     this.ctx = opts.ctx
@@ -80,6 +82,35 @@ export class PDS {
       // This is important for test environments where destroy() is called
       this.neuroCleanupInterval.unref()
     }
+
+    // Setup invitation cleanup interval (daily at 3 AM UTC)
+    // For simplicity, run every hour and skip if not close to 3 AM
+    this.invitationCleanupInterval = setInterval(
+      async () => {
+        const hour = new Date().getUTCHours()
+        // Run between 3:00 and 3:59 UTC
+        if (hour === 3) {
+          try {
+            const deletedCount =
+              await opts.ctx.invitationManager.deleteExpiredInvitations()
+            console.log(`Deleted ${deletedCount} expired invitations`)
+
+            // Log warning if many invitations expired (potential issue)
+            if (deletedCount > 100) {
+              console.warn(
+                `High number of expired invitations: ${deletedCount}`,
+              )
+            }
+          } catch (err) {
+            console.error('Invitation cleanup failed:', err)
+          }
+        }
+      },
+      60 * 60 * 1000,
+    ) // Check every hour
+
+    // Allow Node to exit even if this timer is still active
+    this.invitationCleanupInterval.unref()
   }
 
   static async create(
@@ -191,12 +222,21 @@ export class PDS {
   }
 
   async start(): Promise<http.Server> {
+    httpLogger.info(
+      {
+        buildHash: BUILD_HASH,
+        buildTime: BUILD_TIME,
+        port: this.ctx.cfg.service.port,
+      },
+      'PDS starting',
+    )
     await this.ctx.sequencer.start()
     const server = this.app.listen(this.ctx.cfg.service.port)
     this.server = server
     this.server.keepAliveTimeout = 90000
     this.terminator = createHttpTerminator({ server })
     await events.once(server, 'listening')
+    httpLogger.info({ port: this.ctx.cfg.service.port }, 'PDS listening')
     return server
   }
 
@@ -210,6 +250,7 @@ export class PDS {
     clearInterval(this.dbStatsInterval)
     clearInterval(this.sequencerStatsInterval)
     clearInterval(this.neuroCleanupInterval)
+    clearInterval(this.invitationCleanupInterval)
   }
 }
 

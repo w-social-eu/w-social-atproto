@@ -31,6 +31,10 @@ import * as AppBskyContactRemoveData from './types/app/bsky/contact/removeData.j
 import * as AppBskyContactSendNotification from './types/app/bsky/contact/sendNotification.js'
 import * as AppBskyContactStartPhoneVerification from './types/app/bsky/contact/startPhoneVerification.js'
 import * as AppBskyContactVerifyPhone from './types/app/bsky/contact/verifyPhone.js'
+import * as AppBskyDraftCreateDraft from './types/app/bsky/draft/createDraft.js'
+import * as AppBskyDraftDeleteDraft from './types/app/bsky/draft/deleteDraft.js'
+import * as AppBskyDraftGetDrafts from './types/app/bsky/draft/getDrafts.js'
+import * as AppBskyDraftUpdateDraft from './types/app/bsky/draft/updateDraft.js'
 import * as AppBskyFeedDescribeFeedGenerator from './types/app/bsky/feed/describeFeedGenerator.js'
 import * as AppBskyFeedGetActorFeeds from './types/app/bsky/feed/getActorFeeds.js'
 import * as AppBskyFeedGetActorLikes from './types/app/bsky/feed/getActorLikes.js'
@@ -137,14 +141,20 @@ import * as ComAtprotoAdminEnableAccountInvites from './types/com/atproto/admin/
 import * as ComAtprotoAdminGetAccountInfo from './types/com/atproto/admin/getAccountInfo.js'
 import * as ComAtprotoAdminGetAccountInfos from './types/com/atproto/admin/getAccountInfos.js'
 import * as ComAtprotoAdminGetInviteCodes from './types/com/atproto/admin/getInviteCodes.js'
+import * as ComAtprotoAdminGetNeuroLink from './types/com/atproto/admin/getNeuroLink.js'
 import * as ComAtprotoAdminGetSubjectStatus from './types/com/atproto/admin/getSubjectStatus.js'
+import * as ComAtprotoAdminImportAccount from './types/com/atproto/admin/importAccount.js'
+import * as ComAtprotoAdminListNeuroAccounts from './types/com/atproto/admin/listNeuroAccounts.js'
+import * as ComAtprotoAdminMigrateAccount from './types/com/atproto/admin/migrateAccount.js'
 import * as ComAtprotoAdminSearchAccounts from './types/com/atproto/admin/searchAccounts.js'
 import * as ComAtprotoAdminSendEmail from './types/com/atproto/admin/sendEmail.js'
 import * as ComAtprotoAdminUpdateAccountEmail from './types/com/atproto/admin/updateAccountEmail.js'
 import * as ComAtprotoAdminUpdateAccountHandle from './types/com/atproto/admin/updateAccountHandle.js'
 import * as ComAtprotoAdminUpdateAccountPassword from './types/com/atproto/admin/updateAccountPassword.js'
 import * as ComAtprotoAdminUpdateAccountSigningKey from './types/com/atproto/admin/updateAccountSigningKey.js'
+import * as ComAtprotoAdminUpdateNeuroLink from './types/com/atproto/admin/updateNeuroLink.js'
 import * as ComAtprotoAdminUpdateSubjectStatus from './types/com/atproto/admin/updateSubjectStatus.js'
+import * as ComAtprotoAdminValidateMigrationTarget from './types/com/atproto/admin/validateMigrationTarget.js'
 import * as ComAtprotoIdentityGetRecommendedDidCredentials from './types/com/atproto/identity/getRecommendedDidCredentials.js'
 import * as ComAtprotoIdentityRefreshIdentity from './types/com/atproto/identity/refreshIdentity.js'
 import * as ComAtprotoIdentityRequestPlcOperationSignature from './types/com/atproto/identity/requestPlcOperationSignature.js'
@@ -406,6 +416,7 @@ export class AppBskyNS {
   ageassurance: AppBskyAgeassuranceNS
   bookmark: AppBskyBookmarkNS
   contact: AppBskyContactNS
+  draft: AppBskyDraftNS
   embed: AppBskyEmbedNS
   feed: AppBskyFeedNS
   graph: AppBskyGraphNS
@@ -421,6 +432,7 @@ export class AppBskyNS {
     this.ageassurance = new AppBskyAgeassuranceNS(server)
     this.bookmark = new AppBskyBookmarkNS(server)
     this.contact = new AppBskyContactNS(server)
+    this.draft = new AppBskyDraftNS(server)
     this.embed = new AppBskyEmbedNS(server)
     this.feed = new AppBskyFeedNS(server)
     this.graph = new AppBskyGraphNS(server)
@@ -712,6 +724,62 @@ export class AppBskyContactNS {
     >,
   ) {
     const nsid = 'app.bsky.contact.verifyPhone' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+}
+
+export class AppBskyDraftNS {
+  _server: Server
+
+  constructor(server: Server) {
+    this._server = server
+  }
+
+  createDraft<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      AppBskyDraftCreateDraft.QueryParams,
+      AppBskyDraftCreateDraft.HandlerInput,
+      AppBskyDraftCreateDraft.HandlerOutput
+    >,
+  ) {
+    const nsid = 'app.bsky.draft.createDraft' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  deleteDraft<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      AppBskyDraftDeleteDraft.QueryParams,
+      AppBskyDraftDeleteDraft.HandlerInput,
+      AppBskyDraftDeleteDraft.HandlerOutput
+    >,
+  ) {
+    const nsid = 'app.bsky.draft.deleteDraft' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  getDrafts<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      AppBskyDraftGetDrafts.QueryParams,
+      AppBskyDraftGetDrafts.HandlerInput,
+      AppBskyDraftGetDrafts.HandlerOutput
+    >,
+  ) {
+    const nsid = 'app.bsky.draft.getDrafts' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  updateDraft<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      AppBskyDraftUpdateDraft.QueryParams,
+      AppBskyDraftUpdateDraft.HandlerInput,
+      AppBskyDraftUpdateDraft.HandlerOutput
+    >,
+  ) {
+    const nsid = 'app.bsky.draft.updateDraft' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 }
@@ -2143,6 +2211,18 @@ export class ComAtprotoAdminNS {
     return this._server.xrpc.method(nsid, cfg)
   }
 
+  getNeuroLink<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      ComAtprotoAdminGetNeuroLink.QueryParams,
+      ComAtprotoAdminGetNeuroLink.HandlerInput,
+      ComAtprotoAdminGetNeuroLink.HandlerOutput
+    >,
+  ) {
+    const nsid = 'com.atproto.admin.getNeuroLink' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
   getSubjectStatus<A extends Auth = void>(
     cfg: MethodConfigOrHandler<
       A,
@@ -2152,6 +2232,42 @@ export class ComAtprotoAdminNS {
     >,
   ) {
     const nsid = 'com.atproto.admin.getSubjectStatus' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  importAccount<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      ComAtprotoAdminImportAccount.QueryParams,
+      ComAtprotoAdminImportAccount.HandlerInput,
+      ComAtprotoAdminImportAccount.HandlerOutput
+    >,
+  ) {
+    const nsid = 'com.atproto.admin.importAccount' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  listNeuroAccounts<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      ComAtprotoAdminListNeuroAccounts.QueryParams,
+      ComAtprotoAdminListNeuroAccounts.HandlerInput,
+      ComAtprotoAdminListNeuroAccounts.HandlerOutput
+    >,
+  ) {
+    const nsid = 'com.atproto.admin.listNeuroAccounts' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  migrateAccount<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      ComAtprotoAdminMigrateAccount.QueryParams,
+      ComAtprotoAdminMigrateAccount.HandlerInput,
+      ComAtprotoAdminMigrateAccount.HandlerOutput
+    >,
+  ) {
+    const nsid = 'com.atproto.admin.migrateAccount' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 
@@ -2227,6 +2343,18 @@ export class ComAtprotoAdminNS {
     return this._server.xrpc.method(nsid, cfg)
   }
 
+  updateNeuroLink<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      ComAtprotoAdminUpdateNeuroLink.QueryParams,
+      ComAtprotoAdminUpdateNeuroLink.HandlerInput,
+      ComAtprotoAdminUpdateNeuroLink.HandlerOutput
+    >,
+  ) {
+    const nsid = 'com.atproto.admin.updateNeuroLink' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
   updateSubjectStatus<A extends Auth = void>(
     cfg: MethodConfigOrHandler<
       A,
@@ -2236,6 +2364,18 @@ export class ComAtprotoAdminNS {
     >,
   ) {
     const nsid = 'com.atproto.admin.updateSubjectStatus' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  validateMigrationTarget<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      ComAtprotoAdminValidateMigrationTarget.QueryParams,
+      ComAtprotoAdminValidateMigrationTarget.HandlerInput,
+      ComAtprotoAdminValidateMigrationTarget.HandlerOutput
+    >,
+  ) {
+    const nsid = 'com.atproto.admin.validateMigrationTarget' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 }
