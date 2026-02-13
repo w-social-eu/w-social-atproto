@@ -120,7 +120,7 @@ export async function deriveAvailableHandle(
  */
 export async function createAccountViaQuickLogin(
   ctx: AppContext,
-  neuroJid: string,
+  legalId: string,
   email?: string,
   userName?: string,
   preferredHandle?: string | null,
@@ -161,14 +161,16 @@ export async function createAccountViaQuickLogin(
     repoRev: commit.rev,
   })
 
-  // Link Neuro identity
+  // Link Neuro identity (QuickLogin is for real users only)
   await ctx.accountManager.db.db
     .insertInto('neuro_identity_link')
     .values({
-      neuroJid,
+      legalId: legalId, // Real users use Legal ID
+      jid: null, // NULL for real users
       did,
       email: email || null,
       userName: userName || null,
+      isTestUser: 0, // QuickLogin is always for real users (0 = real, 1 = test)
       linkedAt: new Date().toISOString(),
       lastLoginAt: new Date().toISOString(),
     })
