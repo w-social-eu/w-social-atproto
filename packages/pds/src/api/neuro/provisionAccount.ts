@@ -155,88 +155,208 @@ export const createProvisionAccountRoute = (ctx: AppContext): Router => {
 
     // At this point: eventId === 'LegalIdUpdated' && state === 'Approved'
 
-    req.log.info({ legalId: payload.Object }, 'Processing approved Legal ID')
+    // Step 2: Detect user type - test users have NO Legal ID
+    const hasLegalId = payload.Tags?.ID !== undefined
+    const isTestUser = !hasLegalId
 
-    // Step 2: Extract and validate required fields from LegalIdUpdated (Approved)
-    const legalId = payload.Tags?.ID
-    const userName = payload.Tags?.Account?.toLowerCase() // Lowercase for Caddy validation
     const timestamp = payload.Timestamp
-    const emailFromNeuro = payload.Tags?.EMAIL?.trim()
-    const phone = payload.Tags?.PHONE?.trim()
-    const jidRef = payload.Tags?.JID // For reference only
-    // eventId and state already extracted in Step 1
     const object = payload.Object
     const actor = payload.Actor || ''
 
-    if (!legalId || !userName || !timestamp) {
+    // Common: validate timestamp
+    if (!timestamp) {
       return res.status(400).json({
         error: 'InvalidRequest',
-        message: 'Missing required fields: Tags.ID, Tags.Account, Timestamp',
+        message: 'Missing required field: Timestamp',
       })
     }
 
-    // Step 3: Validate Legal ID format (uuid@legal.domain)
-    if (!legalId.includes('@legal.')) {
-      return res.status(400).json({
-        error: 'InvalidLegalId',
-        message: 'Tags.ID must be in format uuid@legal.domain',
-      })
+    // === SEPARATE PATHS FOR TEST USERS vs REAL USERS ===
+
+    if (isTestUser) {
+      // ============================================================
+      // TEST USER PATH: Simpler validation, no PII requirements
+      // ============================================================
+
+      req.log.info(
+        { object, tags: payload.Tags },
+        'Processing test user (no Legal ID)',
+      )
+
+      // Validate test user required fields
+      const jidRef = payload.Tags?.JID
+      const userName = payload.Tags?.Account?.toLowerCase()
+
+      if (!jidRef || !userName) {
+        return res.status(400).json({
+          error: 'InvalidRequest',
+          message: 'Test users require: Tags.JID, Tags.Account',
+        })
+      }
+
+      // Check if test user creation is allowed
+      if (!ctx.cfg.allowTestUserCreation) {
+        req.log.warn(
+          { jid: jidRef, userName },
+          'Test user provisioning rejected - PDS_ALLOW_TEST_USER_CREATION=false',
+        )
+        return res.status(403).json({
+          error: 'TestUserCreationDisabled',
+          message: 'Test user creation is disabled on this server',
+        })
+      }
+
+      // Convert timestamp and validate (within 10 minutes)
+      const requestTime = timestamp * 1000
+      const now = Date.now()
+      const tenMinutes = 10 * 60 * 1000
+      if (Math.abs(now - requestTime) > tenMinutes) {
+        return res.status(400).json({
+          error: 'RequestExpired',
+          message: 'Timestamp is too old or too far in the future',
+        })
+      }
+
+      // Generate nonce for test user
+      const nonceInput = `${eventId}:${timestamp}:${object}:${actor}`
+      const nonce = crypto.createHash('sha256').update(nonceInput).digest('hex')
+
+      req.log.info(
+        {
+          jid: jidRef,
+          userName,
+          isTestUser: true,
+          nonce,
+          eventId,
+          timestamp,
+          object,
+          actor,
+          state,
+          tags: payload.Tags,
+        },
+        'Test user validation passed - proceeding to provision',
+      )
+
+      // Continue with test user provisioning below (after real user path)
+    } else {
+      // ============================================================
+      // REAL USER PATH: Strict validation, all PII fields required
+      // ============================================================
+
+      req.log.info({ legalId: object }, 'Processing real user (has Legal ID)')
+
+      // Extract all required fields for real users
+      const legalId = payload.Tags?.ID
+      const userName = payload.Tags?.Account?.toLowerCase()
+      const firstName = payload.Tags?.FIRST
+      const lastName = payload.Tags?.LAST
+      const pnr = payload.Tags?.PNR
+      const email = payload.Tags?.EMAIL
+      const phone = payload.Tags?.PHONE
+      const country = payload.Tags?.COUNTRY
+      const jidRef = payload.Tags?.JID
+
+      // Validate ALL required fields are PRESENT (values can be empty/redacted)
+      const requiredFields = {
+        'Tags.ID': legalId,
+        'Tags.Account': userName,
+        'Tags.FIRST': firstName,
+        'Tags.LAST': lastName,
+        'Tags.PNR': pnr,
+        'Tags.EMAIL': email,
+        'Tags.PHONE': phone,
+        'Tags.COUNTRY': country,
+      }
+
+      const missingFields = Object.entries(requiredFields)
+        .filter(([_, value]) => value === undefined)
+        .map(([key]) => key)
+
+      if (missingFields.length > 0) {
+        req.log.warn(
+          { legalId: object, missingFields, tags: payload.Tags },
+          'Real user missing required fields - rejecting',
+        )
+        return res.status(400).json({
+          error: 'MissingRequiredFields',
+          message: `Real users require all fields (even if redacted): ${missingFields.join(', ')}`,
+          missingFields,
+        })
+      }
+
+      // Validate Legal ID format (uuid@legal.domain)
+      if (!legalId || !legalId.includes('@legal.')) {
+        return res.status(400).json({
+          error: 'InvalidLegalId',
+          message: 'Tags.ID must be in format uuid@legal.domain',
+        })
+      }
+
+      // Convert timestamp and validate (within 10 minutes)
+      const requestTime = timestamp * 1000
+      const now = Date.now()
+      const tenMinutes = 10 * 60 * 1000
+      if (Math.abs(now - requestTime) > tenMinutes) {
+        return res.status(400).json({
+          error: 'RequestExpired',
+          message: 'Timestamp is too old or too far in the future',
+        })
+      }
+
+      // Generate nonce for real user
+      const nonceInput = `${eventId}:${timestamp}:${object}:${actor}`
+      const nonce = crypto.createHash('sha256').update(nonceInput).digest('hex')
+
+      req.log.info(
+        {
+          legalId,
+          userName,
+          firstName,
+          lastName,
+          pnr,
+          email,
+          phone,
+          country,
+          jidRef,
+          isTestUser: false,
+          nonce,
+          eventId,
+          timestamp,
+          object,
+          actor,
+          state,
+          tags: payload.Tags,
+        },
+        'Real user validation passed - proceeding to provision',
+      )
+
+      // Continue with real user provisioning below
     }
 
-    // Step 4: Convert timestamp and validate (within 10 minutes)
-    const requestTime = timestamp * 1000 // Convert Unix epoch to ms
-    const now = Date.now()
-    const tenMinutes = 10 * 60 * 1000 // Increased for network delays
-    if (Math.abs(now - requestTime) > tenMinutes) {
-      return res.status(400).json({
-        error: 'RequestExpired',
-        message: 'Timestamp is too old or too far in the future',
-      })
-    }
+    // ============================================================
+    // COMMON PROVISIONING LOGIC (after validation)
+    // ============================================================
 
-    // Step 5: Generate composite nonce from event fields
-    // ApiKey is NOT unique per event, timestamp has 1s resolution
-    // Solution: Hash of event-identifying fields
+    // Variables are already extracted in the paths above
+    // Re-declare for TypeScript (values set in if/else above)
+    const legalId: string | undefined = isTestUser
+      ? undefined
+      : payload.Tags?.ID
+    const userName: string = payload.Tags?.Account?.toLowerCase()!
+    const jidRef: string | undefined = payload.Tags?.JID
+    const emailFromNeuro: string | undefined = isTestUser
+      ? undefined
+      : payload.Tags?.EMAIL?.trim()
+    const phone: string | undefined = isTestUser
+      ? undefined
+      : payload.Tags?.PHONE?.trim()
+    const email: string = isTestUser
+      ? 'noreply@wsocial.eu'
+      : emailFromNeuro || 'noreply@wsocial.eu'
+
+    // Nonce already generated in paths above, re-generate for common code
     const nonceInput = `${eventId}:${timestamp}:${object}:${actor}`
     const nonce = crypto.createHash('sha256').update(nonceInput).digest('hex')
-
-    // Step 6: Handle email (use Neuro's email or fallback to noreply)
-    const email = emailFromNeuro || 'noreply@wsocial.eu'
-
-    // Step 6a: Detect test users
-    const isTestUser = !emailFromNeuro // Test users don't have EMAIL tag from Neuro
-
-    req.log.info(
-      {
-        legalId,
-        userName,
-        email,
-        emailFromNeuro: !!emailFromNeuro,
-        phone,
-        jidRef,
-        country: payload.Tags?.COUNTRY,
-        isTestUser, // Log test user flag
-        nonce,
-        eventId,
-        timestamp,
-        object,
-        actor,
-        state,
-      },
-      'Received LegalIdUpdated (Approved) - provisioning account',
-    )
-
-    // Step 6b: Check if test user creation is allowed
-    if (isTestUser && !ctx.cfg.allowTestUserCreation) {
-      req.log.warn(
-        { legalId, userName, jid: jidRef },
-        'Test user provisioning rejected - PDS_ALLOW_TEST_USER_CREATION=false',
-      )
-      return res.status(403).json({
-        error: 'TestUserCreationDisabled',
-        message: 'Test user creation is disabled on this server',
-      })
-    }
 
     // Step 7: Check for nonce reuse (replay protection)
     const nonceExists = await ctx.accountManager.db.db
@@ -265,7 +385,7 @@ export const createProvisionAccountRoute = (ctx: AppContext): Router => {
         .select(['did', 'legalId', 'jid'])
         .where('jid', '=', jidRef)
         .executeTakeFirst()
-    } else {
+    } else if (!isTestUser && legalId) {
       // For real users, check Legal ID
       existingLink = await ctx.accountManager.db.db
         .selectFrom('neuro_identity_link')
@@ -423,11 +543,12 @@ export const createProvisionAccountRoute = (ctx: AppContext): Router => {
 
         // Step 14: Store nonce AFTER successful account creation
         // This allows retry if provisioning failed earlier
+        // For test users, store JID in legalId column (since legalId is NOT NULL)
         await ctx.accountManager.db.db
           .insertInto('neuro_provision_nonce')
           .values({
             nonce,
-            legalId,
+            legalId: legalId || jidRef || 'unknown', // Use legalId for real users, JID for test users
             createdAt: new Date().toISOString(),
             expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24h
           })
@@ -435,12 +556,24 @@ export const createProvisionAccountRoute = (ctx: AppContext): Router => {
 
         accountCreated = true
         req.log.info(
-          { did, handle, legalId },
+          {
+            did,
+            handle,
+            legalId: legalId || null,
+            jid: isTestUser ? jidRef : null,
+            isTestUser,
+          },
           'Account auto-provisioned successfully',
         )
 
         // Mark email as verified since Neuro already verified it during Legal ID approval
-        if (emailFromNeuro && email) {
+        // Only for real users with actual email
+        if (
+          !isTestUser &&
+          emailFromNeuro &&
+          email &&
+          email !== 'noreply@wsocial.eu'
+        ) {
           await setEmailConfirmedAt(
             ctx.accountManager.db,
             did,
