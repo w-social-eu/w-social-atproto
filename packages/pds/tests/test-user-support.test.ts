@@ -51,11 +51,10 @@ describe('Test User Support', () => {
           Object: legalId,
           Actor: 'neuro-system',
           Tags: {
-            ID: legalId,
+            // No ID field = test user
             Account: `testuser${Date.now()}`,
             JID: jid,
             State: 'Approved',
-            // No EMAIL tag = test user
           },
         }),
       })
@@ -80,6 +79,11 @@ describe('Test User Support', () => {
             ID: legalId,
             Account: `realuser${Date.now()}`,
             EMAIL: 'realuser@example.com',
+            FIRST: 'Real',
+            LAST: 'User',
+            PNR: '',
+            PHONE: '',
+            COUNTRY: 'US',
             State: 'Approved',
           },
         }),
@@ -141,11 +145,10 @@ describe('Test User Support', () => {
           Object: legalId,
           Actor: 'neuro-system',
           Tags: {
-            ID: legalId,
+            // No ID field = test user
             Account: `testuser${Date.now()}`,
             JID: jid,
             State: 'Approved',
-            // No EMAIL tag = test user
           },
         }),
       })
@@ -183,6 +186,11 @@ describe('Test User Support', () => {
             ID: legalId,
             Account: `realuser${Date.now()}`,
             EMAIL: 'realuser2@example.com',
+            FIRST: 'Real',
+            LAST: 'User',
+            PNR: '',
+            PHONE: '+15551234567',
+            COUNTRY: 'US',
             State: 'Approved',
           },
         }),
