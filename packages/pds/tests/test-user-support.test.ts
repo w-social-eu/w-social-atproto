@@ -51,10 +51,13 @@ describe('Test User Support', () => {
           Object: legalId,
           Actor: 'neuro-system',
           Tags: {
-            // No ID field = test user
+            ID: legalId, // Test users now have Legal ID
             Account: `testuser${Date.now()}`,
             JID: jid,
             State: 'Approved',
+            PHONE: '+1555000000',
+            COUNTRY: 'US',
+            // No EMAIL field = test user
           },
         }),
       })
@@ -145,10 +148,13 @@ describe('Test User Support', () => {
           Object: legalId,
           Actor: 'neuro-system',
           Tags: {
-            // No ID field = test user
+            ID: legalId, // Test users now have Legal ID
             Account: `testuser${Date.now()}`,
             JID: jid,
             State: 'Approved',
+            PHONE: '+1555000000',
+            COUNTRY: 'US',
+            // No EMAIL field = test user
           },
         }),
       })

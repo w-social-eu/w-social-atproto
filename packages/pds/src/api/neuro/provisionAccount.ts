@@ -155,9 +155,11 @@ export const createProvisionAccountRoute = (ctx: AppContext): Router => {
 
     // At this point: eventId === 'LegalIdUpdated' && state === 'Approved'
 
-    // Step 2: Detect user type - test users have NO Legal ID
-    const hasLegalId = payload.Tags?.ID !== undefined
-    const isTestUser = !hasLegalId
+    // Step 2: Detect user type - test users have Legal ID but NO EMAIL
+    // Real users: Have Legal ID AND have EMAIL field
+    // Test users: Have Legal ID but EMAIL field is missing or empty
+    const emailFromTags = payload.Tags?.EMAIL
+    const isTestUser = !emailFromTags || emailFromTags.trim() === ''
 
     const timestamp = payload.Timestamp
     const object = payload.Object
@@ -180,7 +182,7 @@ export const createProvisionAccountRoute = (ctx: AppContext): Router => {
 
       req.log.info(
         { object, tags: payload.Tags },
-        'Processing test user (no Legal ID)',
+        'Processing test user (no EMAIL field)',
       )
 
       // Validate test user required fields
