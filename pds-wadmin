@@ -106,6 +106,7 @@ Categories:
   migration     Account migration between PDS
   invitation    Invitation management
   nomad         Nomad job management and logs
+  goat          Goat admin tool (wrapper with auto-configured env vars)
 
 WID Commands:
   wid list                           List all accounts with W ID links
@@ -133,6 +134,10 @@ Nomad Commands:
   nomad status                       Show Nomad job status
   nomad logs [--tail=N] [--follow]   Show logs from running allocation
 
+Goat Commands:
+  goat <command> [args...]           Run goat admin tool with auto-configured credentials
+                                     (passes all arguments through to goat)
+
 Environment Variables (only when called as 'pds-wadmin'):
   PDS_HOST                  PDS hostname (e.g., https://pds-stage.wsocial.dev)
   PDS_ADMIN_PASSWORD        Admin password
@@ -153,6 +158,10 @@ Examples:
   pds-wadmin-dev nomad status
   pds-wadmin-dev nomad logs --tail=100
   pds-wadmin-stage nomad logs --follow
+
+  # Goat admin tool (with auto-configured credentials)
+  pds-wadmin-dev goat account list
+  pds-wadmin-stage goat repo describe did:plc:abc123
 
   $0 invitation show user@example.com
   $0 invitation revoke user@example.com
@@ -655,6 +664,23 @@ cmd_nomad_logs() {
 }
 
 #
+# GOAT COMMANDS
+#
+
+cmd_goat() {
+  # Check if goat is available
+  if ! command -v goat >/dev/null 2>&1; then
+    echo "ERROR: 'goat' command not found in PATH"
+    echo "Please install goat or ensure it is in your PATH"
+    exit 1
+  fi
+
+  # Pass all arguments to goat
+  # PDS_HOST and PDS_ADMIN_PASSWORD are already set by check_env()
+  exec goat "$@"
+}
+
+#
 # MAIN
 #
 
@@ -760,6 +786,11 @@ main() {
           usage
           ;;
       esac
+      ;;
+
+    goat)
+      # Pass all remaining arguments to goat
+      cmd_goat "$@"
       ;;
 
     help|--help|-h)
