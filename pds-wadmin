@@ -56,6 +56,42 @@ check_env() {
   fi
 }
 
+# Check and ensure Nomad authentication
+check_nomad_auth() {
+  if [ -z "$ENV" ]; then
+    echo "ERROR: Nomad commands require environment context (use pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod)"
+    exit 1
+  fi
+
+  # Export nomad token from cache if it exists
+  local token_cache="$HOME/.nomad-token"
+  if [ -f "$token_cache" ]; then
+    export NOMAD_TOKEN="$(cat "$token_cache")"
+  fi
+
+  # Check if authentication works, login if needed
+  if ! nomad status -token="${NOMAD_TOKEN:-}" >/dev/null 2>&1; then
+    echo "Nomad authentication required..."
+    local login_output
+    login_output=$(nomad login -method=vault-oidc 2>&1)
+    echo "$login_output"
+
+    # Extract Secret ID from output
+    local secret_id
+    secret_id=$(echo "$login_output" | grep "^Secret ID" | awk '{print $4}')
+
+    if [ -z "$secret_id" ]; then
+      echo "ERROR: Failed to extract token from nomad login output"
+      exit 1
+    fi
+
+    # Set and cache the token
+    export NOMAD_TOKEN="$secret_id"
+    echo "$NOMAD_TOKEN" > "$token_cache"
+    chmod 600 "$token_cache"
+  fi
+}
+
 # Print usage information
 usage() {
   cat <<EOF
@@ -69,6 +105,7 @@ Categories:
   wid           W ID (Legal ID) management
   migration     Account migration between PDS
   invitation    Invitation management
+  nomad         Nomad job management and logs
 
 WID Commands:
   wid list                           List all accounts with W ID links
@@ -92,6 +129,10 @@ Invitation Commands:
 Invitation Status Values:
   pending, consumed, expired, revoked, all
 
+Nomad Commands:
+  nomad status                       Show Nomad job status
+  nomad logs [--tail=N] [--follow]   Show logs from running allocation
+
 Environment Variables (only when called as 'pds-wadmin'):
   PDS_HOST                  PDS hostname (e.g., https://pds-stage.wsocial.dev)
   PDS_ADMIN_PASSWORD        Admin password
@@ -108,6 +149,11 @@ Examples:
   # Invitation management
   $0 invitation list --status=pending
   $0 invitation stats --since=2026-02-01T00:00:00Z
+  # Nomad management (requires env context: -dev, -stage, or -prod)
+  pds-wadmin-dev nomad status
+  pds-wadmin-dev nomad logs --tail=100
+  pds-wadmin-stage nomad logs --follow
+
   $0 invitation show user@example.com
   $0 invitation revoke user@example.com
   $0 invitation purge --status=consumed --before=2026-01-01T00:00:00Z
@@ -546,6 +592,69 @@ cmd_invitation_purge() {
 }
 
 #
+# NOMAD COMMANDS
+#
+
+cmd_nomad_status() {
+  check_nomad_auth
+
+  local job_name="pds-${ENV}"
+  echo "Checking status for job: $job_name"
+  echo ""
+
+  nomad status -token="${NOMAD_TOKEN}" "$job_name"
+}
+
+cmd_nomad_logs() {
+  local tail_lines=""
+  local follow=false
+
+  # Parse flags
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --tail=*)
+        tail_lines="${1#*=}"
+        shift
+        ;;
+      --follow|-f)
+        follow=true
+        shift
+        ;;
+      *)
+        echo "ERROR: Unknown option: $1"
+        exit 1
+        ;;
+    esac
+  done
+
+  check_nomad_auth
+
+  local job_name="pds-${ENV}"
+  echo "Fetching logs for job: $job_name"
+
+  # Get the running allocation ID
+  local alloc_id
+  alloc_id=$(nomad status -token="${NOMAD_TOKEN}" "$job_name" | grep -E "^[a-f0-9]{8}\s+" | grep "running" | head -n1 | awk '{print $1}')
+
+  if [ -z "$alloc_id" ]; then
+    echo "ERROR: No running allocation found for job $job_name"
+    exit 1
+  fi
+
+  echo "Using allocation: $alloc_id"
+  echo ""
+
+  # Build log command
+  local log_cmd="nomad alloc logs -token=\"${NOMAD_TOKEN}\""
+  [ -n "$tail_lines" ] && log_cmd="$log_cmd -tail -n $tail_lines"
+  [ "$follow" = true ] && log_cmd="$log_cmd -f"
+  log_cmd="$log_cmd $alloc_id pds"
+
+  # Execute
+  eval "$log_cmd"
+}
+
+#
 # MAIN
 #
 
@@ -627,6 +736,27 @@ main() {
           ;;
         *)
           echo "ERROR: Unknown invitation command: $cmd"
+          usage
+          ;;
+      esac
+      ;;
+
+    nomad)
+      if [ $# -eq 0 ]; then
+        echo "ERROR: Nomad command required"
+        usage
+      fi
+      local cmd="$1"
+      shift
+      case "$cmd" in
+        status)
+          cmd_nomad_status "$@"
+          ;;
+        logs)
+          cmd_nomad_logs "$@"
+          ;;
+        *)
+          echo "ERROR: Unknown nomad command: $cmd"
           usage
           ;;
       esac
