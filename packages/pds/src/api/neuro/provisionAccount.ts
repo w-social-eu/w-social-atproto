@@ -8,6 +8,36 @@ import { AppContext } from '../../context'
 export const createProvisionAccountRoute = (ctx: AppContext): Router => {
   const router = Router()
 
+  /**
+   * POST /neuro/provision/account
+   *
+   * Handles W ID onboarding events from Neuro server.
+   *
+   * Event Types:
+   * 1. UserInvitation: Creates invitation records for users
+   * 2. LegalIdUpdated (Approved): Auto-creates account for approved users
+   *
+   * Account Creation Behavior (LegalIdUpdated with State=Approved):
+   * - Creates "zombie account" WITHOUT checking invitation status
+   * - Zombie account: account exists but user cannot login until invitation issued
+   * - This allows users to complete expensive W ID onboarding once
+   * - If invitation becomes available later, user can login without re-onboarding
+   * - Admin can create invitation via UserInvitation event to unblock account
+   *
+   * Why this design:
+   * - W ID onboarding is time-consuming and expensive for users
+   * - Invitation requirement is enforced at login time (QuickLogin)
+   * - If user doesn't have invitation, they get clear error but don't lose onboarding progress
+   * - Admin can retroactively create invitation to grant access
+   *
+   * Authentication:
+   * - Requires X-API-Key header OR Basic Auth (admin:password)
+   * - Both UserInvitation and LegalIdUpdated events require authentication
+   *
+   * Real vs Test Users:
+   * - Real users: Must have all PII fields (FIRST, LAST, PNR, PHONE, COUNTRY)
+   * - Test users: Have JID but no EMAIL field, requires PDS_ALLOW_TEST_USER_CREATION
+   */
   router.post('/neuro/provision/account', async (req, res) => {
     const payload = req.body
     const eventId = payload.EventId
