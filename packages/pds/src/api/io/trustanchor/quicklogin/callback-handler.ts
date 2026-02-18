@@ -160,11 +160,29 @@ export async function handleQuickLoginCallback(
     // LegalIdUpdated notification. Therefore, when we reach this code, the account
     // must already exist - we just need to create the neuro_identity_link.
 
+    // Log Properties to debug email extraction
+    log.info(
+      {
+        jid,
+        properties: payload.Properties,
+        propertyKeys: payload.Properties ? Object.keys(payload.Properties) : [],
+      },
+      'QuickLogin Properties received',
+    )
+
     const email = extractEmail(payload.Properties)
     const userName = extractUserName(payload.Properties)
 
+    log.info(
+      { jid, email, userName },
+      'Extracted email and userName from Properties',
+    )
+
     if (!email) {
-      log.error({ jid }, 'No email found in QuickLogin payload')
+      log.error(
+        { jid, properties: payload.Properties },
+        'No email found in QuickLogin payload',
+      )
       ctx.quickloginStore.updateSession(session.sessionId, {
         status: 'failed',
         error: 'Email required',
