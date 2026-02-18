@@ -11,6 +11,14 @@ const ALLOWED_TARGET_DOMAINS = [
   'wsocial.dev',
 ]
 
+function toIsoString(value: unknown): string | undefined {
+  if (value == null) return undefined
+  if (typeof value === 'string') return value
+  if (value instanceof Date) return value.toISOString()
+  const date = new Date(value as string | number)
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
+}
+
 function validateTargetDomain(targetPdsUrl: string): void {
   const url = new URL(targetPdsUrl)
   const domain = url.hostname
@@ -120,8 +128,8 @@ export default function (server: Server, ctx: AppContext) {
               neuroLink: neuroLink
                 ? {
                     legalId: neuroLink.legalId,
-                    linkedAt: neuroLink.linkedAt,
-                    lastLoginAt: neuroLink.lastLoginAt,
+                    linkedAt: toIsoString(neuroLink.linkedAt),
+                    lastLoginAt: toIsoString(neuroLink.lastLoginAt),
                   }
                 : undefined,
               appPasswords: appPasswords.map((p) => ({
