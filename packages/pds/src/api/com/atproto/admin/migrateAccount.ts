@@ -86,7 +86,8 @@ export default function (server: Server, ctx: AppContext) {
         'Retrieved app passwords',
       )
 
-      // Step 5: Create agent for target PDS
+      // Step 5: Create agents for local and target PDS
+      const localAgent = new AtpAgent({ service: ctx.cfg.service.publicUrl })
       const targetAgent = new AtpAgent({ service: targetPdsUrl })
 
       // Get service auth token for server-to-server communication

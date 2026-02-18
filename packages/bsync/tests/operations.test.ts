@@ -1,6 +1,7 @@
 import assert from 'node:assert'
 import { Code, ConnectError } from '@connectrpc/connect'
 import getPort from 'get-port'
+import { sql } from 'kysely'
 import { wait } from '@atproto/common'
 import {
   BsyncClient,
@@ -229,7 +230,7 @@ describe('operations', () => {
       const op = res.operation
       assert(op)
       // Compare each field individually to avoid custom serialization by proto response objects.
-      expect(op.id).toBe('3')
+      expect(op.id).toBe('1')
       expect(op.actorDid).toBe('did:example:a')
       expect(op.namespace).toBe('app.bsky.some.col')
       expect(op.key).toBe('key1')
@@ -324,4 +325,6 @@ const dumpOps = async (db: Database) => {
 
 const clearOps = async (db: Database) => {
   await db.db.deleteFrom('operation').execute()
+  // Reset auto-increment sequence for consistent test IDs
+  await sql`ALTER SEQUENCE operation_id_seq RESTART WITH 1`.execute(db.db)
 }
