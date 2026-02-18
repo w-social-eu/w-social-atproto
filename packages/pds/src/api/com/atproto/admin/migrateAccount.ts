@@ -89,21 +89,14 @@ export default function (server: Server, ctx: AppContext) {
       // Step 5: Create agent for target PDS
       const targetAgent = new AtpAgent({ service: targetPdsUrl })
 
-      // Create local agent for getting service auth and repo export
-      const localAgent = new AtpAgent({
-        service: `http://localhost:${ctx.cfg.service.port}`,
-      })
-
       // Get service auth token for server-to-server communication
-      const serviceAuthRes = await localAgent.com.atproto.server.getServiceAuth(
-        {
-          aud: `did:web:${new URL(targetPdsUrl).hostname}`,
-          lxm: 'com.atproto.admin.importAccount',
-          exp: Math.floor(Date.now() / 1000) + 60 * 5, // 5 minutes
-        },
+      // Use ctx.serviceAuthJwt instead of calling the endpoint since admin operations
+      // don't have user credentials
+      const serviceJwt = await ctx.serviceAuthJwt(
+        did,
+        `did:web:${new URL(targetPdsUrl).hostname}`,
+        'com.atproto.admin.importAccount',
       )
-
-      const serviceJwt = serviceAuthRes.data.token
 
       req.log.info({ did, targetPdsUrl }, 'Service auth token obtained')
 
