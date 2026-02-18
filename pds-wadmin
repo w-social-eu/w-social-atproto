@@ -118,6 +118,8 @@ Transfer Commands:
                                      Rehome account to another PDS in cluster
 
 Invitation Commands:
+  invitation create <email> [--handle=HANDLE]
+                                     Create new invitation (unblock zombie accounts)
   invitation list [--status=STATUS] [--before=TIMESTAMP] [--json]
                                      List invitations
   invitation stats [--since=TIMESTAMP] [--json]
@@ -152,6 +154,8 @@ Examples:
   $0 transfer rehome did:plc:abc123 https://pds2.wsocial.dev
 
   # Invitation management
+  $0 invitation create user@example.com
+  $0 invitation create user@example.com --handle=john_doe
   $0 invitation list --status=pending
   $0 invitation stats --since=2026-02-01T00:00:00Z
   # Nomad management (requires env context: -dev, -stage, or -prod)
@@ -505,6 +509,80 @@ cmd_invitation_show() {
   fi
 }
 
+cmd_invitation_create() {
+  local email="${1:-}"
+  local handle=""
+
+  if [ -z "$email" ]; then
+    echo "ERROR: Email is required"
+    echo "Usage: $0 invitation create <email> [--handle=HANDLE]"
+    exit 1
+  fi
+
+  # Parse optional --handle flag
+  shift || true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --handle=*)
+        handle="${1#*=}"
+        ;;
+      *)
+        echo "ERROR: Unknown option: $1"
+        exit 1
+        ;;
+    esac
+    shift || true
+  done
+
+  # Build the UserInvitation event
+  local event_data
+  local timestamp=$(date +%s)
+  
+  if [ -n "$handle" ]; then
+    event_data=$(jq -n \
+      --arg EventId "UserInvitation" \
+      --arg email "$email" \
+      --arg handle "$handle" \
+      --arg timestamp "$timestamp" \
+      '{
+        EventId: $EventId,
+        Tags: { EMAIL: $email },
+        Handle: $handle,
+        Timestamp: ($timestamp | tonumber)
+      }')
+  else
+    event_data=$(jq -n \
+      --arg EventId "UserInvitation" \
+      --arg email "$email" \
+      --arg timestamp "$timestamp" \
+      '{
+        EventId: $EventId,
+        Tags: { EMAIL: $email },
+        Timestamp: ($timestamp | tonumber)
+      }')
+  fi
+
+  # Use X-API-Key auth for the neuro provision endpoint
+  local response
+  response=$(curl -s -X POST "${PDS_HOST}/neuro/provision/account" \
+    -H "X-API-Key: ${PDS_ADMIN_PASSWORD}" \
+    -H "Content-Type: application/json" \
+    -d "$event_data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to create invitation"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  echo "✓ Invitation created successfully"
+  echo "Email: $email"
+  [ -n "$handle" ] && echo "Suggested handle: $handle"
+  if echo "$response" | jq -e '.expiresAt' > /dev/null 2>&1; then
+    echo "Expires: $(echo "$response" | jq -r '.expiresAt')"
+  fi
+}
+
 cmd_invitation_revoke() {
   local identifier="$1"
 
@@ -745,6 +823,9 @@ main() {
       local cmd="$1"
       shift
       case "$cmd" in
+        create)
+          cmd_invitation_create "$@"
+          ;;
         list)
           cmd_invitation_list "$@"
           ;;
