@@ -24,6 +24,23 @@ export interface Logger {
 /**
  * Shared QuickLogin callback handler logic.
  * This is called by both the Express endpoint and XRPC endpoint.
+ *
+ * Account Creation Behavior:
+ * - NEW ACCOUNT: Requires invitation if PDS_INVITE_REQUIRED=true
+ *   - Checks invitation exists and is pending
+ *   - Creates account with prefered_handle from invitation
+ *   - Consumes invitation after successful account creation
+ *
+ * - EXISTING ACCOUNT (zombie account from W ID provision webhook):
+ *   - Does NOT require invitation to be checked again
+ *   - Links JID to existing account
+ *   - Consumes invitation if one exists (allows admin-created invitations)
+ *     This handles the recovery flow where admin creates invitation for zombie account
+ *
+ * Invitation Consumption:
+ * - Invitation marked as consumed after first successful login
+ * - Prevents double-use of invitations
+ * - Maintains audit trail of who provisioned the account
  */
 export async function handleQuickLoginCallback(
   payload: NeuroCallbackPayload,
@@ -249,6 +266,17 @@ export async function handleQuickLoginCallback(
 
       did = existingAccount.did
       handle = await getHandleForDid(ctx, did)
+
+      // Mark the invitation as consumed (if it exists)
+      // This handles the case where account was created via provision webhook
+      // but user is now logging in via QuickLogin
+      if (invitation) {
+        await ctx.invitationManager.consumeInvitation(email, did, handle)
+        log.info(
+          { email: ctx.invitationManager.hashEmail(email) },
+          'Invitation consumed for existing account',
+        )
+      }
 
       // Create the neuro_identity_link (QuickLogin is for real users, not test users)
       await ctx.accountManager.db.db
