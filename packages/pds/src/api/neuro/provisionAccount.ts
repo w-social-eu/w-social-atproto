@@ -455,8 +455,12 @@ export const createProvisionAccountRoute = (ctx: AppContext): Router => {
     }
 
     // Step 10: Generate initial handle (may need retry if race condition occurs)
+    // Use configured public handle domain (strip leading dot) and fallback to service hostname
+    const handleDomain = (
+      ctx.cfg.identity.serviceHandleDomains?.[0] || ctx.cfg.service.hostname
+    ).replace(/^\./, '')
     // Format: john → john_3 → john_39 → john_391 (keep appending until available)
-    let handle = `${userName}.${ctx.cfg.service.hostname}`
+    let handle = `${userName}.${handleDomain}`
     let handleAcct = await ctx.accountManager.getAccount(handle)
     let suffix = ''
 
@@ -464,7 +468,7 @@ export const createProvisionAccountRoute = (ctx: AppContext): Router => {
       // Handle taken, append random digit
       const randomDigit = Math.floor(Math.random() * 10)
       suffix += randomDigit
-      handle = `${userName}_${suffix}.${ctx.cfg.service.hostname}`
+      handle = `${userName}_${suffix}.${handleDomain}`
       handleAcct = await ctx.accountManager.getAccount(handle)
 
       // Safety: prevent infinite loop (extremely unlikely)
@@ -672,10 +676,10 @@ export const createProvisionAccountRoute = (ctx: AppContext): Router => {
           retryCount++
           const randomDigit = Math.floor(Math.random() * 10)
           suffix += randomDigit
-          handle = `${userName}_${suffix}.${ctx.cfg.service.hostname}`
+          handle = `${userName}_${suffix}.${handleDomain}`
           req.log.warn(
             {
-              previousHandle: `${userName}_${suffix.slice(0, -1)}.${ctx.cfg.service.hostname}`,
+              previousHandle: `${userName}_${suffix.slice(0, -1)}.${handleDomain}`,
               newHandle: handle,
               retryCount,
               error: errorMsg,

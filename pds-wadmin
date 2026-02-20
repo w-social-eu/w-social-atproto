@@ -537,7 +537,7 @@ cmd_invitation_create() {
   # Build the UserInvitation event
   local event_data
   local timestamp=$(date +%s)
-  
+
   if [ -n "$handle" ]; then
     event_data=$(jq -n \
       --arg EventId "UserInvitation" \
@@ -714,6 +714,7 @@ cmd_nomad_logs() {
     esac
   done
 
+  export NOMAD_ADDR="https://nomad.wsocial.cloud"
   check_nomad_auth
 
   local job_name="pds-${ENV}"
