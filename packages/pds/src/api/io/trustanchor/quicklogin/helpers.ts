@@ -90,8 +90,12 @@ export async function deriveAvailableHandle(
     baseName = `ql-${Date.now()}`
   }
 
+  const handleDomain = (
+    ctx.cfg.identity.serviceHandleDomains?.[0] || ctx.cfg.service.hostname
+  ).replace(/^\./, '')
+
   // Try base handle first
-  let handle = `${baseName}.${ctx.cfg.service.hostname}`
+  let handle = `${baseName}.${handleDomain}`
   let existing = await ctx.accountManager.getAccount(handle)
 
   if (!existing) {
@@ -103,7 +107,7 @@ export async function deriveAvailableHandle(
   for (let attempts = 0; attempts < 10; attempts++) {
     const randomDigit = Math.floor(Math.random() * 10)
     suffix += randomDigit
-    handle = `${baseName}-${suffix}.${ctx.cfg.service.hostname}`
+    handle = `${baseName}-${suffix}.${handleDomain}`
     existing = await ctx.accountManager.getAccount(handle)
 
     if (!existing) {
@@ -112,7 +116,7 @@ export async function deriveAvailableHandle(
   }
 
   // Safety fallback: use timestamp
-  return `ql-${Date.now()}.${ctx.cfg.service.hostname}`
+  return `ql-${Date.now()}.${handleDomain}`
 }
 
 /**

@@ -24,6 +24,23 @@ export interface Logger {
 /**
  * Shared QuickLogin callback handler logic.
  * This is called by both the Express endpoint and XRPC endpoint.
+ *
+ * Account Creation Behavior:
+ * - NEW ACCOUNT: Requires invitation if PDS_INVITE_REQUIRED=true
+ *   - Checks invitation exists and is pending
+ *   - Creates account with prefered_handle from invitation
+ *   - Consumes invitation after successful account creation
+ *
+ * - EXISTING ACCOUNT (zombie account from W ID provision webhook):
+ *   - Does NOT require invitation to be checked again
+ *   - Links JID to existing account
+ *   - Consumes invitation if one exists (allows admin-created invitations)
+ *     This handles the recovery flow where admin creates invitation for zombie account
+ *
+ * Invitation Consumption:
+ * - Invitation marked as consumed after first successful login
+ * - Prevents double-use of invitations
+ * - Maintains audit trail of who provisioned the account
  */
 export async function handleQuickLoginCallback(
   payload: NeuroCallbackPayload,
@@ -143,11 +160,29 @@ export async function handleQuickLoginCallback(
     // LegalIdUpdated notification. Therefore, when we reach this code, the account
     // must already exist - we just need to create the neuro_identity_link.
 
+    // Log Properties to debug email extraction
+    log.info(
+      {
+        jid,
+        properties: payload.Properties,
+        propertyKeys: payload.Properties ? Object.keys(payload.Properties) : [],
+      },
+      'QuickLogin Properties received',
+    )
+
     const email = extractEmail(payload.Properties)
     const userName = extractUserName(payload.Properties)
 
+    log.info(
+      { jid, email, userName },
+      'Extracted email and userName from Properties',
+    )
+
     if (!email) {
-      log.error({ jid }, 'No email found in QuickLogin payload')
+      log.error(
+        { jid, properties: payload.Properties },
+        'No email found in QuickLogin payload',
+      )
       ctx.quickloginStore.updateSession(session.sessionId, {
         status: 'failed',
         error: 'Email required',
@@ -249,6 +284,17 @@ export async function handleQuickLoginCallback(
 
       did = existingAccount.did
       handle = await getHandleForDid(ctx, did)
+
+      // Mark the invitation as consumed (if it exists)
+      // This handles the case where account was created via provision webhook
+      // but user is now logging in via QuickLogin
+      if (invitation) {
+        await ctx.invitationManager.consumeInvitation(email, did, handle)
+        log.info(
+          { email: ctx.invitationManager.hashEmail(email) },
+          'Invitation consumed for existing account',
+        )
+      }
 
       // Create the neuro_identity_link (QuickLogin is for real users, not test users)
       await ctx.accountManager.db.db

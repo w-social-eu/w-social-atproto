@@ -11,6 +11,14 @@ const ALLOWED_TARGET_DOMAINS = [
   'wsocial.dev',
 ]
 
+function toIsoString(value: unknown): string | undefined {
+  if (value == null) return undefined
+  if (typeof value === 'string') return value
+  if (value instanceof Date) return value.toISOString()
+  const date = new Date(value as string | number)
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
+}
+
 function validateTargetDomain(targetPdsUrl: string): void {
   const url = new URL(targetPdsUrl)
   const domain = url.hostname
@@ -86,24 +94,18 @@ export default function (server: Server, ctx: AppContext) {
         'Retrieved app passwords',
       )
 
-      // Step 5: Create agent for target PDS
+      // Step 5: Create agents for local and target PDS
+      const localAgent = new AtpAgent({ service: ctx.cfg.service.publicUrl })
       const targetAgent = new AtpAgent({ service: targetPdsUrl })
 
-      // Create local agent for getting service auth and repo export
-      const localAgent = new AtpAgent({
-        service: `http://localhost:${ctx.cfg.service.port}`,
-      })
-
       // Get service auth token for server-to-server communication
-      const serviceAuthRes = await localAgent.com.atproto.server.getServiceAuth(
-        {
-          aud: `did:web:${new URL(targetPdsUrl).hostname}`,
-          lxm: 'com.atproto.admin.importAccount',
-          exp: Math.floor(Date.now() / 1000) + 60 * 5, // 5 minutes
-        },
+      // Use ctx.serviceAuthJwt instead of calling the endpoint since admin operations
+      // don't have user credentials
+      const serviceJwt = await ctx.serviceAuthJwt(
+        did,
+        `did:web:${new URL(targetPdsUrl).hostname}`,
+        'com.atproto.admin.importAccount',
       )
-
-      const serviceJwt = serviceAuthRes.data.token
 
       req.log.info({ did, targetPdsUrl }, 'Service auth token obtained')
 
@@ -126,8 +128,8 @@ export default function (server: Server, ctx: AppContext) {
               neuroLink: neuroLink
                 ? {
                     legalId: neuroLink.legalId,
-                    linkedAt: neuroLink.linkedAt,
-                    lastLoginAt: neuroLink.lastLoginAt,
+                    linkedAt: toIsoString(neuroLink.linkedAt),
+                    lastLoginAt: toIsoString(neuroLink.lastLoginAt),
                   }
                 : undefined,
               appPasswords: appPasswords.map((p) => ({

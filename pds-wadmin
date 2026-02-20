@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # W Social PDS Admin Tool
-# Unified W admin script for W ID, Migration, and Invitation management
+# Unified W admin script for W ID, Account Transfer, and Invitation management
 #
 # Usage: pds-wadmin <category> <command> [args...]
 #        pds-wadmin-dev <category> <command> [args...]
@@ -56,6 +56,42 @@ check_env() {
   fi
 }
 
+# Check and ensure Nomad authentication
+check_nomad_auth() {
+  if [ -z "$ENV" ]; then
+    echo "ERROR: Nomad commands require environment context (use pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod)"
+    exit 1
+  fi
+
+  # Export nomad token from cache if it exists
+  local token_cache="$HOME/.nomad-token"
+  if [ -f "$token_cache" ]; then
+    export NOMAD_TOKEN="$(cat "$token_cache")"
+  fi
+
+  # Check if authentication works, login if needed
+  if ! nomad status -token="${NOMAD_TOKEN:-}" >/dev/null 2>&1; then
+    echo "Nomad authentication required..."
+    local login_output
+    login_output=$(nomad login -method=vault-oidc 2>&1)
+    echo "$login_output"
+
+    # Extract Secret ID from output
+    local secret_id
+    secret_id=$(echo "$login_output" | grep "^Secret ID" | awk '{print $4}')
+
+    if [ -z "$secret_id" ]; then
+      echo "ERROR: Failed to extract token from nomad login output"
+      exit 1
+    fi
+
+    # Set and cache the token
+    export NOMAD_TOKEN="$secret_id"
+    echo "$NOMAD_TOKEN" > "$token_cache"
+    chmod 600 "$token_cache"
+  fi
+}
+
 # Print usage information
 usage() {
   cat <<EOF
@@ -67,19 +103,23 @@ Usage: $0 <category> <command> [args...]
 
 Categories:
   wid           W ID (Legal ID) management
-  migration     Account migration between PDS
+  transfer      Account transfers (rehoming within cluster, import/export)
   invitation    Invitation management
+  nomad         Nomad job management and logs
+  goat          Goat admin tool (wrapper with auto-configured env vars)
 
 WID Commands:
   wid list                           List all accounts with W ID links
   wid show <did>                     Show W ID details for account
   wid update <did> <legal-id>        Update W ID for account
 
-Migration Commands:
-  migration migrate <did> <target-pds-url> [handle]
-                                     Migrate account to target PDS
+Transfer Commands:
+  transfer rehome <did> <target-pds-url> [handle]
+                                     Rehome account to another PDS in cluster
 
 Invitation Commands:
+  invitation create <email> [--handle=HANDLE]
+                                     Create new invitation (unblock zombie accounts)
   invitation list [--status=STATUS] [--before=TIMESTAMP] [--json]
                                      List invitations
   invitation stats [--since=TIMESTAMP] [--json]
@@ -92,6 +132,14 @@ Invitation Commands:
 Invitation Status Values:
   pending, consumed, expired, revoked, all
 
+Nomad Commands:
+  nomad status                       Show Nomad job status
+  nomad logs [--tail=N] [--follow]   Show logs from running allocation
+
+Goat Commands:
+  goat <command> [args...]           Run goat admin tool with auto-configured credentials
+                                     (passes all arguments through to goat)
+
 Environment Variables (only when called as 'pds-wadmin'):
   PDS_HOST                  PDS hostname (e.g., https://pds-stage.wsocial.dev)
   PDS_ADMIN_PASSWORD        Admin password
@@ -102,12 +150,23 @@ Examples:
   $0 wid show did:plc:abc123
   $0 wid update did:plc:abc123 uuid@legal.lab.tagroot.io
 
-  # Account migration
-  $0 migration migrate did:plc:abc123 https://pds2.wsocial.dev
+  # Account transfer (rehoming)
+  $0 transfer rehome did:plc:abc123 https://pds2.wsocial.dev
 
   # Invitation management
+  $0 invitation create user@example.com
+  $0 invitation create user@example.com --handle=john_doe
   $0 invitation list --status=pending
   $0 invitation stats --since=2026-02-01T00:00:00Z
+  # Nomad management (requires env context: -dev, -stage, or -prod)
+  pds-wadmin-dev nomad status
+  pds-wadmin-dev nomad logs --tail=100
+  pds-wadmin-stage nomad logs --follow
+
+  # Goat admin tool (with auto-configured credentials)
+  pds-wadmin-dev goat account list
+  pds-wadmin-stage goat repo describe did:plc:abc123
+
   $0 invitation show user@example.com
   $0 invitation revoke user@example.com
   $0 invitation purge --status=consumed --before=2026-01-01T00:00:00Z
@@ -230,21 +289,21 @@ cmd_wid_update() {
 }
 
 #
-# MIGRATION COMMANDS
+# TRANSFER COMMANDS
 #
 
-cmd_migration_migrate() {
+cmd_transfer_rehome() {
   local did="$1"
   local target_pds="$2"
   local target_handle="${3:-}"
 
   if [ -z "$did" ] || [ -z "$target_pds" ]; then
     echo "ERROR: DID and target PDS URL are required"
-    echo "Usage: $0 migration migrate <did> <target-pds-url> [handle]"
+    echo "Usage: $0 transfer rehome <did> <target-pds-url> [handle]"
     exit 1
   fi
 
-  echo "Migrating account: $did"
+  echo "Rehoming account: $did"
   echo "Target PDS: $target_pds"
   [ -n "$target_handle" ] && echo "New handle: $target_handle"
 
@@ -266,18 +325,18 @@ cmd_migration_migrate() {
   response=$(api_call "POST" "com.atproto.admin.migrateAccount" "$data")
 
   if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
-    echo "ERROR: Migration failed"
+    echo "ERROR: Rehome failed"
     echo "$response" | jq -r '.message // .error'
     exit 1
   fi
 
-  echo "✓ Migration completed!"
+  echo "✓ Rehome completed!"
   echo "$response" | jq '{
     DID: .did,
     "Source PDS": .sourcePds,
     "Target PDS": .targetPds,
     Status: .status,
-    "Migrated At": .migratedAt
+    "Rehomed At": .migratedAt
   }'
 }
 
@@ -450,6 +509,80 @@ cmd_invitation_show() {
   fi
 }
 
+cmd_invitation_create() {
+  local email="${1:-}"
+  local handle=""
+
+  if [ -z "$email" ]; then
+    echo "ERROR: Email is required"
+    echo "Usage: $0 invitation create <email> [--handle=HANDLE]"
+    exit 1
+  fi
+
+  # Parse optional --handle flag
+  shift || true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --handle=*)
+        handle="${1#*=}"
+        ;;
+      *)
+        echo "ERROR: Unknown option: $1"
+        exit 1
+        ;;
+    esac
+    shift || true
+  done
+
+  # Build the UserInvitation event
+  local event_data
+  local timestamp=$(date +%s)
+
+  if [ -n "$handle" ]; then
+    event_data=$(jq -n \
+      --arg EventId "UserInvitation" \
+      --arg email "$email" \
+      --arg handle "$handle" \
+      --arg timestamp "$timestamp" \
+      '{
+        EventId: $EventId,
+        Tags: { EMAIL: $email },
+        Handle: $handle,
+        Timestamp: ($timestamp | tonumber)
+      }')
+  else
+    event_data=$(jq -n \
+      --arg EventId "UserInvitation" \
+      --arg email "$email" \
+      --arg timestamp "$timestamp" \
+      '{
+        EventId: $EventId,
+        Tags: { EMAIL: $email },
+        Timestamp: ($timestamp | tonumber)
+      }')
+  fi
+
+  # Use X-API-Key auth for the neuro provision endpoint
+  local response
+  response=$(curl -s -X POST "${PDS_HOST}/neuro/provision/account" \
+    -H "X-API-Key: ${PDS_ADMIN_PASSWORD}" \
+    -H "Content-Type: application/json" \
+    -d "$event_data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to create invitation"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  echo "✓ Invitation created successfully"
+  echo "Email: $email"
+  [ -n "$handle" ] && echo "Suggested handle: $handle"
+  if echo "$response" | jq -e '.expiresAt' > /dev/null 2>&1; then
+    echo "Expires: $(echo "$response" | jq -r '.expiresAt')"
+  fi
+}
+
 cmd_invitation_revoke() {
   local identifier="$1"
 
@@ -546,6 +679,87 @@ cmd_invitation_purge() {
 }
 
 #
+# NOMAD COMMANDS
+#
+
+cmd_nomad_status() {
+  check_nomad_auth
+
+  local job_name="pds-${ENV}"
+  echo "Checking status for job: $job_name"
+  echo ""
+
+  nomad status -token="${NOMAD_TOKEN}" "$job_name"
+}
+
+cmd_nomad_logs() {
+  local tail_lines=""
+  local follow=false
+
+  # Parse flags
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --tail=*)
+        tail_lines="${1#*=}"
+        shift
+        ;;
+      --follow|-f)
+        follow=true
+        shift
+        ;;
+      *)
+        echo "ERROR: Unknown option: $1"
+        exit 1
+        ;;
+    esac
+  done
+
+  export NOMAD_ADDR="https://nomad.wsocial.cloud"
+  check_nomad_auth
+
+  local job_name="pds-${ENV}"
+  echo "Fetching logs for job: $job_name"
+
+  # Get the running allocation ID
+  local alloc_id
+  alloc_id=$(nomad status -token="${NOMAD_TOKEN}" "$job_name" | grep -E "^[a-f0-9]{8}\s+" | grep "running" | head -n1 | awk '{print $1}')
+
+  if [ -z "$alloc_id" ]; then
+    echo "ERROR: No running allocation found for job $job_name"
+    exit 1
+  fi
+
+  echo "Using allocation: $alloc_id"
+  echo ""
+
+  # Build log command
+  local log_cmd="nomad alloc logs -token=\"${NOMAD_TOKEN}\""
+  [ -n "$tail_lines" ] && log_cmd="$log_cmd -tail -n $tail_lines"
+  [ "$follow" = true ] && log_cmd="$log_cmd -f"
+  log_cmd="$log_cmd $alloc_id pds"
+
+  # Execute
+  eval "$log_cmd"
+}
+
+#
+# GOAT COMMANDS
+#
+
+cmd_goat() {
+  # Check if goat is available
+  if ! command -v goat >/dev/null 2>&1; then
+    echo "ERROR: 'goat' command not found in PATH"
+    echo "Please install goat or ensure it is in your PATH"
+    exit 1
+  fi
+
+  # Pass all arguments to goat
+  # PDS_HOST and PDS_ADMIN_PASSWORD are already set by check_env()
+  exec goat "$@"
+}
+
+#
 # MAIN
 #
 
@@ -584,19 +798,19 @@ main() {
       esac
       ;;
 
-    migration)
+    transfer)
       if [ $# -eq 0 ]; then
-        echo "ERROR: Migration command required"
+        echo "ERROR: Transfer command required"
         usage
       fi
       local cmd="$1"
       shift
       case "$cmd" in
-        migrate)
-          cmd_migration_migrate "$@"
+        rehome)
+          cmd_transfer_rehome "$@"
           ;;
         *)
-          echo "ERROR: Unknown migration command: $cmd"
+          echo "ERROR: Unknown transfer command: $cmd"
           usage
           ;;
       esac
@@ -610,6 +824,9 @@ main() {
       local cmd="$1"
       shift
       case "$cmd" in
+        create)
+          cmd_invitation_create "$@"
+          ;;
         list)
           cmd_invitation_list "$@"
           ;;
@@ -630,6 +847,32 @@ main() {
           usage
           ;;
       esac
+      ;;
+
+    nomad)
+      if [ $# -eq 0 ]; then
+        echo "ERROR: Nomad command required"
+        usage
+      fi
+      local cmd="$1"
+      shift
+      case "$cmd" in
+        status)
+          cmd_nomad_status "$@"
+          ;;
+        logs)
+          cmd_nomad_logs "$@"
+          ;;
+        *)
+          echo "ERROR: Unknown nomad command: $cmd"
+          usage
+          ;;
+      esac
+      ;;
+
+    goat)
+      # Pass all remaining arguments to goat
+      cmd_goat "$@"
       ;;
 
     help|--help|-h)
