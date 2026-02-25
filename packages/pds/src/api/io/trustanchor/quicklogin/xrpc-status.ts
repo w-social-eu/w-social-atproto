@@ -28,6 +28,7 @@ export default function (server: Server, ctx: AppContext) {
         body: {
           status: session.status,
           result: session.result || undefined,
+          approvalToken: session.approvalToken || undefined,
           error: session.error || undefined,
           expiresAt: session.expiresAt,
         },

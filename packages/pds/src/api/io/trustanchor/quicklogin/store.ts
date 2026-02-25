@@ -10,6 +10,10 @@ export type QuickLoginSession = {
   allowCreate: boolean
   result?: QuickLoginResult
   error?: string
+  // Approval mode fields (set for non-login sessions)
+  purpose?: 'login' | 'delete_account' | 'plc_operation'
+  approvalDid?: string // DID of the account being approved
+  approvalToken?: string // email-style token created after QR scan
 }
 
 export type QuickLoginResult = {
@@ -37,6 +41,8 @@ export class QuickLoginSessionStore {
   createSession(
     allowCreate: boolean,
     serviceId: string,
+    purpose: QuickLoginSession['purpose'] = 'login',
+    approvalDid?: string,
   ): {
     sessionId: string
     sessionToken: string
@@ -54,6 +60,8 @@ export class QuickLoginSessionStore {
       createdAt: new Date().toISOString(),
       expiresAt,
       allowCreate,
+      purpose: purpose ?? 'login',
+      approvalDid,
     })
 
     return { sessionId, sessionToken, expiresAt }
