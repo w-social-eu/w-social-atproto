@@ -110,9 +110,8 @@ export default function (server: Server, ctx: AppContext) {
         body: {
           sessionId: session.sessionId,
           sessionToken: session.sessionToken,
-          serviceId,
+          qrCodeUrl: (qrData as any).src as string,
           expiresAt: session.expiresAt,
-          providerBaseUrl: ctx.cfg.quicklogin.apiBaseUrl,
         },
       }
     },

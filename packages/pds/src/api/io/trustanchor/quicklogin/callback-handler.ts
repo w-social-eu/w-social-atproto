@@ -1,3 +1,4 @@
+import type { EmailTokenPurpose } from '../../../../account-manager/db'
 import { AppContext } from '../../../../context'
 import {
   NeuroCallbackPayload,
@@ -6,6 +7,7 @@ import {
   extractUserName,
   getHandleForDid,
 } from './helpers'
+import type { QuickLoginSession } from './store'
 
 export interface CallbackResult {
   did: string
@@ -46,7 +48,7 @@ export async function handleQuickLoginCallback(
   payload: NeuroCallbackPayload,
   ctx: AppContext,
   log: Logger,
-): Promise<CallbackResult> {
+): Promise<CallbackResult | void> {
   log.info(
     {
       sessionId: payload.SessionId,
@@ -101,6 +103,11 @@ export async function handleQuickLoginCallback(
   }
 
   log.info({ jid }, 'Processing QuickLogin for JID')
+
+  // Branch: non-login approval sessions (delete_account, plc_operation)
+  if (session.purpose && session.purpose !== 'login') {
+    return handleApprovalCallback(session, jid, ctx, log)
+  }
 
   // Check if this Neuro identity is already linked (check Legal ID first for real users, then JID for test users)
   let existingLink = await ctx.accountManager.db.db
@@ -350,5 +357,62 @@ export async function handleQuickLoginCallback(
     accessJwt,
     refreshJwt,
     created: !existingLink,
+  }
+}
+
+/**
+ * Handle a QuickLogin callback for a non-login approval session
+ * (delete_account, plc_operation). Creates an internal email-style token
+ * and stores it in the session for the client to retrieve via status polling.
+ */
+async function handleApprovalCallback(
+  session: QuickLoginSession,
+  jid: string,
+  ctx: AppContext,
+  log: Logger,
+): Promise<void> {
+  const { purpose, approvalDid } = session
+
+  if (!approvalDid) {
+    log.error(
+      { sessionId: session.sessionId },
+      'Approval session missing approvalDid',
+    )
+    ctx.quickloginStore.updateSession(session.sessionId, {
+      status: 'failed',
+      error: 'Approval session missing DID',
+    })
+    return
+  }
+
+  log.info(
+    { purpose, did: approvalDid, jid },
+    'WID approval QR scanned — creating token',
+  )
+
+  try {
+    const token = await ctx.accountManager.createEmailToken(
+      approvalDid,
+      purpose as EmailTokenPurpose,
+    )
+
+    log.info(
+      { purpose, did: approvalDid },
+      'WID approval token created successfully',
+    )
+
+    ctx.quickloginStore.updateSession(session.sessionId, {
+      status: 'completed',
+      approvalToken: token,
+    })
+  } catch (err) {
+    log.error(
+      { err, purpose, did: approvalDid },
+      'Failed to create approval token',
+    )
+    ctx.quickloginStore.updateSession(session.sessionId, {
+      status: 'failed',
+      error: 'Failed to create approval token',
+    })
   }
 }
