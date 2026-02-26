@@ -17,6 +17,8 @@ export default function (server: Server, ctx: AppContext) {
       // Use XRPC endpoint for callback when called via XRPC
       const callbackUrl = `${ctx.cfg.service.publicUrl}/xrpc/io.trustanchor.quicklogin.callback`
 
+      req.log.info({ callbackUrl }, 'Registering callback URL with provider')
+
       // Create temporary session ID for provider registration
       const tempSessionId = randomUUID()
 

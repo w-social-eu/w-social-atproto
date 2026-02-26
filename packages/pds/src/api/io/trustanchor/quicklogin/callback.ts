@@ -11,6 +11,7 @@ export function callbackQuickLogin(router: Router, ctx: AppContext) {
       }
 
       const payload = req.body as NeuroCallbackPayload
+      req.log.info({ payload }, 'Callback received on Express endpoint')
 
       // Call shared handler
       await handleQuickLoginCallback(payload, ctx, req.log)
