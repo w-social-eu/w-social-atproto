@@ -185,16 +185,14 @@ export async function handleQuickLoginCallback(
       'Extracted email and userName from Properties',
     )
 
-    if (!email) {
-      log.error(
+    // Determine if this is a test user (no email in properties)
+    const isTestUser = !email
+
+    if (isTestUser) {
+      log.info(
         { jid, properties: payload.Properties },
-        'No email found in QuickLogin payload',
+        'Test user login (no email in properties)',
       )
-      ctx.quickloginStore.updateSession(session.sessionId, {
-        status: 'failed',
-        error: 'Email required',
-      })
-      throw new Error('Email required')
     }
 
     // Check if invitation is required and exists
@@ -203,12 +201,13 @@ export async function handleQuickLoginCallback(
       ReturnType<typeof ctx.invitationManager.getInvitationByEmail>
     > = null
 
-    if (inviteRequired) {
-      invitation = await ctx.invitationManager.getInvitationByEmail(email)
+    if (!isTestUser && inviteRequired) {
+      // Only check invitations for real users
+      invitation = await ctx.invitationManager.getInvitationByEmail(email!)
 
       if (!invitation) {
         log.warn(
-          { email: ctx.invitationManager.hashEmail(email), jid },
+          { email: ctx.invitationManager.hashEmail(email!), jid },
           'No invitation found - access denied',
         )
         ctx.quickloginStore.updateSession(session.sessionId, {
@@ -224,23 +223,31 @@ export async function handleQuickLoginCallback(
 
       log.info(
         {
-          email: ctx.invitationManager.hashEmail(email),
+          email: ctx.invitationManager.hashEmail(email!),
           preferredHandle: invitation.preferred_handle,
         },
         'Valid invitation found',
       )
     }
 
-    // Find the existing account by email
-    const existingAccount = await ctx.accountManager.db.db
-      .selectFrom('account')
-      .selectAll()
-      .where('email', '=', email.toLowerCase())
-      .executeTakeFirst()
+    // Find the existing account by email (real users) or JID (test users)
+    let existingAccount
+    if (isTestUser) {
+      // For test users, look up by JID in the neuro_identity_link
+      // (this is redundant since we already checked above, but defensive)
+      existingAccount = null
+    } else {
+      // For real users, look up by email
+      existingAccount = await ctx.accountManager.db.db
+        .selectFrom('account')
+        .selectAll()
+        .where('email', '=', email!.toLowerCase())
+        .executeTakeFirst()
+    }
 
     if (!existingAccount) {
       // Account doesn't exist yet
-      if (inviteRequired && !invitation) {
+      if (!isTestUser && inviteRequired && !invitation) {
         // Should never reach here due to earlier check, but defensive
         log.error({ jid, email }, 'No invitation and account not found')
         ctx.quickloginStore.updateSession(session.sessionId, {
@@ -257,16 +264,17 @@ export async function handleQuickLoginCallback(
       // Create new account with invitation (if available)
       log.info(
         { jid, email, preferredHandle: invitation?.preferred_handle },
-        'Creating new account via QuickLogin',
+        `Creating new ${isTestUser ? 'test' : 'real'} account via QuickLogin`,
       )
 
       const preferredHandle = invitation?.preferred_handle || null
       const result = await createAccountViaQuickLogin(
         ctx,
         jid,
-        email,
+        email || undefined, // Pass undefined for test users
         userName,
         preferredHandle,
+        isTestUser, // Pass test user flag
       )
 
       did = result.did
@@ -274,11 +282,11 @@ export async function handleQuickLoginCallback(
       accessJwt = result.accessJwt
       refreshJwt = result.refreshJwt
 
-      // Mark the invitation as consumed
-      if (invitation) {
-        await ctx.invitationManager.consumeInvitation(email, did, handle)
+      // Mark the invitation as consumed (only for real users)
+      if (!isTestUser && invitation) {
+        await ctx.invitationManager.consumeInvitation(email!, did, handle)
         log.info(
-          { email: ctx.invitationManager.hashEmail(email) },
+          { email: ctx.invitationManager.hashEmail(email!) },
           'Invitation consumed',
         )
       }
@@ -295,24 +303,24 @@ export async function handleQuickLoginCallback(
       // Mark the invitation as consumed (if it exists)
       // This handles the case where account was created via provision webhook
       // but user is now logging in via QuickLogin
-      if (invitation) {
-        await ctx.invitationManager.consumeInvitation(email, did, handle)
+      if (!isTestUser && invitation) {
+        await ctx.invitationManager.consumeInvitation(email!, did, handle)
         log.info(
-          { email: ctx.invitationManager.hashEmail(email) },
+          { email: ctx.invitationManager.hashEmail(email!) },
           'Invitation consumed for existing account',
         )
       }
 
-      // Create the neuro_identity_link (QuickLogin is for real users, not test users)
+      // Create the neuro_identity_link
       await ctx.accountManager.db.db
         .insertInto('neuro_identity_link')
         .values({
-          legalId: jid, // Real users use Legal ID
-          jid: null, // NULL for real users
+          legalId: isTestUser ? null : jid, // NULL for test users
+          jid: isTestUser ? jid : null, // Use JID for test users
           did,
-          email: email || null,
+          email: isTestUser ? null : email || null, // NULL for test users
           userName: userName || null,
-          isTestUser: 0,
+          isTestUser: isTestUser ? 1 : 0, // Mark as test user
           linkedAt: new Date().toISOString(),
           lastLoginAt: new Date().toISOString(),
         })
@@ -324,10 +332,10 @@ export async function handleQuickLoginCallback(
       refreshJwt = tokens.refreshJwt
 
       // Delete the invitation if it exists (account already created via other means)
-      if (invitation) {
+      if (!isTestUser && invitation) {
         await ctx.invitationManager.deleteInvitation(invitation.id)
         log.info(
-          { email: ctx.invitationManager.hashEmail(email) },
+          { email: ctx.invitationManager.hashEmail(email!) },
           'Invitation consumed for existing account',
         )
       }

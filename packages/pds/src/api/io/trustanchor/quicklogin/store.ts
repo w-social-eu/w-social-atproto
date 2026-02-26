@@ -4,6 +4,7 @@ export type QuickLoginSession = {
   sessionId: string
   sessionToken: string
   serviceId: string
+  callbackKey?: string
   status: 'pending' | 'completed' | 'failed'
   createdAt: string
   expiresAt: string
@@ -73,7 +74,10 @@ export class QuickLoginSessionStore {
 
   getSessionByServiceId(serviceId: string): QuickLoginSession | undefined {
     for (const session of this.sessions.values()) {
-      if (session.serviceId === serviceId) {
+      if (
+        session.serviceId === serviceId ||
+        session.callbackKey === serviceId
+      ) {
         return session
       }
     }
@@ -83,7 +87,7 @@ export class QuickLoginSessionStore {
   updateSessionKey(sessionId: string, signKey: string): void {
     const session = this.sessions.get(sessionId)
     if (session) {
-      session.serviceId = signKey // Update to use signKey for lookup
+      session.callbackKey = signKey // Store signKey for callback lookup
     }
   }
 

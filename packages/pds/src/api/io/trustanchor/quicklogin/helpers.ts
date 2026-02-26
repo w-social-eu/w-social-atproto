@@ -128,6 +128,7 @@ export async function createAccountViaQuickLogin(
   email?: string,
   userName?: string,
   preferredHandle?: string | null,
+  isTestUser: boolean = false,
 ): Promise<QuickLoginResult> {
   // Derive handle from preferred handle, email, or fallback
   const handle = await deriveAvailableHandle(ctx, email, preferredHandle)
@@ -165,16 +166,16 @@ export async function createAccountViaQuickLogin(
     repoRev: commit.rev,
   })
 
-  // Link Neuro identity (QuickLogin is for real users only)
+  // Link Neuro identity
   await ctx.accountManager.db.db
     .insertInto('neuro_identity_link')
     .values({
-      legalId: legalId, // Real users use Legal ID
-      jid: null, // NULL for real users
+      legalId: isTestUser ? null : legalId, // NULL for test users
+      jid: isTestUser ? legalId : null, // Use JID for test users
       did,
       email: email || null,
       userName: userName || null,
-      isTestUser: 0, // QuickLogin is always for real users (0 = real, 1 = test)
+      isTestUser: isTestUser ? 1 : 0, // 0 = real, 1 = test
       linkedAt: new Date().toISOString(),
       lastLoginAt: new Date().toISOString(),
     })
