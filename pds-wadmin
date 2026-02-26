@@ -63,6 +63,9 @@ check_nomad_auth() {
     exit 1
   fi
 
+  # Nomad cluster address — always the same regardless of PDS env
+  export NOMAD_ADDR="https://nomad.wsocial.cloud"
+
   # Export nomad token from cache if it exists
   local token_cache="$HOME/.nomad-token"
   if [ -f "$token_cache" ]; then
@@ -112,6 +115,10 @@ WID Commands:
   wid list                           List all accounts with W ID links
   wid show <did>                     Show W ID details for account
   wid update <did> <legal-id>        Update W ID for account
+  wid handle <did> <new-handle>      Update account handle (admin override, bypasses user)
+  wid db [--query=SQL]               Query neuro_identity_link table directly via sqlite3
+                                     Default: show all rows with duplicates highlighted
+                                     Use --query=SQL to run a custom query
 
 Transfer Commands:
   transfer rehome <did> <target-pds-url> [handle]
@@ -149,6 +156,7 @@ Examples:
   $0 wid list
   $0 wid show did:plc:abc123
   $0 wid update did:plc:abc123 uuid@legal.lab.tagroot.io
+  $0 wid handle did:plc:abc123 ingmar.wsocial.eu
 
   # Account transfer (rehoming)
   $0 transfer rehome did:plc:abc123 https://pds2.wsocial.dev
@@ -200,21 +208,56 @@ api_call() {
 #
 
 cmd_wid_list() {
-  local response
-  response=$(api_call "GET" "com.atproto.admin.listNeuroAccounts?limit=1000")
-
-  echo "$response" | jq -r '
-    ["DID", "HANDLE", "EMAIL", "W_ID", "LINKED_AT"],
-    (
-      .accounts[] | [
-        .did,
-        .handle,
-        (.email // "-"),
-        (.legalId // "-"),
-        (.linkedAt // "-")
-      ]
-    ) | @tsv
-  ' | column -t -s $'\t'
+  if [ -n "$ENV" ]; then
+    # Nomad available — query DB directly for full accuracy
+    cmd_nomad_exec_sqlite "
+SELECT
+  a.did,
+  COALESCE(a.handle, '?')        AS handle,
+  COALESCE(ac.email, '-')        AS email,
+  COALESCE(nil.legalId, '-')     AS legalId,
+  COALESCE(nil.jid, '-')         AS jid,
+  nil.isTestUser,
+  nil.linkedAt,
+  CASE WHEN cnt.n > 1 THEN 'DUP(' || cnt.n || ')' ELSE '' END AS flags
+FROM actor a
+LEFT JOIN account ac ON ac.did = a.did
+LEFT JOIN neuro_identity_link nil ON nil.did = a.did
+LEFT JOIN (
+  SELECT did, COUNT(*) AS n FROM neuro_identity_link GROUP BY did
+) cnt ON cnt.did = a.did
+ORDER BY a.handle, nil.linkedAt;
+"
+  else
+    # No Nomad (plain pds-wadmin with env vars) — use API
+    local response
+    response=$(api_call "GET" "com.atproto.admin.listNeuroAccounts?limit=1000")
+    # Handle both old format (flat legalId/jid scalars) and new format (neuroLinks array)
+    echo "$response" | jq -r '
+      ["DID", "HANDLE", "EMAIL", "LEGAL_ID", "JID", "LINKED_AT", "FLAGS"],
+      (
+        .accounts[] |
+        . as $acct |
+        # Normalize: if neuroLinks array exists use it, else wrap flat scalars
+        (if (.neuroLinks | type) == "array" and (.neuroLinks | length) > 0
+         then .neuroLinks
+         else [{legalId: .legalId, jid: .jid, isTestUser: (.isTestUser // 0), linkedAt: .linkedAt}]
+         end) as $links |
+        $links[] |
+        [
+          $acct.did,
+          ($acct.handle // "-"),
+          ($acct.email // "-"),
+          (.legalId // "-"),
+          (.jid // .jidRef // "-"),
+          (.linkedAt // "-"),
+          ([(if .isTestUser == 1 then "TEST" else empty end),
+            (if ($acct.duplicateLinks // false) then "DUP" else empty end)] |
+           join(",") | if . == "" then "-" else . end)
+        ]
+      ) | @tsv
+    ' | column -t -s $'\t'
+  fi
 }
 
 cmd_wid_show() {
@@ -235,14 +278,31 @@ cmd_wid_show() {
     exit 1
   fi
 
+  # Normalize: support both old API format (flat scalars) and new (neuroLinks array)
   echo "$response" | jq '
+    # Build a normalized neuroLinks array regardless of API version
+    (if (.neuroLinks | type) == "array"
+     then .neuroLinks
+     else [{legalId: .legalId, jid: .jid, jidRef: .jidRef,
+             isTestUser: (.isTestUser // 0),
+             linkedAt: .linkedAt, lastLoginAt: .lastLoginAt}]
+     end) as $links |
     {
       "DID": .did,
       "Handle": .handle,
       "Email": (.email // "N/A"),
-      "W ID (Legal ID)": (.legalId // "Not linked"),
-      "Linked At": (.linkedAt // "N/A"),
-      "Last Login": (.lastLoginAt // "N/A")
+      "Duplicate links": (.duplicateLinks // (($links | length) > 1)),
+      "Neuro links": [
+        $links[] |
+        {
+          "Legal ID": (.legalId // "—"),
+          "JID (test)": (.jid // "—"),
+          "JID ref": (.jidRef // "—"),
+          "Test user": .isTestUser,
+          "Linked at": (.linkedAt // "N/A"),
+          "Last login": (.lastLoginAt // "N/A")
+        }
+      ]
     }
   '
 }
@@ -286,6 +346,50 @@ cmd_wid_update() {
       "Updated At": .updatedAt
     }
   '
+}
+
+cmd_wid_handle() {
+  local did="$1"
+  local new_handle="$2"
+
+  if [ -z "$did" ] || [ -z "$new_handle" ]; then
+    echo "ERROR: Both DID and new handle are required"
+    echo "Usage: $0 wid handle <did> <new-handle>"
+    exit 1
+  fi
+
+  # Validate handle format (basic check)
+  if [[ ! "$new_handle" =~ \. ]]; then
+    echo "ERROR: Handle must contain at least one dot (e.g. ingmar.wsocial.eu)"
+    exit 1
+  fi
+
+  echo "Updating handle for $did"
+  echo "  New handle: $new_handle"
+  echo ""
+
+  local data
+  data=$(jq -n \
+    --arg did "$did" \
+    --arg handle "$new_handle" \
+    '{did: $did, handle: $handle}')
+
+  local response
+  response=$(api_call "POST" "com.atproto.admin.updateAccountHandle" "$data")
+
+  # updateAccountHandle returns 200 with empty body on success
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to update handle"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  echo "✓ Handle updated to: $new_handle"
+  echo ""
+  echo "Next steps:"
+  echo "  1. Verify DNS TXT:  dig TXT _atproto.$new_handle +short"
+  echo "  2. Verify well-known: curl https://$new_handle/.well-known/atproto-did"
+  echo "  3. Verify resolve:  curl '${PDS_HOST}/xrpc/com.atproto.identity.resolveHandle?handle=$new_handle'"
 }
 
 #
@@ -682,6 +786,134 @@ cmd_invitation_purge() {
 # NOMAD COMMANDS
 #
 
+cmd_nomad_exec_sqlite() {
+  # Internal helper: run a SQL query inside the running Nomad allocation.
+  # Uses node + better-sqlite3 (always available in the PDS container).
+  # Usage: cmd_nomad_exec_sqlite <sql>
+  local sql="$1"
+
+  check_nomad_auth
+
+  local job_name="pds-${ENV}"
+  local alloc_id
+  alloc_id=$(nomad status -token="${NOMAD_TOKEN}" "$job_name" 2>/dev/null \
+    | grep -E "^[a-f0-9]{8}\s+" | grep "running" | head -n1 | awk '{print $1}')
+
+  if [ -z "$alloc_id" ]; then
+    echo "ERROR: No running allocation found for job $job_name"
+    exit 1
+  fi
+
+  # Build a Node.js script that queries the DB via better-sqlite3
+  # (sqlite3 CLI is not installed in the PDS container; Node + better-sqlite3 always are).
+  # The SQL is written to the script via a temporary env var so no quoting escapes are needed.
+  #
+  # nomad alloc exec passes the command + args directly — we use "sh -c" so the container
+  # shell handles the single exec, and we JSON-encode the SQL into the node script body to
+  # avoid any quoting issues crossing the nomad exec boundary.
+  local sql_json
+  sql_json=$(printf '%s' "$sql" | node -e "
+    let s=''; process.stdin.on('data',c=>s+=c); process.stdin.on('end',()=>console.log(JSON.stringify(s)));
+  ")
+
+  local node_script
+  node_script="
+const path=require('path'),fs=require('fs');
+const sql=${sql_json};
+const appRoot='/app';
+
+// Resolve better-sqlite3: handles both npm flat layout and pnpm virtual store
+let DB;
+const directPath=path.join(appRoot,'node_modules','better-sqlite3');
+if(fs.existsSync(path.join(directPath,'package.json'))){
+  DB=require(directPath);
+} else {
+  // pnpm virtual store: /app/node_modules/.pnpm/better-sqlite3-X.Y.Z.../node_modules/better-sqlite3
+  try {
+    const pnpmStore=path.join(appRoot,'node_modules','.pnpm');
+    const ent=fs.readdirSync(pnpmStore).find(e=>e.startsWith('better-sqlite3'));
+    if(ent) DB=require(path.join(pnpmStore,ent,'node_modules','better-sqlite3'));
+  } catch(e) {}
+}
+if(!DB){
+  // Last resort: require.resolve with search paths
+  for(const base of [appRoot, process.cwd()]){
+    try { DB=require(require.resolve('better-sqlite3',{paths:[base]})); break; } catch(e) {}
+  }
+}
+if(!DB){ console.error('ERROR: better-sqlite3 not found in container'); process.exit(1); }
+
+let dbPath;
+const d=process.env.PDS_DATA_DIRECTORY;
+if(d){dbPath=path.join(d,'account.sqlite');}
+else{for(const p of['/data/account.sqlite','/var/run/account.sqlite','/var/run/pds/account.sqlite']){if(fs.existsSync(p)){dbPath=p;break;}}}
+if(!dbPath||!fs.existsSync(dbPath)){console.error('ERROR: account.sqlite not found');process.exit(1);}
+const db=new DB(dbPath,{readonly:true});
+const rows=db.prepare(sql).all();
+db.close();
+if(rows.length===0){console.log('(no rows)');process.exit(0);}
+const cols=Object.keys(rows[0]);
+const widths=cols.map(c=>Math.max(c.length,...rows.map(r=>String(r[c]??'').length)));
+const fmt=r=>cols.map((c,i)=>String(r[c]??'').padEnd(widths[i])).join('  ');
+console.log(cols.map((c,i)=>c.padEnd(widths[i])).join('  '));
+console.log(widths.map(w=>'-'.repeat(w)).join('  '));
+rows.forEach(r=>console.log(fmt(r)));
+"
+
+  # Pass the script as argv[1] of node -e  ("-e SCRIPT" is a single nomad-exec argument,
+  # no shell involved, so no further quoting needed on the nomad side)
+  nomad alloc exec -token="${NOMAD_TOKEN}" -task pds "$alloc_id" \
+    node -e "$node_script"
+}
+
+cmd_wid_db() {
+  local custom_query=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --query=*)
+        custom_query="${1#*=}"
+        shift
+        ;;
+      *)
+        echo "ERROR: Unknown option: $1"
+        exit 1
+        ;;
+    esac
+  done
+
+  if [ -z "$ENV" ] || [ "$ENV" = "wadmin" ]; then
+    echo "ERROR: wid db requires environment context (use pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod)"
+    exit 1
+  fi
+
+  if [ -n "$custom_query" ]; then
+    cmd_nomad_exec_sqlite "$custom_query"
+    return
+  fi
+
+  # Default: full neuro_identity_link dump with duplicate annotation.
+  # jidRef is omitted here because migration 014 may not yet be deployed;
+  # use --query= to include it once the column exists.
+  cmd_nomad_exec_sqlite "
+SELECT
+  nil.did,
+  COALESCE(a.handle, '?') AS handle,
+  nil.legalId,
+  nil.jid,
+  nil.isTestUser,
+  nil.linkedAt,
+  nil.lastLoginAt,
+  CASE WHEN cnt.n > 1 THEN '*** DUP (' || cnt.n || ')' ELSE '' END AS dup_flag
+FROM neuro_identity_link nil
+LEFT JOIN actor a ON a.did = nil.did
+JOIN (
+  SELECT did, COUNT(*) AS n FROM neuro_identity_link GROUP BY did
+) cnt ON cnt.did = nil.did
+ORDER BY nil.did, nil.linkedAt;
+"
+}
+
 cmd_nomad_status() {
   check_nomad_auth
 
@@ -790,6 +1022,12 @@ main() {
           ;;
         update)
           cmd_wid_update "$@"
+          ;;
+        handle)
+          cmd_wid_handle "$@"
+          ;;
+        db)
+          cmd_wid_db "$@"
           ;;
         *)
           echo "ERROR: Unknown wid command: $cmd"
