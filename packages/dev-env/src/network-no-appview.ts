@@ -50,9 +50,6 @@ export class TestNetworkNoAppView {
     if (this.pds.ctx.neuroAuthManager) {
       this.pds.ctx.neuroAuthManager.cleanup?.()
     }
-    if (this.pds.ctx.neuroRemoteLoginManager) {
-      this.pds.ctx.neuroRemoteLoginManager.cleanup?.()
-    }
     await this.pds.close()
     await this.plc.close()
   }
