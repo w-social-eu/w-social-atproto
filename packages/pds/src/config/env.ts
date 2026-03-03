@@ -165,36 +165,21 @@ export function readEnv() {
             (envStr('PDS_NEURO_STORAGE_BACKEND') as 'database' | 'redis') ||
             'database',
           customUiPath: envStr('PDS_NEURO_CUSTOM_UI_PATH'),
-          // RemoteLogin API configuration
-          apiType:
-            (envStr('PDS_NEURO_API_TYPE') as
-              | 'quicklogin'
-              | 'remotelogin'
-              | 'both') || 'remotelogin',
-          responseMethod:
-            (envStr('PDS_NEURO_RESPONSE_METHOD') as 'Callback' | 'Poll') ||
-            'Callback',
+          // QuickLogin callback configuration
           callbackBaseUrl: envStr('PDS_NEURO_CALLBACK_BASE_URL'),
-          pollIntervalMs: envInt('PDS_NEURO_POLL_INTERVAL_MS') || 2000,
-          // Authentication for RemoteLogin API
-          authMethod:
-            (envStr('PDS_NEURO_AUTH_METHOD') as 'basic' | 'bearer' | 'mtls') ||
-            'basic',
-          basicUsername: envStr('PDS_NEURO_BASIC_USERNAME'),
-          basicPassword: envStr('PDS_NEURO_BASIC_PASSWORD'),
-          bearerToken: envStr('PDS_NEURO_BEARER_TOKEN'),
-          // JWT verification
           verifyJwtSignature: envBool('PDS_NEURO_VERIFY_JWT') ?? false,
-          petitionTimeoutSeconds: envInt('PDS_NEURO_PETITION_TIMEOUT') || 300,
+          callbackSignatureRequired: envBool('PDS_NEURO_CALLBACK_SIGNATURE_REQUIRED') ?? false,
         } as NeuroConfig)
       : undefined,
 
     // quicklogin (simpler standalone implementation)
     quickloginEnabled: envBool('PDS_QUICKLOGIN_ENABLED'),
     quickloginApiBaseUrl: envStr('PDS_QUICKLOGIN_API_BASE_URL'),
+    debugNeuro: envBool('PDS_DEBUG_NEURO'),
 
     // test user support
-    allowTestUserCreation: envBool('PDS_ALLOW_TEST_USER_CREATION'),
+    allowTestUserLogin: envBool('PDS_ALLOW_TEST_USER_LOGIN'),
+    neuroCallbackSignatureRequired: envBool('PDS_NEURO_CALLBACK_SIGNATURE_REQUIRED'),
   }
 }
 

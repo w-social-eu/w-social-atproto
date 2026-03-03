@@ -227,7 +227,7 @@ export const createProvisionAccountRoute = (ctx: AppContext): Router => {
       }
 
       // Check if test user creation is allowed
-      if (!ctx.cfg.allowTestUserCreation) {
+      if (!ctx.cfg.allowTestUserLogin) {
         req.log.warn(
           { jid: jidRef, userName },
           'Test user provisioning rejected - PDS_ALLOW_TEST_USER_CREATION=false',
@@ -374,14 +374,11 @@ export const createProvisionAccountRoute = (ctx: AppContext): Router => {
     const legalId: string | undefined = isTestUser
       ? undefined
       : payload.Tags?.ID
-    const userName: string = payload.Tags?.Account?.toLowerCase()!
+    const userName: string = (payload.Tags?.Account || '').toLowerCase()
     const jidRef: string | undefined = payload.Tags?.JID
     const emailFromNeuro: string | undefined = isTestUser
       ? undefined
       : payload.Tags?.EMAIL?.trim()
-    const phone: string | undefined = isTestUser
-      ? undefined
-      : payload.Tags?.PHONE?.trim()
     const email: string = isTestUser
       ? 'noreply@wsocial.eu'
       : emailFromNeuro || 'noreply@wsocial.eu'
@@ -405,24 +402,26 @@ export const createProvisionAccountRoute = (ctx: AppContext): Router => {
       })
     }
 
-    // Step 8: Check if identity already linked (check both Legal ID and JID)
+    // Step 8: Check if identity already linked (real: userJid, test: testUserJid)
     let existingLink:
-      | { did: string; legalId: string | null; jid: string | null }
+      | { did: string; userJid: string | null; testUserJid: string | null }
       | undefined
 
     if (isTestUser && jidRef) {
       // For test users, check JID
       existingLink = await ctx.accountManager.db.db
         .selectFrom('neuro_identity_link')
-        .select(['did', 'legalId', 'jid'])
-        .where('jid', '=', jidRef)
+        .select(['did', 'userJid', 'testUserJid'])
+        .where('testUserJid', '=', jidRef)
+        .where('isTestUser', '=', 1)
         .executeTakeFirst()
     } else if (!isTestUser && legalId) {
       // For real users, check Legal ID
       existingLink = await ctx.accountManager.db.db
         .selectFrom('neuro_identity_link')
-        .select(['did', 'legalId', 'jid'])
-        .where('legalId', '=', legalId)
+        .select(['did', 'userJid', 'testUserJid'])
+        .where('userJid', '=', legalId)
+        .where('isTestUser', '=', 0)
         .executeTakeFirst()
     }
 
@@ -547,15 +546,13 @@ export const createProvisionAccountRoute = (ctx: AppContext): Router => {
           repoRev: commit.rev,
         })
 
-        // Step 12: Link Neuro identity (test users use JID, real users use Legal ID)
+        // Step 12: Link Neuro identity (test users use testUserJid, real users use userJid)
         await ctx.accountManager.db.db
           .insertInto('neuro_identity_link')
           .values({
             did,
-            legalId: isTestUser ? null : legalId, // NULL for test users
-            jid: isTestUser ? jidRef : null, // JID for test users, NULL for real users
-            email: email || null,
-            userName: userName || null,
+            userJid: isTestUser ? null : legalId, // NULL for test users
+            testUserJid: isTestUser ? jidRef : null, // JID for test users, NULL for real users
             isTestUser: isTestUser ? 1 : 0, // 1 for test users, 0 for real users
             linkedAt: new Date().toISOString(),
             lastLoginAt: null,
@@ -565,8 +562,8 @@ export const createProvisionAccountRoute = (ctx: AppContext): Router => {
         req.log.info(
           {
             did,
-            legalId: isTestUser ? null : legalId,
-            jid: isTestUser ? jidRef : null,
+            userJid: isTestUser ? null : legalId,
+            testUserJid: isTestUser ? jidRef : null,
             isTestUser,
           },
           'Neuro identity link created',

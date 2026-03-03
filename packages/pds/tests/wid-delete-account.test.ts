@@ -176,11 +176,9 @@ describe('WID account deletion', () => {
     await ctx.accountManager.db.db
       .insertInto('neuro_identity_link')
       .values({
-        legalId: 'wid-deltest@legal.lab.tagroot.io',
-        jid: null,
+        userJid: 'wid-deltest@legal.lab.tagroot.io',
+        testUserJid: null,
         did: testDid,
-        email,
-        userName: 'wid-deltest',
         isTestUser: 0,
         linkedAt: new Date().toISOString(),
         lastLoginAt: null,
