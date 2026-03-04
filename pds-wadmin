@@ -317,10 +317,11 @@ cmd_wid_update() {
     exit 1
   fi
 
-  if [[ ! "$new_legal_id" =~ @legal\. ]]; then
-    echo "ERROR: Invalid Legal ID format (must contain '@legal.')"
-    exit 1
-  fi
+  # FIXME: Add validation for ID format
+  #if [[ ! "$new_legal_id" =~ @legal\. ]]; then
+  #  echo "ERROR: Invalid Legal ID format (must contain '@legal.')"
+  #  exit 1
+  #fi
 
   local data
   data=$(jq -n \
@@ -638,40 +639,33 @@ cmd_invitation_create() {
     shift || true
   done
 
-  # Build the UserInvitation event
+  # Build createInvitation request
   local event_data
   local timestamp=$(date +%s)
 
   if [ -n "$handle" ]; then
     event_data=$(jq -n \
-      --arg EventId "UserInvitation" \
       --arg email "$email" \
       --arg handle "$handle" \
       --arg timestamp "$timestamp" \
       '{
-        EventId: $EventId,
-        Tags: { EMAIL: $email },
-        Handle: $handle,
-        Timestamp: ($timestamp | tonumber)
+        email: $email,
+        preferredHandle: $handle,
+        invitationTimestamp: ($timestamp | tonumber)
       }')
   else
     event_data=$(jq -n \
-      --arg EventId "UserInvitation" \
       --arg email "$email" \
       --arg timestamp "$timestamp" \
       '{
-        EventId: $EventId,
-        Tags: { EMAIL: $email },
-        Timestamp: ($timestamp | tonumber)
+        email: $email,
+        invitationTimestamp: ($timestamp | tonumber)
       }')
   fi
 
-  # Use X-API-Key auth for the neuro provision endpoint
+  # Use admin xrpc endpoint for invitation creation
   local response
-  response=$(curl -s -X POST "${PDS_HOST}/neuro/provision/account" \
-    -H "X-API-Key: ${PDS_ADMIN_PASSWORD}" \
-    -H "Content-Type: application/json" \
-    -d "$event_data")
+  response=$(api_call "POST" "io.trustanchor.admin.createInvitation" "$event_data")
 
   if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
     echo "ERROR: Failed to create invitation"

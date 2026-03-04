@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto'
 import { DAY } from '@atproto/common'
 import { dbLogger } from '../logger'
 import { AccountDb } from './db'
@@ -6,7 +7,26 @@ import { PendingInvitationEntry } from './db/schema'
 const INVITATION_EXPIRY_MS = 30 * DAY // 30 days
 
 export class InvitationManager {
-  constructor(public db: AccountDb) {}
+  constructor(
+    public db: AccountDb,
+    private emailHashSalt: string | null = null,
+  ) {}
+
+  private normalizeEmail(email: string): string {
+    return email.trim().toLowerCase()
+  }
+
+  private normalizeHash(hash: string): string {
+    return hash.trim().toLowerCase()
+  }
+
+  private ensureInvitationHashSaltConfigured(): void {
+    if (!this.emailHashSalt) {
+      throw new Error(
+        'PDS_INVITATION_EMAIL_HASH_SALT is not set. Invitation creation is disabled until it is configured.',
+      )
+    }
+  }
 
   /**
    * Create a new invitation or update existing one
@@ -17,7 +37,10 @@ export class InvitationManager {
     preferredHandle?: string | null,
     invitationTimestamp?: number,
   ): Promise<void> {
-    const normalizedEmail = email.toLowerCase()
+    this.ensureInvitationHashSaltConfigured()
+
+    const normalizedEmail = this.normalizeEmail(email)
+    const emailHash = this.hashEmail(normalizedEmail)
     const now = new Date().toISOString()
     const timestamp = invitationTimestamp || Math.floor(Date.now() / 1000)
     const expiresAt = new Date(Date.now() + INVITATION_EXPIRY_MS).toISOString()
@@ -35,6 +58,7 @@ export class InvitationManager {
       .insertInto('pending_invitations')
       .values({
         email: normalizedEmail,
+        email_hash: emailHash,
         preferred_handle: preferredHandle || null,
         invitation_timestamp: timestamp,
         created_at: now,
@@ -43,6 +67,7 @@ export class InvitationManager {
       })
       .onConflict((oc) =>
         oc.column('email').doUpdateSet({
+          email_hash: emailHash,
           preferred_handle: preferredHandle || null,
           invitation_timestamp: timestamp,
           created_at: now,
@@ -60,13 +85,35 @@ export class InvitationManager {
   async getInvitationByEmail(
     email: string,
   ): Promise<PendingInvitationEntry | null> {
-    const normalizedEmail = email.toLowerCase()
+    const normalizedEmail = this.normalizeEmail(email)
+    const emailHash = this.hashEmail(normalizedEmail)
     const now = new Date().toISOString()
 
     const invitation = await this.db.db
       .selectFrom('pending_invitations')
       .selectAll()
-      .where('email', '=', normalizedEmail)
+      .where((qb) =>
+        qb
+          .where('email_hash', '=', emailHash)
+          .orWhere('email', '=', normalizedEmail),
+      )
+      .where('status', '=', 'pending')
+      .where('expires_at', '>', now)
+      .executeTakeFirst()
+
+    return invitation || null
+  }
+
+  async getInvitationByEmailHash(
+    emailHash: string,
+  ): Promise<PendingInvitationEntry | null> {
+    const normalizedHash = this.normalizeHash(emailHash)
+    const now = new Date().toISOString()
+
+    const invitation = await this.db.db
+      .selectFrom('pending_invitations')
+      .selectAll()
+      .where('email_hash', '=', normalizedHash)
       .where('status', '=', 'pending')
       .where('expires_at', '>', now)
       .executeTakeFirst()
@@ -94,7 +141,8 @@ export class InvitationManager {
     did: string,
     handle: string,
   ): Promise<void> {
-    const normalizedEmail = email.toLowerCase()
+    const normalizedEmail = this.normalizeEmail(email)
+    const emailHash = this.hashEmail(normalizedEmail)
     const now = new Date().toISOString()
 
     await this.db.db
@@ -105,7 +153,11 @@ export class InvitationManager {
         consuming_did: did,
         consuming_handle: handle,
       })
-      .where('email', '=', normalizedEmail)
+      .where((qb) =>
+        qb
+          .where('email_hash', '=', emailHash)
+          .orWhere('email', '=', normalizedEmail),
+      )
       .where('status', '=', 'pending')
       .execute()
 
@@ -116,6 +168,36 @@ export class InvitationManager {
         handle,
       },
       'Invitation consumed',
+    )
+  }
+
+  async consumeInvitationByHash(
+    emailHash: string,
+    did: string,
+    handle: string,
+  ): Promise<void> {
+    const normalizedHash = this.normalizeHash(emailHash)
+    const now = new Date().toISOString()
+
+    await this.db.db
+      .updateTable('pending_invitations')
+      .set({
+        status: 'consumed',
+        consumed_at: now,
+        consuming_did: did,
+        consuming_handle: handle,
+      })
+      .where('email_hash', '=', normalizedHash)
+      .where('status', '=', 'pending')
+      .execute()
+
+    dbLogger.info(
+      {
+        emailHash: normalizedHash,
+        did,
+        handle,
+      },
+      'Invitation consumed by hash',
     )
   }
 
@@ -134,7 +216,21 @@ export class InvitationManager {
     if (isId) {
       query = query.where('id', '=', idOrEmail)
     } else {
-      query = query.where('email', '=', idOrEmail.toLowerCase())
+      const normalizedInput = idOrEmail.trim().toLowerCase()
+      if (normalizedInput.includes('@')) {
+        const emailHash = this.hashEmail(normalizedInput)
+        query = query.where((qb) =>
+          qb
+            .where('email_hash', '=', emailHash)
+            .orWhere('email', '=', normalizedInput),
+        )
+      } else {
+        query = query.where((qb) =>
+          qb
+            .where('email_hash', '=', normalizedInput)
+            .orWhere('email', '=', normalizedInput),
+        )
+      }
     }
 
     const result = await query.executeTakeFirst()
@@ -317,14 +413,11 @@ export class InvitationManager {
    * Hash email for logging (privacy)
    */
   hashEmail(email: string): string {
-    // Simple hash for logging - not cryptographic
-    let hash = 0
-    for (let i = 0; i < email.length; i++) {
-      const char = email.charCodeAt(i)
-      hash = (hash << 5) - hash + char
-      hash = hash & hash // Convert to 32bit integer
-    }
-    return hash.toString(16)
+    const normalizedEmail = this.normalizeEmail(email)
+    this.ensureInvitationHashSaltConfigured()
+    return createHmac('sha256', this.emailHashSalt!)
+      .update(normalizedEmail)
+      .digest('hex')
   }
 
   /**

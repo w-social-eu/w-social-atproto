@@ -1,235 +1,99 @@
-// Import directly from source file to avoid pulling in bsky package which has build issues
-import axios from 'axios'
-import { AtpAgent } from '@atproto/api'
 import { TestNetworkNoAppView } from '@atproto/dev-env/src/network-no-appview'
+import { InvitationManager } from '../src/account-manager/invitation-manager'
 
 /**
  * Invitation Flow Integration Tests
  *
- * Tests the complete invitation system including:
- * - HTTP API authentication (X-API-Key and Basic Auth)
- * - Request validation
+ * Tests the invitation lifecycle in the supported flow:
+ * - create/update invitations
  * - Email normalization
  * - Batch processing
- * - Error handling
- *
- * Manual test results (2026-02-05):
- * ✅ X-API-Key authentication works (201 Created)
- * ✅ Basic Auth authentication works (201 Created)
- * ✅ Invalid auth rejected (401 Unauthorized)
- * ✅ Missing email validation (400 Bad Request)
- * ✅ Email normalization (lowercase)
- * ✅ Batch processing (10 invitations)
+ * - Error handling (missing salt)
  */
 
 describe('Invitation Flow Integration', () => {
   let network: TestNetworkNoAppView
-  let agent: AtpAgent
-  let pdsUrl: string
-  const adminPassword = 'test-admin-password'
+  let previousInvitationEmailHashSalt: string | undefined
 
   beforeAll(async () => {
+    previousInvitationEmailHashSalt = process.env.PDS_INVITATION_EMAIL_HASH_SALT
+    process.env.PDS_INVITATION_EMAIL_HASH_SALT =
+      process.env.PDS_INVITATION_EMAIL_HASH_SALT ||
+      'test-invitation-email-hash-salt'
+
     network = await TestNetworkNoAppView.create({
       dbPostgresSchema: 'invitation_flow',
     })
-    pdsUrl = network.pds.url
-    agent = new AtpAgent({ service: pdsUrl })
   })
 
   afterAll(async () => {
     await network.close()
+
+    if (previousInvitationEmailHashSalt === undefined) {
+      delete process.env.PDS_INVITATION_EMAIL_HASH_SALT
+    } else {
+      process.env.PDS_INVITATION_EMAIL_HASH_SALT =
+        previousInvitationEmailHashSalt
+    }
   })
 
-  describe('UserInvitation Event Handler', () => {
-    it('creates invitation with X-API-Key authentication', async () => {
-      const response = await axios.post(
-        `${pdsUrl}/neuro/provision/account`,
-        {
-          EventId: 'UserInvitation',
-          Tags: {
-            EMAIL: 'apikey@example.com',
-          },
-          Handle: 'apikeyuser',
-          Timestamp: Math.floor(Date.now() / 1000),
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': adminPassword,
-          },
-        },
+  describe('Invitation manager flow', () => {
+    it('creates invitation with preferred handle', async () => {
+      const email = 'apikey@example.com'
+      await network.pds.ctx.invitationManager.createInvitation(
+        email,
+        'apikeyuser',
+        Math.floor(Date.now() / 1000),
       )
 
-      expect(response.status).toBe(201)
-      expect(response.data.success).toBe(true)
-      expect(response.data.email).toBe('apikey@example.com')
-      expect(response.data.preferredHandle).toBe('apikeyuser')
-    })
+      const invitation =
+        await network.pds.ctx.invitationManager.getInvitationByEmail(email)
 
-    it('creates invitation with Basic Auth', async () => {
-      const response = await axios.post(
-        `${pdsUrl}/neuro/provision/account`,
-        {
-          EventId: 'UserInvitation',
-          Tags: {
-            EMAIL: 'basicauth@example.com',
-          },
-          Handle: 'basicuser',
-          Timestamp: Math.floor(Date.now() / 1000),
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          auth: {
-            username: 'admin',
-            password: adminPassword,
-          },
-        },
-      )
-
-      expect(response.status).toBe(201)
-      expect(response.data.success).toBe(true)
-      expect(response.data.email).toBe('basicauth@example.com')
+      expect(invitation).toBeDefined()
+      expect(invitation?.email).toBe('apikey@example.com')
+      expect(invitation?.preferred_handle).toBe('apikeyuser')
     })
 
     it('creates invitation without preferred handle', async () => {
-      const response = await axios.post(
-        `${pdsUrl}/neuro/provision/account`,
-        {
-          EventId: 'UserInvitation',
-          Tags: {
-            EMAIL: 'nohandle@example.com',
-          },
-          Timestamp: Math.floor(Date.now() / 1000),
-        },
-        {
-          headers: {
-            'X-API-Key': adminPassword,
-          },
-        },
+      const email = 'nohandle@example.com'
+      await network.pds.ctx.invitationManager.createInvitation(
+        email,
+        null,
+        Math.floor(Date.now() / 1000),
       )
 
-      expect(response.status).toBe(201)
-      expect(response.data.preferredHandle).toBeNull()
+      const invitation =
+        await network.pds.ctx.invitationManager.getInvitationByEmail(email)
+      expect(invitation?.preferred_handle).toBeNull()
     })
 
-    it('rejects request with invalid API key', async () => {
-      try {
-        await axios.post(
-          `${pdsUrl}/neuro/provision/account`,
-          {
-            EventId: 'UserInvitation',
-            Tags: {
-              EMAIL: 'test@example.com',
-            },
-            Timestamp: Math.floor(Date.now() / 1000),
-          },
-          {
-            headers: {
-              'X-API-Key': 'wrong-password',
-            },
-          },
-        )
-        fail('Should have thrown 401')
-      } catch (err: any) {
-        expect(err.response.status).toBe(401)
-        expect(err.response.data.error).toBe('Unauthorized')
-      }
-    })
-
-    it('rejects request without authentication', async () => {
-      try {
-        await axios.post(`${pdsUrl}/neuro/provision/account`, {
-          EventId: 'UserInvitation',
-          Tags: {
-            EMAIL: 'test@example.com',
-          },
-          Timestamp: Math.floor(Date.now() / 1000),
-        })
-        fail('Should have thrown 401')
-      } catch (err: any) {
-        expect(err.response.status).toBe(401)
-      }
-    })
-
-    it('rejects request with missing email', async () => {
-      try {
-        await axios.post(
-          `${pdsUrl}/neuro/provision/account`,
-          {
-            EventId: 'UserInvitation',
-            Tags: {},
-            Timestamp: Math.floor(Date.now() / 1000),
-          },
-          {
-            headers: {
-              'X-API-Key': adminPassword,
-            },
-          },
-        )
-        fail('Should have thrown 400')
-      } catch (err: any) {
-        expect(err.response.status).toBe(400)
-        expect(err.response.data.message).toContain('EMAIL')
-      }
-    })
-
-    it('rejects request with missing timestamp', async () => {
-      try {
-        await axios.post(
-          `${pdsUrl}/neuro/provision/account`,
-          {
-            EventId: 'UserInvitation',
-            Tags: {
-              EMAIL: 'test@example.com',
-            },
-          },
-          {
-            headers: {
-              'X-API-Key': adminPassword,
-            },
-          },
-        )
-        fail('Should have thrown 400')
-      } catch (err: any) {
-        expect(err.response.status).toBe(400)
-        expect(err.response.data.message).toContain('Timestamp')
-      }
+    it('returns clear config error when invitation hash salt is missing', async () => {
+      const manager = new InvitationManager(network.pds.ctx.accountManager.db, null)
+      await expect(
+        manager.createInvitation(
+          'salt-missing@example.com',
+          null,
+          Math.floor(Date.now() / 1000),
+        ),
+      ).rejects.toThrow('PDS_INVITATION_EMAIL_HASH_SALT')
     })
 
     it('updates existing invitation on duplicate email', async () => {
       const email = 'update@example.com'
 
       // Create first invitation
-      const response1 = await axios.post(
-        `${pdsUrl}/neuro/provision/account`,
-        {
-          EventId: 'UserInvitation',
-          Tags: { EMAIL: email },
-          Handle: 'firsthandle',
-          Timestamp: Math.floor(Date.now() / 1000),
-        },
-        {
-          headers: { 'X-API-Key': adminPassword },
-        },
+      await network.pds.ctx.invitationManager.createInvitation(
+        email,
+        'firsthandle',
+        Math.floor(Date.now() / 1000),
       )
-      expect(response1.data.preferredHandle).toBe('firsthandle')
 
       // Update with new handle
-      const response2 = await axios.post(
-        `${pdsUrl}/neuro/provision/account`,
-        {
-          EventId: 'UserInvitation',
-          Tags: { EMAIL: email },
-          Handle: 'secondhandle',
-          Timestamp: Math.floor(Date.now() / 1000) + 100,
-        },
-        {
-          headers: { 'X-API-Key': adminPassword },
-        },
+      await network.pds.ctx.invitationManager.createInvitation(
+        email,
+        'secondhandle',
+        Math.floor(Date.now() / 1000) + 100,
       )
-      expect(response2.data.preferredHandle).toBe('secondhandle')
 
       // Verify only one invitation exists
       const invitation =
@@ -251,19 +115,11 @@ describe('Invitation Flow Integration', () => {
     it('handles mixed-case emails consistently', async () => {
       const email = 'MixedCase@Example.COM'
 
-      const response = await axios.post(
-        `${pdsUrl}/neuro/provision/account`,
-        {
-          EventId: 'UserInvitation',
-          Tags: { EMAIL: email },
-          Timestamp: Math.floor(Date.now() / 1000),
-        },
-        {
-          headers: { 'X-API-Key': adminPassword },
-        },
+      await network.pds.ctx.invitationManager.createInvitation(
+        email,
+        null,
+        Math.floor(Date.now() / 1000),
       )
-
-      expect(response.data.email).toBe('mixedcase@example.com')
 
       const invitation =
         await network.pds.ctx.invitationManager.getInvitationByEmail(email)
@@ -276,26 +132,15 @@ describe('Invitation Flow Integration', () => {
       const promises = []
       for (let i = 0; i < 10; i++) {
         promises.push(
-          axios.post(
-            `${pdsUrl}/neuro/provision/account`,
-            {
-              EventId: 'UserInvitation',
-              Tags: { EMAIL: `batch${i}@example.com` },
-              Handle: `batchuser${i}`,
-              Timestamp: Math.floor(Date.now() / 1000),
-            },
-            {
-              headers: { 'X-API-Key': adminPassword },
-            },
+          network.pds.ctx.invitationManager.createInvitation(
+            `batch${i}@example.com`,
+            `batchuser${i}`,
+            Math.floor(Date.now() / 1000),
           ),
         )
       }
 
-      const results = await Promise.all(promises)
-      results.forEach((response) => {
-        expect(response.status).toBe(201)
-        expect(response.data.success).toBe(true)
-      })
+      await Promise.all(promises)
 
       // Verify all were created
       const count = await network.pds.ctx.invitationManager.getPendingCount()

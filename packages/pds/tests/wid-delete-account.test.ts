@@ -44,6 +44,7 @@ describe('WID account deletion', () => {
 
   // Keyed by tempSessionId (the UUID the PDS passes as `sessionId` to /QuickLogin)
   const mockSessions = new Map<string, MockSession>()
+  let lastQuickLoginQrRequestBody: Record<string, unknown> | null = null
 
   let testDid: string
   let testPassword: string
@@ -64,6 +65,7 @@ describe('WID account deletion', () => {
     app.post('/QuickLogin', (req: express.Request, res: express.Response) => {
       // Second call: QR image request
       if (req.body.mode === 'image') {
+        lastQuickLoginQrRequestBody = req.body as Record<string, unknown>
         const { serviceId: incomingServiceId } = req.body as {
           serviceId: string
         }
@@ -143,6 +145,8 @@ describe('WID account deletion', () => {
       // QuickLogin enabled, pointing to mock server
       quickloginEnabled: true,
       quickloginApiBaseUrl: mockUrl,
+      quickloginPropertyFilter: 'JID',
+      quickloginAttachmentFilter: '',
     }
     const cfg = envToCfg(env)
     const secrets = envToSecrets(env)
@@ -275,6 +279,8 @@ describe('WID account deletion', () => {
     expect(initData.sessionToken).toBeTruthy()
     expect(initData.qrCodeUrl).toMatch(/^data:image\//)
     expect(initData.expiresAt).toBeTruthy()
+    expect(lastQuickLoginQrRequestBody?.propertyFilter).toBe('JID')
+    expect(lastQuickLoginQrRequestBody?.attachmentFilter).toBe('')
 
     // -----------------------------------------------------------------------
     // Step 2: Locate the tempSessionId and signKey in the mock server

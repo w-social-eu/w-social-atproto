@@ -3,6 +3,7 @@ import { Generated, Selectable } from 'kysely'
 export interface PendingInvitation {
   id: Generated<number>
   email: string
+  email_hash: string | null
   preferred_handle: string | null
   invitation_timestamp: number
   created_at: string

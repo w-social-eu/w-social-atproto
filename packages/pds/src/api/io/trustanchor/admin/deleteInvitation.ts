@@ -32,11 +32,20 @@ export default function (server: Server, ctx: AppContext) {
         if (typeof idOrEmail === 'number') {
           await ctx.invitationManager.deleteInvitation(idOrEmail)
         } else {
+          const normalizedInput = idOrEmail.trim().toLowerCase()
+          const hashedInput = normalizedInput.includes('@')
+            ? ctx.invitationManager.hashEmail(normalizedInput)
+            : normalizedInput
+
           // For email, find by email first
           const inv = await ctx.invitationManager.db.db
             .selectFrom('pending_invitations')
             .select('id')
-            .where('email', '=', idOrEmail.toLowerCase())
+            .where((qb) =>
+              qb
+                .where('email_hash', '=', hashedInput)
+                .orWhere('email', '=', normalizedInput),
+            )
             .executeTakeFirst()
 
           if (inv) {

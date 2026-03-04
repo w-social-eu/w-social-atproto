@@ -1,14 +1,14 @@
-import { once } from 'events'
+import { once } from 'node:events'
 import express from 'express'
 import getPort from 'get-port'
-import { TestNetworkNoAppView } from '@atproto/dev-env'
 import { AtpAgent } from '@atproto/api'
+import { TestNetworkNoAppView } from '@atproto/dev-env'
 import {
   NeuroAuthManager,
   NeuroIdentity,
 } from '../src/account-manager/helpers/neuro-auth-manager'
-import { createAccountViaQuickLogin } from '../src/api/io/trustanchor/quicklogin/helpers'
 import { handleQuickLoginCallback } from '../src/api/io/trustanchor/quicklogin/callback-handler'
+import { createAccountViaQuickLogin } from '../src/api/io/trustanchor/quicklogin/helpers'
 
 /**
  * Neuro Quick Login Integration Tests
@@ -35,6 +35,7 @@ describe('Neuro Quick Login Integration', () => {
   let mockNeuroUrl: string | null = null
   let previousQuickloginEnabled: string | undefined
   let previousQuickloginApiBaseUrl: string | undefined
+  let previousInvitationEmailHashSalt: string | undefined
 
   // Mock Neuro API state
   const mockSessions = new Map<
@@ -57,6 +58,7 @@ describe('Neuro Quick Login Integration', () => {
   beforeAll(async () => {
     previousQuickloginEnabled = process.env.PDS_QUICKLOGIN_ENABLED
     previousQuickloginApiBaseUrl = process.env.PDS_QUICKLOGIN_API_BASE_URL
+    previousInvitationEmailHashSalt = process.env.PDS_INVITATION_EMAIL_HASH_SALT
 
     // Set up mock Neuro server if not using real API
     if (!USE_REAL_NEURO_API) {
@@ -140,6 +142,9 @@ describe('Neuro Quick Login Integration', () => {
     process.env.PDS_QUICKLOGIN_API_BASE_URL = USE_REAL_NEURO_API
       ? `https://${NEURO_DOMAIN}`
       : mockNeuroUrl!
+    process.env.PDS_INVITATION_EMAIL_HASH_SALT =
+      process.env.PDS_INVITATION_EMAIL_HASH_SALT ||
+      'test-invitation-email-hash-salt'
 
     // Create test network with Neuro enabled
     network = await TestNetworkNoAppView.create({
@@ -172,6 +177,13 @@ describe('Neuro Quick Login Integration', () => {
       delete process.env.PDS_QUICKLOGIN_API_BASE_URL
     } else {
       process.env.PDS_QUICKLOGIN_API_BASE_URL = previousQuickloginApiBaseUrl
+    }
+
+    if (previousInvitationEmailHashSalt === undefined) {
+      delete process.env.PDS_INVITATION_EMAIL_HASH_SALT
+    } else {
+      process.env.PDS_INVITATION_EMAIL_HASH_SALT =
+        previousInvitationEmailHashSalt
     }
 
     if (mockNeuroServerInstance) {
@@ -696,7 +708,9 @@ describe('Neuro Quick Login Integration', () => {
     it('should capture callback payload metadata when debugNeuro is enabled', async () => {
       const ctx = network.pds.ctx
       const previousDebugNeuro = ctx.cfg.debugNeuro
+      const previousAllowTestUserLogin = ctx.cfg.allowTestUserLogin
       ctx.cfg.debugNeuro = true
+      ctx.cfg.allowTestUserLogin = true
 
       const serviceId = `service-debug-${Date.now()}`
       const quickSession = ctx.quickloginStore.createSession(true, serviceId)
@@ -729,6 +743,7 @@ describe('Neuro Quick Login Integration', () => {
         expect(session?.debugNeuro?.callbackPayload.JID).toContain('debug-')
       } finally {
         ctx.cfg.debugNeuro = previousDebugNeuro
+        ctx.cfg.allowTestUserLogin = previousAllowTestUserLogin
       }
     })
 
@@ -790,6 +805,190 @@ describe('Neuro Quick Login Integration', () => {
       expect(result?.did).toBe(created.did)
 
       console.log('✅ Existing account login path works via callback')
+    })
+
+    it('should infer test user from JID prefix when istestuser is missing', async () => {
+      const ctx = network.pds.ctx
+      const db = ctx.accountManager.db
+      const serviceId = `service-test-prefix-${Date.now()}`
+      const quickSession = ctx.quickloginStore.createSession(true, serviceId)
+      const testJid = `test_${Date.now()}@auth-dev.widentity.dev`
+      const previousAllowTestUserLogin = ctx.cfg.allowTestUserLogin
+
+      ctx.cfg.allowTestUserLogin = true
+
+      try {
+        const result = await handleQuickLoginCallback(
+          {
+            SessionId: quickSession.sessionId,
+            State: 'Approved',
+            Key: serviceId,
+            JID: testJid,
+          },
+          ctx,
+          callbackLogger,
+        )
+
+        expect(result?.did).toBeTruthy()
+
+        const link = await db.db
+          .selectFrom('neuro_identity_link')
+          .selectAll()
+          .where('did', '=', result!.did)
+          .executeTakeFirst()
+
+        expect(link?.isTestUser).toBe(1)
+        expect(link?.testUserJid).toBe(testJid)
+        expect(link?.userJid).toBeNull()
+      } finally {
+        ctx.cfg.allowTestUserLogin = previousAllowTestUserLogin
+      }
+    })
+
+    it('should reject test user login by default when flag is disabled', async () => {
+      const ctx = network.pds.ctx
+      const serviceId = `service-test-denied-${Date.now()}`
+      const quickSession = ctx.quickloginStore.createSession(true, serviceId)
+      const testJid = `test_${Date.now()}@auth-dev.widentity.dev`
+      const previousAllowTestUserLogin = ctx.cfg.allowTestUserLogin
+
+      ctx.cfg.allowTestUserLogin = false
+
+      try {
+        await expect(
+          handleQuickLoginCallback(
+            {
+              SessionId: quickSession.sessionId,
+              State: 'Approved',
+              Key: serviceId,
+              JID: testJid,
+            },
+            ctx,
+            callbackLogger,
+          ),
+        ).rejects.toThrow('Login to test accounts not allowed on this server')
+
+        const session = ctx.quickloginStore.getSession(quickSession.sessionId)
+        expect(session?.status).toBe('failed')
+        expect(session?.error).toBe('TestUserDenied')
+      } finally {
+        ctx.cfg.allowTestUserLogin = previousAllowTestUserLogin
+      }
+    })
+
+    it('should reject new account creation when invites are required and email hash is missing', async () => {
+      const ctx = network.pds.ctx
+      const serviceId = `service-invite-required-missing-hash-${Date.now()}`
+      const quickSession = ctx.quickloginStore.createSession(true, serviceId)
+      const previousInvites = ctx.cfg.invites
+
+      ctx.cfg.invites = {
+        required: true,
+        interval: null,
+        epoch: 0,
+        emailHashSalt: ctx.cfg.invites.emailHashSalt,
+      }
+
+      try {
+        await expect(
+          handleQuickLoginCallback(
+            {
+              SessionId: quickSession.sessionId,
+              State: 'Approved',
+              Key: serviceId,
+              JID: `invite-missing-hash-${Date.now()}@auth-dev.widentity.dev`,
+            },
+            ctx,
+            callbackLogger,
+          ),
+        ).rejects.toMatchObject({ code: 'InvitationRequired' })
+
+        const session = ctx.quickloginStore.getSession(quickSession.sessionId)
+        expect(session?.status).toBe('failed')
+        expect(session?.error).toBe('InvitationRequired')
+      } finally {
+        ctx.cfg.invites = previousInvites
+      }
+    })
+
+    it('should create account and consume invitation when required invite hash matches', async () => {
+      const ctx = network.pds.ctx
+      const email = `invite-required-${Date.now()}@example.com`
+      const emailHash = ctx.invitationManager.hashEmail(email)
+      const serviceId = `service-invite-required-match-${Date.now()}`
+      const quickSession = ctx.quickloginStore.createSession(true, serviceId)
+      const previousInvites = ctx.cfg.invites
+
+      ctx.cfg.invites = {
+        required: true,
+        interval: null,
+        epoch: 0,
+        emailHashSalt: ctx.cfg.invites.emailHashSalt,
+      }
+
+      await ctx.invitationManager.createInvitation(
+        email,
+        `preferred-${Date.now()}`,
+        Math.floor(Date.now() / 1000),
+      )
+
+      try {
+        const result = await handleQuickLoginCallback(
+          {
+            SessionId: quickSession.sessionId,
+            State: 'Approved',
+            Key: serviceId,
+            JID: `invite-match-${Date.now()}@auth-dev.widentity.dev`,
+            emailHash,
+          },
+          ctx,
+          callbackLogger,
+        )
+
+        expect(result?.created).toBe(true)
+
+        const invitation = await ctx.invitationManager.db.db
+          .selectFrom('pending_invitations')
+          .selectAll()
+          .where('email_hash', '=', emailHash)
+          .executeTakeFirst()
+
+        expect(invitation?.status).toBe('consumed')
+        expect(invitation?.consuming_did).toBe(result?.did)
+      } finally {
+        ctx.cfg.invites = previousInvites
+      }
+    })
+
+    it('should treat non-prefixed JID as real user when istestuser is missing', async () => {
+      const ctx = network.pds.ctx
+      const db = ctx.accountManager.db
+      const serviceId = `service-real-no-flag-${Date.now()}`
+      const quickSession = ctx.quickloginStore.createSession(true, serviceId)
+      const realJid = `${Date.now()}@auth-dev.widentity.dev`
+
+      const result = await handleQuickLoginCallback(
+        {
+          SessionId: quickSession.sessionId,
+          State: 'Approved',
+          Key: serviceId,
+          JID: realJid,
+        },
+        ctx,
+        callbackLogger,
+      )
+
+      expect(result?.did).toBeTruthy()
+
+      const link = await db.db
+        .selectFrom('neuro_identity_link')
+        .selectAll()
+        .where('did', '=', result!.did)
+        .executeTakeFirst()
+
+      expect(link?.isTestUser).toBe(0)
+      expect(link?.userJid).toBe(realJid)
+      expect(link?.testUserJid).toBeNull()
     })
   })
 

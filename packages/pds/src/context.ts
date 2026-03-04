@@ -489,7 +489,10 @@ export class AppContext {
     const { InvitationManager } = await import(
       './account-manager/invitation-manager'
     )
-    const invitationManager = new InvitationManager(accountManager.db)
+    const invitationManager = new InvitationManager(
+      accountManager.db,
+      cfg.invites.emailHashSalt,
+    )
 
     return new AppContext({
       actorStore,
