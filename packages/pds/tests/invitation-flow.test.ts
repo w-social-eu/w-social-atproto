@@ -24,6 +24,10 @@ describe('Invitation Flow Integration', () => {
     network = await TestNetworkNoAppView.create({
       dbPostgresSchema: 'invitation_flow',
     })
+
+    ;(network.pds.ctx.invitationManager as any).emailHashSalt =
+      process.env.PDS_INVITATION_EMAIL_HASH_SALT ||
+      'test-invitation-email-hash-salt'
   })
 
   afterAll(async () => {

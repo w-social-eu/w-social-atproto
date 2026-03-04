@@ -43,7 +43,7 @@ export default function (server: Server, ctx: AppContext) {
         body: {
           success: true,
           email: invitation?.email ?? email.trim().toLowerCase(),
-          preferredHandle: invitation?.preferred_handle ?? null,
+          preferredHandle: invitation?.preferred_handle ?? undefined,
           expiresAt: invitation?.expires_at,
         },
       }
