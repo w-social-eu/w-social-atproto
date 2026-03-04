@@ -58,16 +58,31 @@ export default function (server: Server, ctx: AppContext) {
       ).toString()
       let qrResponse
       try {
+        const qrRequestBody: Record<string, unknown> = {
+          mode: 'image',
+          purpose: 'QuickLogin for PDS',
+          serviceId,
+          tab: session.sessionId,
+        }
+        if (ctx.cfg.quicklogin.propertyFilter) {
+          qrRequestBody.propertyFilter = ctx.cfg.quicklogin.propertyFilter
+        }
+        if (ctx.cfg.quicklogin.attachmentFilter !== undefined) {
+          qrRequestBody.attachmentFilter = ctx.cfg.quicklogin.attachmentFilter
+        }
+
+        if (ctx.cfg.debugNeuro) {
+          req.log.info(
+            { qrUrl, qrRequestBody },
+            'QuickLogin outbound QR request payload (XRPC debug)',
+          )
+        }
+
         qrResponse = await ctx.safeFetch.call(undefined, qrUrl, {
           method: 'POST',
           redirect: 'manual',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            mode: 'image',
-            purpose: 'QuickLogin for PDS',
-            serviceId,
-            tab: session.sessionId,
-          }),
+          body: JSON.stringify(qrRequestBody),
         })
       } catch (err) {
         req.log.error({ err, qrUrl }, 'QR fetch request failed')

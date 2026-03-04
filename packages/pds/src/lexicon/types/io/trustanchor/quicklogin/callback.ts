@@ -23,6 +23,10 @@ export interface InputSchema {
   State: string
   /** User's JID from W ID app */
   JID?: string
+  /** Salted email hash used for invitation matching */
+  emailHash?: string
+  /** Backward-compatible lowercase variant of emailHash */
+  emailhash?: string
   /** Provider domain */
   Provider?: string
   /** Domain used for authentication */

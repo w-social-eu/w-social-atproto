@@ -226,6 +226,7 @@ import * as ComAtprotoTempDereferenceScope from './types/com/atproto/temp/derefe
 import * as ComAtprotoTempFetchLabels from './types/com/atproto/temp/fetchLabels.js'
 import * as ComAtprotoTempRequestPhoneVerification from './types/com/atproto/temp/requestPhoneVerification.js'
 import * as ComAtprotoTempRevokeAccountCredentials from './types/com/atproto/temp/revokeAccountCredentials.js'
+import * as IoTrustanchorAdminCreateInvitation from './types/io/trustanchor/admin/createInvitation.js'
 import * as IoTrustanchorAdminDeleteInvitation from './types/io/trustanchor/admin/deleteInvitation.js'
 import * as IoTrustanchorAdminGetInvitationStats from './types/io/trustanchor/admin/getInvitationStats.js'
 import * as IoTrustanchorAdminListInvitations from './types/io/trustanchor/admin/listInvitations.js'
@@ -3334,6 +3335,18 @@ export class IoTrustanchorAdminNS {
 
   constructor(server: Server) {
     this._server = server
+  }
+
+  createInvitation<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorAdminCreateInvitation.QueryParams,
+      IoTrustanchorAdminCreateInvitation.HandlerInput,
+      IoTrustanchorAdminCreateInvitation.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.admin.createInvitation' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
   }
 
   deleteInvitation<A extends Auth = void>(

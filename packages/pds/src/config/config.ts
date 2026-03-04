@@ -133,11 +133,13 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
     env.inviteRequired === false
       ? {
           required: false,
+          emailHashSalt: env.invitationEmailHashSalt ?? null,
         }
       : {
           required: true,
           interval: env.inviteInterval ?? null,
           epoch: env.inviteEpoch ?? 0,
+          emailHashSalt: env.invitationEmailHashSalt ?? null,
         }
 
   let emailCfg: ServerConfig['email']
@@ -354,6 +356,8 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
       ? {
           enabled: true,
           apiBaseUrl: env.quickloginApiBaseUrl || 'https://lab.tagroot.io',
+          propertyFilter: env.quickloginPropertyFilter,
+          attachmentFilter: env.quickloginAttachmentFilter,
         }
       : null,
     debugNeuro: env.debugNeuro ?? false,
@@ -496,9 +500,11 @@ export type InvitesConfig =
       required: true
       interval: number | null
       epoch: number
+      emailHashSalt: string | null
     }
   | {
       required: false
+      emailHashSalt: string | null
     }
 
 export type EmailConfig = {
@@ -554,4 +560,6 @@ export type NeuroConfig = {
 export type QuickLoginConfig = {
   enabled: boolean
   apiBaseUrl: string
+  propertyFilter?: string
+  attachmentFilter?: string
 }

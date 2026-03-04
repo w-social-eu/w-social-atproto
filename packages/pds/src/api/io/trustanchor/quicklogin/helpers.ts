@@ -10,6 +10,8 @@ export type NeuroCallbackPayload = {
   JID?: string
   istestuser?: string // "true" for test users; missing = non-test (WP1)
   preferredhandle?: string // Optional suggested handle for first create (WP1)
+  emailHash?: string // Optional salted email hash for invitation matching
+  emailhash?: string // Backwards-compatible casing variant
   Provider?: string
   Domain?: string
   Key?: string

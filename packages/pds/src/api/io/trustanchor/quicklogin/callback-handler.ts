@@ -28,11 +28,42 @@ const EXPECTED_CALLBACK_FIELDS = new Set([
   'State',
   'istestuser',
   'preferredhandle',
+  'emailHash',
+  'emailhash',
   'Signatures',
   'Randoms',
   'Properties',
   'Attachments',
 ])
+
+const throwInvitationRequired = (message: string): never => {
+  const err = new Error(message) as Error & { code: string }
+  err.code = 'InvitationRequired'
+  throw err
+}
+
+const extractEmailHash = (
+  payload: NeuroCallbackPayload,
+): string | undefined => {
+  const direct = payload.emailHash || payload.emailhash
+  if (typeof direct === 'string' && direct.trim()) {
+    return direct.trim().toLowerCase()
+  }
+
+  const properties = payload.Properties
+  if (!properties || typeof properties !== 'object') {
+    return undefined
+  }
+
+  const raw =
+    (properties as Record<string, unknown>).emailHash ||
+    (properties as Record<string, unknown>).emailhash ||
+    (properties as Record<string, unknown>).EMAIL_HASH
+
+  return typeof raw === 'string' && raw.trim()
+    ? raw.trim().toLowerCase()
+    : undefined
+}
 
 /**
  * Unified QuickLogin callback handler (both account creation and login).
@@ -51,9 +82,9 @@ const EXPECTED_CALLBACK_FIELDS = new Set([
  * - Fallback: auto<1-10 digit suffix>.hostname
  * - Ignore preferredhandle for existing accounts
  *
- * WP5 — Test-User Environment Policy:
- * - Production: deny with "Login to test accounts not allowed on this server"
- * - Non-prod: allow test-user login
+ * WP5 — Test-User Login Policy:
+ * - Controlled by PDS_ALLOW_TEST_USER_LOGIN (ctx.cfg.allowTestUserLogin)
+ * - Default false: deny test-user login unless explicitly enabled
  *
  * WP6 — Pseudonymous-only Logging:
  * - Log sessionId, callback accept/reject, created vs login
@@ -147,11 +178,35 @@ export async function handleQuickLoginCallback(
     throw new Error('JID missing from callback')
   }
 
-  // WP1: Parse test-user status from callback
-  const isTestUser = payload.istestuser === 'true' ? 1 : 0
+  // WP1/WID protocol update: parse test-user status.
+  // Priority:
+  // 1) explicit istestuser ('true'/'false') when present
+  // 2) fallback inference from JID prefix 'test_' for new JID-only contract
+  const jidLocalPart = jid.split('@')[0] ?? ''
+  const isTestUser =
+    payload.istestuser === 'true'
+      ? 1
+      : payload.istestuser === 'false'
+        ? 0
+        : jidLocalPart.startsWith('test_')
+          ? 1
+          : 0
 
   // WP1: Parse preferred handle (optional, only for first create)
   const preferredHandle = payload.preferredhandle
+  const emailHash = extractEmailHash(payload)
+
+  if (isTestUser === 1 && !ctx.cfg.allowTestUserLogin) {
+    log.info(
+      { sessionId: session.sessionId },
+      'Test user login denied by config',
+    )
+    ctx.quickloginStore.updateSession(session.sessionId, {
+      status: 'failed',
+      error: 'TestUserDenied',
+    })
+    throw new Error('Login to test accounts not allowed on this server')
+  }
 
   // Branch: non-login approval sessions (delete_account, plc_operation)
   if (session.purpose && session.purpose !== 'login') {
@@ -179,26 +234,8 @@ export async function handleQuickLoginCallback(
   let handle: string
   let created = false
 
+  let matchedInvitationHash: string | undefined
   if (existingLink) {
-    // WP5: Test-user environment policy
-    if (isTestUser === 1 && ctx.cfg.service.hostname !== 'localhost') {
-      // Production server: deny test-user login
-      const isProdLike =
-        ctx.cfg.service.hostname.includes('prod') ||
-        ctx.cfg.service.hostname.includes('live')
-      if (isProdLike || !ctx.cfg.service.devMode) {
-        log.info(
-          { sessionId: session.sessionId },
-          'Test user login denied on production',
-        )
-        ctx.quickloginStore.updateSession(session.sessionId, {
-          status: 'failed',
-          error: 'TestUserDenied',
-        })
-        throw new Error('Login to test accounts not allowed on this server')
-      }
-    }
-
     // Existing link - login with existing account
     log.info(
       { sessionId: session.sessionId },
@@ -230,8 +267,36 @@ export async function handleQuickLoginCallback(
     refreshJwt = tokens.refreshJwt
   } else {
     // WP3: No existing link - atomically create account + link
-    // Invitations no longer required (enforcement moved to WID)
     // Handle generation uses preferredHandle or fallback
+
+    let invitePreferredHandle: string | null | undefined
+    if (ctx.cfg.invites.required) {
+      if (!emailHash) {
+        ctx.quickloginStore.updateSession(session.sessionId, {
+          status: 'failed',
+          error: 'InvitationRequired',
+        })
+        return throwInvitationRequired(
+          'QuickLogin callback missing email hash for invitation validation',
+        )
+      }
+
+      const requiredEmailHash = emailHash
+      const invite =
+        await ctx.invitationManager.getInvitationByEmailHash(requiredEmailHash)
+      if (!invite) {
+        ctx.quickloginStore.updateSession(session.sessionId, {
+          status: 'failed',
+          error: 'InvitationRequired',
+        })
+        return throwInvitationRequired(
+          'No valid invitation found for this account',
+        )
+      }
+
+      matchedInvitationHash = invite.email_hash ?? requiredEmailHash
+      invitePreferredHandle = invite.preferred_handle
+    }
 
     log.info(
       { sessionId: session.sessionId },
@@ -243,7 +308,7 @@ export async function handleQuickLoginCallback(
         ctx,
         jid,
         isTestUser,
-        preferredHandle || undefined,
+        preferredHandle || invitePreferredHandle || undefined,
         log,
         session.sessionId,
       )
@@ -253,6 +318,14 @@ export async function handleQuickLoginCallback(
       accessJwt = result.accessJwt
       refreshJwt = result.refreshJwt
       created = true
+
+      if (matchedInvitationHash) {
+        await ctx.invitationManager.consumeInvitationByHash(
+          matchedInvitationHash,
+          did,
+          handle,
+        )
+      }
 
       log.info(
         { sessionId: session.sessionId },

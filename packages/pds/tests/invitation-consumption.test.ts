@@ -4,8 +4,14 @@ import { TestNetworkNoAppView } from '@atproto/dev-env/src/network-no-appview'
 describe('Invitation Consumption', () => {
   let network: TestNetworkNoAppView
   let agent: AtpAgent
+  let previousInvitationEmailHashSalt: string | undefined
 
   beforeAll(async () => {
+    previousInvitationEmailHashSalt = process.env.PDS_INVITATION_EMAIL_HASH_SALT
+    process.env.PDS_INVITATION_EMAIL_HASH_SALT =
+      process.env.PDS_INVITATION_EMAIL_HASH_SALT ||
+      'test-invitation-email-hash-salt'
+
     network = await TestNetworkNoAppView.create({
       dbPostgresSchema: 'invitation_consumption',
     })
@@ -14,6 +20,13 @@ describe('Invitation Consumption', () => {
 
   afterAll(async () => {
     await network.close()
+
+    if (previousInvitationEmailHashSalt === undefined) {
+      delete process.env.PDS_INVITATION_EMAIL_HASH_SALT
+    } else {
+      process.env.PDS_INVITATION_EMAIL_HASH_SALT =
+        previousInvitationEmailHashSalt
+    }
   })
 
   it('creates invitations in pending state', async () => {

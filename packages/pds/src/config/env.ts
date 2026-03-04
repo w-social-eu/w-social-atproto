@@ -90,6 +90,7 @@ export function readEnv() {
     inviteRequired: envBool('PDS_INVITE_REQUIRED'),
     inviteInterval: envInt('PDS_INVITE_INTERVAL'),
     inviteEpoch: envInt('PDS_INVITE_EPOCH'),
+    invitationEmailHashSalt: envStr('PDS_INVITATION_EMAIL_HASH_SALT'),
 
     // email
     emailSmtpUrl: envStr('PDS_EMAIL_SMTP_URL'),
@@ -168,18 +169,23 @@ export function readEnv() {
           // QuickLogin callback configuration
           callbackBaseUrl: envStr('PDS_NEURO_CALLBACK_BASE_URL'),
           verifyJwtSignature: envBool('PDS_NEURO_VERIFY_JWT') ?? false,
-          callbackSignatureRequired: envBool('PDS_NEURO_CALLBACK_SIGNATURE_REQUIRED') ?? false,
+          callbackSignatureRequired:
+            envBool('PDS_NEURO_CALLBACK_SIGNATURE_REQUIRED') ?? false,
         } as NeuroConfig)
       : undefined,
 
     // quicklogin (simpler standalone implementation)
     quickloginEnabled: envBool('PDS_QUICKLOGIN_ENABLED'),
     quickloginApiBaseUrl: envStr('PDS_QUICKLOGIN_API_BASE_URL'),
+    quickloginPropertyFilter: envStr('PDS_QUICKLOGIN_PROPERTY_FILTER'),
+    quickloginAttachmentFilter: envStr('PDS_QUICKLOGIN_ATTACHMENT_FILTER'),
     debugNeuro: envBool('PDS_DEBUG_NEURO'),
 
     // test user support
     allowTestUserLogin: envBool('PDS_ALLOW_TEST_USER_LOGIN'),
-    neuroCallbackSignatureRequired: envBool('PDS_NEURO_CALLBACK_SIGNATURE_REQUIRED'),
+    neuroCallbackSignatureRequired: envBool(
+      'PDS_NEURO_CALLBACK_SIGNATURE_REQUIRED',
+    ),
   }
 }
 

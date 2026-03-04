@@ -23,6 +23,14 @@
               "type": "string",
               "description": "User's JID from W ID app"
             },
+            "emailHash": {
+              "type": "string",
+              "description": "Salted email hash used for invitation matching"
+            },
+            "emailhash": {
+              "type": "string",
+              "description": "Backward-compatible lowercase variant of emailHash"
+            },
             "Provider": {
               "type": "string",
               "description": "Provider domain"
