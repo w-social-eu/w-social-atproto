@@ -256,10 +256,13 @@ cmd_account_delete() {
   echo "   - Neuro identity links (W ID)"
   echo "   - All user data from sequencer"
   echo ""
-  read -p "Type 'DELETE' to confirm: " confirm_input
+  read -p "Type the handle to confirm deletion: " confirm_handle
 
-  if [ "$confirm_input" != "DELETE" ]; then
-    echo "Deletion cancelled."
+  local actual_handle
+  actual_handle=$(echo "$account_info" | jq -r '.handle // ""')
+
+  if [ "$confirm_handle" != "$actual_handle" ]; then
+    echo "ERROR: Handle mismatch. Deletion cancelled."
     exit 1
   fi
 
@@ -278,12 +281,9 @@ cmd_account_delete() {
     exit 1
   fi
 
-  local deleted_handle
-  deleted_handle=$(echo "$account_info" | jq -r '.handle // "N/A"')
-
   echo "✓ Account deleted successfully"
-  echo "  DID:    $did"
-  echo "  Handle: $deleted_handle"
+  echo "  DID: $did"
+  echo "  Handle: $actual_handle"
 }
 
 #
