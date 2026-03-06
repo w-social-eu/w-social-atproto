@@ -42,7 +42,8 @@ const throwInvitationRequired = (message: string): never => {
   throw err
 }
 
-const extractEmailHash = (
+// Unused in JID-based flow but kept for backwards compatibility
+const _extractEmailHash = (
   payload: NeuroCallbackPayload,
 ): string | undefined => {
   const direct = payload.emailHash || payload.emailhash
@@ -194,7 +195,7 @@ export async function handleQuickLoginCallback(
 
   // WP1: Parse preferred handle (optional, only for first create)
   const preferredHandle = payload.preferredhandle
-  const emailHash = extractEmailHash(payload)
+  // emailHash no longer used for JID-based invitation flow
 
   if (isTestUser === 1 && !ctx.cfg.allowTestUserLogin) {
     log.info(
@@ -234,7 +235,6 @@ export async function handleQuickLoginCallback(
   let handle: string
   let created = false
 
-  let matchedInvitationHash: string | undefined
   if (existingLink) {
     // Existing link - login with existing account
     log.info(
@@ -251,6 +251,9 @@ export async function handleQuickLoginCallback(
       .set({ lastLoginAt: new Date().toISOString() })
       .where('did', '=', did)
       .execute()
+
+    // Consume matching JID invitation if present (policy: always consume on login)
+    await ctx.invitationManager.consumeInvitationByJid(jid, did, handle)
 
     // Create session
     const account = await ctx.accountManager.getAccount(did)
@@ -270,31 +273,18 @@ export async function handleQuickLoginCallback(
     // Handle generation uses preferredHandle or fallback
 
     let invitePreferredHandle: string | null | undefined
-    if (ctx.cfg.invites.required) {
-      if (!emailHash) {
-        ctx.quickloginStore.updateSession(session.sessionId, {
-          status: 'failed',
-          error: 'InvitationRequired',
-        })
-        return throwInvitationRequired(
-          'QuickLogin callback missing email hash for invitation validation',
-        )
-      }
 
-      const requiredEmailHash = emailHash
-      const invite =
-        await ctx.invitationManager.getInvitationByEmailHash(requiredEmailHash)
+    // Test-user bypass: isTestUser=1 accounts skip invitation requirements
+    if (ctx.cfg.invites.required && isTestUser !== 1) {
+      const invite = await ctx.invitationManager.getInvitationByJid(jid)
       if (!invite) {
         ctx.quickloginStore.updateSession(session.sessionId, {
           status: 'failed',
           error: 'InvitationRequired',
         })
-        return throwInvitationRequired(
-          'No valid invitation found for this account',
-        )
+        return throwInvitationRequired('No valid invitation found for this JID')
       }
 
-      matchedInvitationHash = invite.email_hash ?? requiredEmailHash
       invitePreferredHandle = invite.preferred_handle
     }
 
@@ -319,13 +309,8 @@ export async function handleQuickLoginCallback(
       refreshJwt = result.refreshJwt
       created = true
 
-      if (matchedInvitationHash) {
-        await ctx.invitationManager.consumeInvitationByHash(
-          matchedInvitationHash,
-          did,
-          handle,
-        )
-      }
+      // Consume invitation by JID (only matching JID row)
+      await ctx.invitationManager.consumeInvitationByJid(jid, did, handle)
 
       log.info(
         { sessionId: session.sessionId },

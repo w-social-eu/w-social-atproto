@@ -35,16 +35,17 @@ export function parseQuickLoginPayload(payload: NeuroCallbackPayload) {
 }
 
 /**
- * Derive available handle from preferred handle or fallback to "auto" + numeric suffix (WP4)
+ * Derive available handle from preferred handle or fallback to "user" + numeric suffix (WP4)
  * - If preferredHandle provided: normalize to lowercase, validate, use
- * - If invalid or taken: fall back to "auto<digits>"
+ * - If invalid or taken: fall back to "user-<digits>"
  * - Never use email (privacy separation: no identity fields in PDS)
  */
 export async function deriveAvailableHandle(
   ctx: AppContext,
   preferredHandle?: string,
 ): Promise<string> {
-  let baseName = 'auto' // Default fallback base
+  const defaultBase = 'user'
+  let baseName = defaultBase // Default fallback base
 
   if (preferredHandle) {
     // Normalize preferred handle: lowercase, alphanumeric + dash only
@@ -53,8 +54,8 @@ export async function deriveAvailableHandle(
       .replace(/[^a-z0-9-]/g, '') // Remove non-alphanumeric except dash
       .replace(/^-|-$/g, '') // Remove leading/trailing dashes
 
-    // Use normalized handle if non-empty and different from "auto"
-    if (normalized && normalized !== 'auto') {
+    // Use normalized handle if non-empty and different from defaultBase
+    if (normalized && normalized !== defaultBase) {
       baseName = normalized
     }
   }
@@ -71,7 +72,7 @@ export async function deriveAvailableHandle(
     return handle
   }
 
-  // Handle taken or base is "auto" - append random digits until available (WP4 fallback)
+  // Handle taken or base is defaultBase - append random digits until available (WP4 fallback)
   let suffix = ''
   for (let attempts = 0; attempts < 10; attempts++) {
     const randomDigit = Math.floor(Math.random() * 10)
@@ -101,7 +102,7 @@ export async function createAccountViaQuickLogin(
   log?: any,
   sessionId?: string,
 ): Promise<QuickLoginResult> {
-  // WP4: Derive handle (preferredHandle → auto+suffix fallback)
+  // WP4: Derive handle (preferredHandle → "user"+suffix fallback)
   const handle = await deriveAvailableHandle(ctx, preferredHandle)
 
   if (log && sessionId) {
@@ -131,17 +132,19 @@ export async function createAccountViaQuickLogin(
   // Publish DID to PLC
   await ctx.plcClient.sendOperation(did, plcCreate.op)
 
-  // Create account (without password; no email for QuickLogin)
+  // Create account with WID authentication (no password)
+  // Use synthetic email to satisfy DB constraints while preserving privacy
+  const syntheticEmail = `${did.split(':').pop()}@noemail.invalid`
   await ctx.accountManager.createAccount({
     did,
     handle,
-    email: undefined, // No email stored; privacy separation
-    password: undefined, // No password for QuickLogin accounts
+    email: syntheticEmail,
+    password: undefined, // WID accounts locked to WID authentication
     repoCid: commit.cid,
     repoRev: commit.rev,
   })
 
-  // Email verified by Neuro identity system (just not stored in PDS)
+  // Email verified by WID identity system
   // Set emailConfirmedAt to enable full account functionality
   await ctx.accountManager.db.db
     .updateTable('account')

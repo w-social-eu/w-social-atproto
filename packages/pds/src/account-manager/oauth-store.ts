@@ -778,12 +778,14 @@ This will authenticate you with your Neuro identity.`
 
         await this.plcClient.sendOperation(did, op)
 
-        // Create account with null password for Neuro auth
+        // Create account with WID authentication (no password)
+        // Use synthetic email to satisfy DB constraints while preserving privacy
+        const syntheticEmail = `${did.split(':').pop()}@noemail.invalid`
         await this.accountManager.createAccount({
           did,
           handle: data.handle,
-          email,
-          password: undefined, // Neuro accounts have no password
+          email: syntheticEmail,
+          password: undefined, // WID accounts locked to WID authentication
           inviteCode: data.inviteCode,
           repoCid: commit.cid,
           repoRev: commit.rev,
