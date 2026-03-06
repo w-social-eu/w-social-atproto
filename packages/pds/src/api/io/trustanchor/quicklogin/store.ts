@@ -15,6 +15,13 @@ export type QuickLoginSession = {
   purpose?: 'login' | 'delete_account' | 'plc_operation'
   approvalDid?: string // DID of the account being approved
   approvalToken?: string // email-style token created after QR scan
+  debugNeuro?: QuickLoginDebugInfo
+}
+
+export type QuickLoginDebugInfo = {
+  callbackPayload: Record<string, unknown>
+  receivedFieldNames: string[]
+  unexpectedFieldNames: string[]
 }
 
 export type QuickLoginResult = {

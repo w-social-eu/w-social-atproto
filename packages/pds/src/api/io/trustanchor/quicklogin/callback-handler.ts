@@ -3,8 +3,6 @@ import { AppContext } from '../../../../context'
 import {
   NeuroCallbackPayload,
   createAccountViaQuickLogin,
-  extractEmail,
-  extractUserName,
   getHandleForDid,
 } from './helpers'
 import type { QuickLoginSession } from './store'
@@ -23,32 +21,101 @@ export interface Logger {
   error(obj: any, msg: string): void
 }
 
+const EXPECTED_CALLBACK_FIELDS = new Set([
+  'JID',
+  'Key',
+  'SessionId',
+  'State',
+  'istestuser',
+  'preferredhandle',
+  'emailHash',
+  'emailhash',
+  'Signatures',
+  'Randoms',
+  'Properties',
+  'Attachments',
+])
+
+const throwInvitationRequired = (message: string): never => {
+  const err = new Error(message) as Error & { code: string }
+  err.code = 'InvitationRequired'
+  throw err
+}
+
+// Unused in JID-based flow but kept for backwards compatibility
+const _extractEmailHash = (
+  payload: NeuroCallbackPayload,
+): string | undefined => {
+  const direct = payload.emailHash || payload.emailhash
+  if (typeof direct === 'string' && direct.trim()) {
+    return direct.trim().toLowerCase()
+  }
+
+  const properties = payload.Properties
+  if (!properties || typeof properties !== 'object') {
+    return undefined
+  }
+
+  const raw =
+    (properties as Record<string, unknown>).emailHash ||
+    (properties as Record<string, unknown>).emailhash ||
+    (properties as Record<string, unknown>).EMAIL_HASH
+
+  return typeof raw === 'string' && raw.trim()
+    ? raw.trim().toLowerCase()
+    : undefined
+}
+
 /**
- * Shared QuickLogin callback handler logic.
- * This is called by both the Express endpoint and XRPC endpoint.
+ * Unified QuickLogin callback handler (both account creation and login).
+ * Privacy-separated: PDS receives only pseudonymous JID + test marker.
+ * WP1 — Protocol Parsing & Defaults:
+ * - Parse istestuser as case-sensitive string ("true"/"false", missing = non-test)
+ * - Parse preferredhandle (optional, for first create only)
  *
- * Account Creation Behavior:
- * - NEW ACCOUNT: Requires invitation if PDS_INVITE_REQUIRED=true
- *   - Checks invitation exists and is pending
- *   - Creates account with prefered_handle from invitation
- *   - Consumes invitation after successful account creation
+ * WP3 — Atomic Account/Link Logic:
+ * - Existing link: return login with updated lastLoginAt
+ * - New link: atomically create account + link in single transaction
+ * - Race safety: unique constraints on (userJid, isTestUser=0) and (testUserJid, isTestUser=1)
  *
- * - EXISTING ACCOUNT (zombie account from W ID provision webhook):
- *   - Does NOT require invitation to be checked again
- *   - Links JID to existing account
- *   - Consumes invitation if one exists (allows admin-created invitations)
- *     This handles the recovery flow where admin creates invitation for zombie account
+ * WP4 — Handle Generation Policy:
+ * - Use preferredhandle if provided and available
+ * - Fallback: auto<1-10 digit suffix>.hostname
+ * - Ignore preferredhandle for existing accounts
  *
- * Invitation Consumption:
- * - Invitation marked as consumed after first successful login
- * - Prevents double-use of invitations
- * - Maintains audit trail of who provisioned the account
+ * WP5 — Test-User Login Policy:
+ * - Controlled by PDS_ALLOW_TEST_USER_LOGIN (ctx.cfg.allowTestUserLogin)
+ * - Default false: deny test-user login unless explicitly enabled
+ *
+ * WP6 — Pseudonymous-only Logging:
+ * - Log sessionId, callback accept/reject, created vs login
+ * - Never log JID, test status, or other identity fields
+ *
+ * WP2 (deferred):
+ * - Callback signature verification (feature-flagged, pending Neuro contract)
  */
 export async function handleQuickLoginCallback(
   payload: NeuroCallbackPayload,
   ctx: AppContext,
   log: Logger,
 ): Promise<CallbackResult | void> {
+  const callbackPayload = payload as Record<string, unknown>
+  const receivedFieldNames = Object.keys(callbackPayload).sort()
+  const unexpectedFieldNames = receivedFieldNames.filter(
+    (fieldName) => !EXPECTED_CALLBACK_FIELDS.has(fieldName),
+  )
+
+  if (ctx.cfg.debugNeuro) {
+    log.info(
+      {
+        payload: callbackPayload,
+        receivedFieldNames,
+        unexpectedFieldNames,
+      },
+      'QuickLogin callback payload received (debug)',
+    )
+  }
+
   log.info(
     {
       sessionId: payload.SessionId,
@@ -72,13 +139,23 @@ export async function handleQuickLoginCallback(
     throw new Error('Session not found')
   }
 
+  if (ctx.cfg.debugNeuro) {
+    ctx.quickloginStore.updateSession(session.sessionId, {
+      debugNeuro: {
+        callbackPayload,
+        receivedFieldNames,
+        unexpectedFieldNames,
+      },
+    })
+  }
+
   // Check if session expired
   if (new Date() > new Date(session.expiresAt)) {
     log.warn({ sessionId: payload.SessionId }, 'Session expired')
     throw new Error('Session expired')
   }
 
-  // Validate state (mTLS handles signature verification)
+  // Validate state (mTLS handles transport security; signature verification deferred WP2)
   if (payload.State !== 'Approved') {
     log.info(
       { sessionId: session.sessionId, state: payload.State },
@@ -91,7 +168,7 @@ export async function handleQuickLoginCallback(
     throw new Error(`QuickLogin ${payload.State}`)
   }
 
-  // Extract JID from payload
+  // WP1: Parse JID from payload (required, pseudonymous lookup key)
   const jid = payload.JID
   if (!jid) {
     log.error({ payload }, 'JID missing from callback')
@@ -102,55 +179,89 @@ export async function handleQuickLoginCallback(
     throw new Error('JID missing from callback')
   }
 
-  log.info({ jid }, 'Processing QuickLogin for JID')
+  // WP1/WID protocol update: parse test-user status.
+  // Priority:
+  // 1) explicit istestuser ('true'/'false') when present
+  // 2) fallback inference from JID prefix 'test_' for new JID-only contract
+  const jidLocalPart = jid.split('@')[0] ?? ''
+  const isTestUser =
+    payload.istestuser === 'true'
+      ? 1
+      : payload.istestuser === 'false'
+        ? 0
+        : jidLocalPart.startsWith('test_')
+          ? 1
+          : 0
+
+  // WP1: Parse preferred handle (optional, only for first create)
+  const preferredHandle = payload.preferredhandle
+  // emailHash no longer used for JID-based invitation flow
+
+  if (isTestUser === 1 && !ctx.cfg.allowTestUserLogin) {
+    log.info(
+      { sessionId: session.sessionId },
+      'Test user login denied by config',
+    )
+    ctx.quickloginStore.updateSession(session.sessionId, {
+      status: 'failed',
+      error: 'TestUserDenied',
+    })
+    throw new Error('Login to test accounts not allowed on this server')
+  }
 
   // Branch: non-login approval sessions (delete_account, plc_operation)
   if (session.purpose && session.purpose !== 'login') {
     return handleApprovalCallback(session, jid, ctx, log)
   }
 
-  // Check if this Neuro identity is already linked (check Legal ID first for real users, then JID for test users)
-  let existingLink = await ctx.accountManager.db.db
+  log.info(
+    { sessionId: session.sessionId },
+    'QuickLogin: valid session with callback payload',
+  )
+
+  // WP3: Resolve link by pseudonymous JID key (privacy-separated)
+  // Real users: lookup by userJid (isTestUser=0)
+  // Test users: lookup by testUserJid (isTestUser=1)
+  const existingLink = await ctx.accountManager.db.db
     .selectFrom('neuro_identity_link')
     .selectAll()
-    .where('legalId', '=', jid)
+    .where(isTestUser === 1 ? 'testUserJid' : 'userJid', '=', jid)
+    .where('isTestUser', '=', isTestUser)
     .executeTakeFirst()
-
-  // Fallback: check JID column for test users
-  if (!existingLink) {
-    existingLink = await ctx.accountManager.db.db
-      .selectFrom('neuro_identity_link')
-      .selectAll()
-      .where('jid', '=', jid)
-      .executeTakeFirst()
-  }
 
   let did: string
   let accessJwt: string
   let refreshJwt: string
   let handle: string
+  let created = false
 
   if (existingLink) {
-    // User has logged in via QuickLogin before - use existing link
+    // Existing link - login with existing account
     log.info(
-      { jid, did: existingLink.did },
+      { sessionId: session.sessionId },
       'Existing Neuro identity link found',
     )
 
     did = existingLink.did
     handle = await getHandleForDid(ctx, did)
 
-    // Update last login
+    // Update last login timestamp
     await ctx.accountManager.db.db
       .updateTable('neuro_identity_link')
       .set({ lastLoginAt: new Date().toISOString() })
-      .where((eb) => eb.where('legalId', '=', jid).orWhere('jid', '=', jid))
+      .where('did', '=', did)
       .execute()
+
+    // Consume matching JID invitation if present (policy: always consume on login)
+    await ctx.invitationManager.consumeInvitationByJid(jid, did, handle)
 
     // Create session
     const account = await ctx.accountManager.getAccount(did)
     if (!account) {
-      log.error({ did }, 'Account not found for linked DID')
+      log.error(
+        { sessionId: session.sessionId },
+        'Account not found for linked DID',
+      )
       throw new Error('Account not found')
     }
 
@@ -158,191 +269,67 @@ export async function handleQuickLoginCallback(
     accessJwt = tokens.accessJwt
     refreshJwt = tokens.refreshJwt
   } else {
-    // No existing link - this is user's first QuickLogin (but account should exist)
-    //
-    // IMPORTANT: QuickLogin is ONLY for login, not account creation.
-    // The W ID app enforces that users cannot scan QR codes until both their
-    // W ID account AND W Social account have been provisioned. Account provisioning
-    // happens via the /neuro/provision/account endpoint when Neuro sends a
-    // LegalIdUpdated notification. Therefore, when we reach this code, the account
-    // must already exist - we just need to create the neuro_identity_link.
+    // WP3: No existing link - atomically create account + link
+    // Handle generation uses preferredHandle or fallback
 
-    // Log Properties to debug email extraction
-    log.info(
-      {
-        jid,
-        properties: payload.Properties,
-        propertyKeys: payload.Properties ? Object.keys(payload.Properties) : [],
-      },
-      'QuickLogin Properties received',
-    )
+    let invitePreferredHandle: string | null | undefined
 
-    const email = extractEmail(payload.Properties)
-    const userName = extractUserName(payload.Properties)
-
-    log.info(
-      { jid, email, userName },
-      'Extracted email and userName from Properties',
-    )
-
-    // Determine if this is a test user (no email in properties)
-    const isTestUser = !email
-
-    if (isTestUser) {
-      log.info(
-        { jid, properties: payload.Properties },
-        'Test user login (no email in properties)',
-      )
-    }
-
-    // Check if invitation is required and exists
-    const inviteRequired = ctx.cfg.invites?.required ?? false
-    let invitation: Awaited<
-      ReturnType<typeof ctx.invitationManager.getInvitationByEmail>
-    > = null
-
-    if (!isTestUser && inviteRequired) {
-      // Only check invitations for real users
-      invitation = await ctx.invitationManager.getInvitationByEmail(email!)
-
-      if (!invitation) {
-        log.warn(
-          { email: ctx.invitationManager.hashEmail(email!), jid },
-          'No invitation found - access denied',
-        )
+    // Test-user bypass: isTestUser=1 accounts skip invitation requirements
+    if (ctx.cfg.invites.required && isTestUser !== 1) {
+      const invite = await ctx.invitationManager.getInvitationByJid(jid)
+      if (!invite) {
         ctx.quickloginStore.updateSession(session.sessionId, {
           status: 'failed',
-          error: 'Invitation required',
+          error: 'InvitationRequired',
         })
-        const error: any = new Error(
-          'An invitation is required to create an account. Please contact support.',
-        )
-        error.code = 'InvitationRequired'
-        throw error
+        return throwInvitationRequired('No valid invitation found for this JID')
       }
 
-      log.info(
-        {
-          email: ctx.invitationManager.hashEmail(email!),
-          preferredHandle: invitation.preferred_handle,
-        },
-        'Valid invitation found',
-      )
+      invitePreferredHandle = invite.preferred_handle
     }
 
-    // Find the existing account by email (real users) or JID (test users)
-    let existingAccount
-    if (isTestUser) {
-      // For test users, look up by JID in the neuro_identity_link
-      // (this is redundant since we already checked above, but defensive)
-      existingAccount = null
-    } else {
-      // For real users, look up by email
-      existingAccount = await ctx.accountManager.db.db
-        .selectFrom('account')
-        .selectAll()
-        .where('email', '=', email!.toLowerCase())
-        .executeTakeFirst()
-    }
+    log.info(
+      { sessionId: session.sessionId },
+      'No existing link: creating new account',
+    )
 
-    if (!existingAccount) {
-      // Account doesn't exist yet
-      if (!isTestUser && inviteRequired && !invitation) {
-        // Should never reach here due to earlier check, but defensive
-        log.error({ jid, email }, 'No invitation and account not found')
-        ctx.quickloginStore.updateSession(session.sessionId, {
-          status: 'failed',
-          error: 'Invitation required',
-        })
-        const error: any = new Error(
-          'An invitation is required to create an account.',
-        )
-        error.code = 'InvitationRequired'
-        throw error
-      }
-
-      // Create new account with invitation (if available)
-      log.info(
-        { jid, email, preferredHandle: invitation?.preferred_handle },
-        `Creating new ${isTestUser ? 'test' : 'real'} account via QuickLogin`,
-      )
-
-      const preferredHandle = invitation?.preferred_handle || null
+    try {
       const result = await createAccountViaQuickLogin(
         ctx,
         jid,
-        email || undefined, // Pass undefined for test users
-        userName,
-        preferredHandle,
-        isTestUser, // Pass test user flag
+        isTestUser,
+        preferredHandle || invitePreferredHandle || undefined,
+        log,
+        session.sessionId,
       )
 
       did = result.did
       handle = result.handle
       accessJwt = result.accessJwt
       refreshJwt = result.refreshJwt
+      created = true
 
-      // Mark the invitation as consumed (only for real users)
-      if (!isTestUser && invitation) {
-        await ctx.invitationManager.consumeInvitation(email!, did, handle)
-        log.info(
-          { email: ctx.invitationManager.hashEmail(email!) },
-          'Invitation consumed',
-        )
-      }
-    } else {
-      // Account exists - create the link
+      // Consume invitation by JID (only matching JID row)
+      await ctx.invitationManager.consumeInvitationByJid(jid, did, handle)
+
       log.info(
-        { jid, email, did: existingAccount.did },
-        'Creating Neuro identity link for existing account',
+        { sessionId: session.sessionId },
+        'New account created via QuickLogin',
       )
-
-      did = existingAccount.did
-      handle = await getHandleForDid(ctx, did)
-
-      // Mark the invitation as consumed (if it exists)
-      // This handles the case where account was created via provision webhook
-      // but user is now logging in via QuickLogin
-      if (!isTestUser && invitation) {
-        await ctx.invitationManager.consumeInvitation(email!, did, handle)
-        log.info(
-          { email: ctx.invitationManager.hashEmail(email!) },
-          'Invitation consumed for existing account',
-        )
-      }
-
-      // Create the neuro_identity_link
-      await ctx.accountManager.db.db
-        .insertInto('neuro_identity_link')
-        .values({
-          legalId: isTestUser ? null : jid, // NULL for test users
-          jid: isTestUser ? jid : null, // Use JID for test users
-          did,
-          email: isTestUser ? null : email || null, // NULL for test users
-          userName: userName || null,
-          isTestUser: isTestUser ? 1 : 0, // Mark as test user
-          linkedAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString(),
-        })
-        .execute()
-
-      // Create session
-      const tokens = await ctx.accountManager.createSession(did, null, false)
-      accessJwt = tokens.accessJwt
-      refreshJwt = tokens.refreshJwt
-
-      // Delete the invitation if it exists (account already created via other means)
-      if (!isTestUser && invitation) {
-        await ctx.invitationManager.deleteInvitation(invitation.id)
-        log.info(
-          { email: ctx.invitationManager.hashEmail(email!) },
-          'Invitation consumed for existing account',
-        )
-      }
+    } catch (err) {
+      log.error(
+        { sessionId: session.sessionId, error: (err as Error).message },
+        'Account creation failed',
+      )
+      ctx.quickloginStore.updateSession(session.sessionId, {
+        status: 'failed',
+        error: 'AccountCreationFailed',
+      })
+      throw err
     }
   }
 
-  // Update session with success
+  // Update session with success (WP6: pseudonymous logging only)
   ctx.quickloginStore.updateSession(session.sessionId, {
     status: 'completed',
     result: {
@@ -350,12 +337,12 @@ export async function handleQuickLoginCallback(
       handle,
       accessJwt,
       refreshJwt,
-      created: !existingLink,
+      created,
     },
   })
 
   log.info(
-    { sessionId: session.sessionId, did, handle },
+    { sessionId: session.sessionId, created },
     'QuickLogin completed successfully',
   )
 
@@ -364,7 +351,7 @@ export async function handleQuickLoginCallback(
     handle,
     accessJwt,
     refreshJwt,
-    created: !existingLink,
+    created,
   }
 }
 

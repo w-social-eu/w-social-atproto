@@ -8,6 +8,7 @@ packages/*/coverage
 test.sqlite
 .DS_Store
 *.log
+*.log.json
 *.tsbuildinfo
 .*.env
 .env.*

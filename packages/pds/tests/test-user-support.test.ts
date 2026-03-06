@@ -1,243 +1,124 @@
 import { TestNetworkNoAppView } from '@atproto/dev-env'
-
-/**
- * Test User Support Integration Tests
- *
- * Tests verify:
- * 1. Test user detection (no EMAIL tag = test user)
- * 2. Configuration control (PDS_ALLOW_TEST_USER_CREATION)
- * 3. Either/or storage (legalId for real users, jid for test users)
- * 4. Dual matching (Legal ID primary, JID fallback)
- * 5. Startup warning when test users enabled
- */
+import { createAccountViaQuickLogin } from '../src/api/io/trustanchor/quicklogin/helpers'
 
 describe('Test User Support', () => {
   let network: TestNetworkNoAppView
-  let pdsUrl: string
 
-  describe('Configuration: Test Users DISABLED', () => {
-    beforeAll(async () => {
-      network = await TestNetworkNoAppView.create({
-        pds: {
-          allowTestUserCreation: false, // Disabled
-          neuro: {
-            enabled: true,
-            domain: 'test.lab.tagroot.io',
-            storageBackend: 'database' as const,
-          },
+  beforeAll(async () => {
+    network = await TestNetworkNoAppView.create({
+      pds: {
+        neuro: {
+          enabled: true,
+          domain: 'test.lab.tagroot.io',
+          storageBackend: 'database' as const,
         },
-      })
-
-      pdsUrl = network.pds.url
-    })
-
-    afterAll(async () => {
-      await network?.close()
-    })
-
-    it('should reject test user creation when PDS_ALLOW_TEST_USER_CREATION=false', async () => {
-      const ctx = network.pds.ctx
-      expect(ctx.cfg.allowTestUserCreation).toBe(false)
-
-      const jid = `TestUser${Date.now()}@lab.tagroot.io`
-      const legalId = `${Date.now()}@legal.lab.tagroot.io`
-
-      const response = await fetch(`${pdsUrl}/neuro/provision/account`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          EventId: 'LegalIdUpdated',
-          Timestamp: Math.floor(Date.now() / 1000),
-          Object: legalId,
-          Actor: 'neuro-system',
-          Tags: {
-            ID: legalId, // Test users now have Legal ID
-            Account: `testuser${Date.now()}`,
-            JID: jid,
-            State: 'Approved',
-            PHONE: '+1555000000',
-            COUNTRY: 'US',
-            // No EMAIL field = test user
-          },
-        }),
-      })
-
-      expect(response.status).toBe(403)
-      const result = await response.json()
-      expect(result.error).toBe('TestUserCreationDisabled')
-    })
-
-    it('should allow real user creation when test users disabled', async () => {
-      const legalId = `${Date.now()}@legal.lab.tagroot.io`
-
-      const response = await fetch(`${pdsUrl}/neuro/provision/account`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          EventId: 'LegalIdUpdated',
-          Timestamp: Math.floor(Date.now() / 1000),
-          Object: legalId,
-          Actor: 'neuro-system',
-          Tags: {
-            ID: legalId,
-            Account: `realuser${Date.now()}`,
-            EMAIL: 'realuser@example.com',
-            FIRST: 'Real',
-            LAST: 'User',
-            PNR: '',
-            PHONE: '',
-            COUNTRY: 'US',
-            State: 'Approved',
-          },
-        }),
-      })
-
-      const responseBody = await response.json()
-
-      expect(response.status).toBe(201)
-      expect(responseBody.did).toBeTruthy()
-
-      // Verify stored with legalId, not jid
-      const db = network.pds.ctx.accountManager.db.db
-      const link = await db
-        .selectFrom('neuro_identity_link')
-        .selectAll()
-        .where('legalId', '=', legalId)
-        .executeTakeFirst()
-
-      expect(link).toBeDefined()
-      expect(link!.legalId).toBe(legalId)
-      expect(link!.jid).toBeNull()
-      expect(link!.isTestUser).toBe(0) // 0 = real user
+      },
+      dbPostgresSchema: 'test_user_support',
     })
   })
 
-  describe('Configuration: Test Users ENABLED', () => {
-    beforeAll(async () => {
-      network = await TestNetworkNoAppView.create({
-        pds: {
-          allowTestUserCreation: true, // Enabled
-          neuro: {
-            enabled: true,
-            domain: 'test.lab.tagroot.io',
-            storageBackend: 'database' as const,
-          },
-        },
-      })
+  afterAll(async () => {
+    await network.close()
+  })
 
-      pdsUrl = network.pds.url
-    })
+  it('stores real QuickLogin users in userJid', async () => {
+    const ctx = network.pds.ctx
+    const userJid = `real-${Date.now()}@legal.lab.tagroot.io`
 
-    afterAll(async () => {
-      await network?.close()
-    })
+    const result = await createAccountViaQuickLogin(
+      ctx,
+      userJid,
+      0,
+      `real${Date.now()}`,
+    )
 
-    it('should accept test user creation when enabled', async () => {
-      const ctx = network.pds.ctx
-      expect(ctx.cfg.allowTestUserCreation).toBe(true)
+    const link = await ctx.accountManager.db.db
+      .selectFrom('neuro_identity_link')
+      .selectAll()
+      .where('did', '=', result.did)
+      .executeTakeFirst()
 
-      const jid = `TestUser${Date.now()}@lab.tagroot.io`
-      const legalId = `${Date.now()}@legal.lab.tagroot.io`
+    expect(link?.userJid).toBe(userJid)
+    expect(link?.testUserJid).toBeNull()
+    expect(link?.isTestUser).toBe(0)
+  })
 
-      const response = await fetch(`${pdsUrl}/neuro/provision/account`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          EventId: 'LegalIdUpdated',
-          Timestamp: Math.floor(Date.now() / 1000),
-          Object: legalId,
-          Actor: 'neuro-system',
-          Tags: {
-            ID: legalId, // Test users now have Legal ID
-            Account: `testuser${Date.now()}`,
-            JID: jid,
-            State: 'Approved',
-            PHONE: '+1555000000',
-            COUNTRY: 'US',
-            // No EMAIL field = test user
-          },
-        }),
-      })
+  it('stores test QuickLogin users in testUserJid', async () => {
+    const ctx = network.pds.ctx
+    const testUserJid = `TestUser-${Date.now()}@lab.tagroot.io`
 
-      expect(response.status).toBe(201)
-      const result = await response.json()
-      expect(result.did).toBeTruthy()
+    const result = await createAccountViaQuickLogin(
+      ctx,
+      testUserJid,
+      1,
+      `test${Date.now()}`,
+    )
 
-      // Verify stored with jid, not legalId
-      const db = network.pds.ctx.accountManager.db.db
-      const link = await db
-        .selectFrom('neuro_identity_link')
-        .selectAll()
-        .where('jid', '=', jid)
-        .executeTakeFirst()
+    const link = await ctx.accountManager.db.db
+      .selectFrom('neuro_identity_link')
+      .selectAll()
+      .where('did', '=', result.did)
+      .executeTakeFirst()
 
-      expect(link).toBeDefined()
-      expect(link!.jid).toBe(jid)
-      expect(link!.legalId).toBeNull()
-      expect(link!.isTestUser).toBe(1) // 1 = test user
-    })
+    expect(link?.userJid).toBeNull()
+    expect(link?.testUserJid).toBe(testUserJid)
+    expect(link?.isTestUser).toBe(1)
+  })
 
-    it('should store real users with legalId even when test users enabled', async () => {
-      const legalId = `${Date.now()}@legal.lab.tagroot.io`
+  it('finds accounts by either userJid or testUserJid', async () => {
+    const ctx = network.pds.ctx
+    const manager = ctx.neuroAuthManager!
 
-      const response = await fetch(`${pdsUrl}/neuro/provision/account`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          EventId: 'LegalIdUpdated',
-          Timestamp: Math.floor(Date.now() / 1000),
-          Object: legalId,
-          Actor: 'neuro-system',
-          Tags: {
-            ID: legalId,
-            Account: `realuser${Date.now()}`,
-            EMAIL: 'realuser2@example.com',
-            FIRST: 'Real',
-            LAST: 'User',
-            PNR: '',
-            PHONE: '+15551234567',
-            COUNTRY: 'US',
-            State: 'Approved',
-          },
-        }),
-      })
+    const realJid = `lookup-real-${Date.now()}@legal.io`
+    const testJid = `lookup-test-${Date.now()}@lab.io`
 
-      expect(response.status).toBe(201)
+    const real = await createAccountViaQuickLogin(
+      ctx,
+      realJid,
+      0,
+      `lookupreal${Date.now()}`,
+    )
+    const test = await createAccountViaQuickLogin(
+      ctx,
+      testJid,
+      1,
+      `lookuptest${Date.now()}`,
+    )
 
-      // Verify stored with legalId, not jid
-      const db = network.pds.ctx.accountManager.db.db
-      const link = await db
-        .selectFrom('neuro_identity_link')
-        .selectAll()
-        .where('legalId', '=', legalId)
-        .executeTakeFirst()
+    const foundReal = await manager.findAccountByLegalIdOrJid(realJid)
+    const foundTest = await manager.findAccountByLegalIdOrJid(testJid)
 
-      expect(link).toBeDefined()
-      expect(link!.legalId).toBe(legalId)
-      expect(link!.jid).toBeNull()
-      expect(link!.isTestUser).toBe(0) // 0 = real user
-    })
+    expect(foundReal?.did).toBe(real.did)
+    expect(foundTest?.did).toBe(test.did)
+  })
 
-    it('should have correct database schema', async () => {
-      const db = network.pds.ctx.accountManager.db.db
+  it('keeps mutual exclusivity across JID columns', async () => {
+    const ctx = network.pds.ctx
 
-      // Verify columns exist by querying a record
-      const link = await db
-        .selectFrom('neuro_identity_link')
-        .selectAll()
-        .limit(1)
-        .executeTakeFirst()
+    const real = await createAccountViaQuickLogin(
+      ctx,
+      `exclusive-real-${Date.now()}@legal.io`,
+      0,
+      `exclusive-real-${Date.now()}`,
+    )
+    const test = await createAccountViaQuickLogin(
+      ctx,
+      `exclusive-test-${Date.now()}@lab.io`,
+      1,
+      `exclusive-test-${Date.now()}`,
+    )
 
-      if (link) {
-        expect(link).toHaveProperty('legalId')
-        expect(link).toHaveProperty('jid')
-        expect(link).toHaveProperty('isTestUser')
-        expect(link).toHaveProperty('did')
-        expect(link).toHaveProperty('email')
-        expect(link).toHaveProperty('userName')
-        expect(link).toHaveProperty('linkedAt')
-        expect(link).toHaveProperty('lastLoginAt')
-      }
-    })
+    const links = await ctx.accountManager.db.db
+      .selectFrom('neuro_identity_link')
+      .select(['did', 'userJid', 'testUserJid'])
+      .where('did', 'in', [real.did, test.did])
+      .execute()
+
+    for (const link of links) {
+      const populated = [link.userJid, link.testUserJid].filter(
+        (col) => col !== null,
+      )
+      expect(populated).toHaveLength(1)
+    }
   })
 })

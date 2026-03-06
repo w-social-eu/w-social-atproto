@@ -1,0 +1,53 @@
+{
+  "lexicon": 1,
+  "id": "io.trustanchor.admin.createInvitation",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Create or update a pending invitation by email. Admin only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["email", "invitationTimestamp"],
+          "properties": {
+            "email": {
+              "type": "string",
+              "description": "Invitation email"
+            },
+            "preferredHandle": {
+              "type": "string",
+              "description": "Optional suggested handle"
+            },
+            "invitationTimestamp": {
+              "type": "integer",
+              "description": "Unix timestamp when invitation was issued"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["success", "email"],
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "email": {
+              "type": "string"
+            },
+            "preferredHandle": {
+              "type": "string"
+            },
+            "expiresAt": {
+              "type": "string",
+              "format": "datetime"
+            }
+          }
+        }
+      }
+    }
+  }
+}

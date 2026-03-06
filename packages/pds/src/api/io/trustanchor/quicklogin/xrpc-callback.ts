@@ -12,7 +12,18 @@ export default function (server: Server, ctx: AppContext) {
       }
 
       const payload = input.body as NeuroCallbackPayload
-      req.log.info({ payload }, 'Callback received on XRPC endpoint')
+      if (ctx.cfg.debugNeuro) {
+        req.log.info({ payload }, 'Callback received on XRPC endpoint (debug)')
+      } else {
+        req.log.info(
+          {
+            sessionId: payload.SessionId,
+            key: payload.Key,
+            state: payload.State,
+          },
+          'Callback received on XRPC endpoint',
+        )
+      }
 
       try {
         // Call shared handler

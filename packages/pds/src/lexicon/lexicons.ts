@@ -15859,6 +15859,60 @@ export const schemaDict = {
       },
     },
   },
+  IoTrustanchorAdminCreateInvitation: {
+    lexicon: 1,
+    id: 'io.trustanchor.admin.createInvitation',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Create or update a pending invitation by email. Admin only.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['email', 'invitationTimestamp'],
+            properties: {
+              email: {
+                type: 'string',
+                description: 'Invitation email',
+              },
+              preferredHandle: {
+                type: 'string',
+                description: 'Optional suggested handle',
+              },
+              invitationTimestamp: {
+                type: 'integer',
+                description: 'Unix timestamp when invitation was issued',
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['success', 'email'],
+            properties: {
+              success: {
+                type: 'boolean',
+              },
+              email: {
+                type: 'string',
+              },
+              preferredHandle: {
+                type: 'string',
+              },
+              expiresAt: {
+                type: 'string',
+                format: 'datetime',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   IoTrustanchorAdminDeleteInvitation: {
     lexicon: 1,
     id: 'io.trustanchor.admin.deleteInvitation',
@@ -16137,6 +16191,15 @@ export const schemaDict = {
                 type: 'string',
                 description: "User's JID from W ID app",
               },
+              emailHash: {
+                type: 'string',
+                description: 'Salted email hash used for invitation matching',
+              },
+              emailhash: {
+                type: 'string',
+                description:
+                  'Backward-compatible lowercase variant of emailHash',
+              },
               Provider: {
                 type: 'string',
                 description: 'Provider domain',
@@ -16155,19 +16218,23 @@ export const schemaDict = {
               },
               Created: {
                 type: 'integer',
-                description: 'Unix timestamp (seconds) when session was created',
+                description:
+                  'Unix timestamp (seconds) when session was created',
               },
               Updated: {
                 type: 'integer',
-                description: 'Unix timestamp (seconds) when session was last updated',
+                description:
+                  'Unix timestamp (seconds) when session was last updated',
               },
               From: {
                 type: 'integer',
-                description: 'Unix timestamp (seconds) for start of validity period',
+                description:
+                  'Unix timestamp (seconds) for start of validity period',
               },
               To: {
                 type: 'integer',
-                description: 'Unix timestamp (seconds) for end of validity period',
+                description:
+                  'Unix timestamp (seconds) for end of validity period',
               },
             },
           },
@@ -21871,6 +21938,7 @@ export const ids = {
     'com.atproto.temp.requestPhoneVerification',
   ComAtprotoTempRevokeAccountCredentials:
     'com.atproto.temp.revokeAccountCredentials',
+  IoTrustanchorAdminCreateInvitation: 'io.trustanchor.admin.createInvitation',
   IoTrustanchorAdminDeleteInvitation: 'io.trustanchor.admin.deleteInvitation',
   IoTrustanchorAdminGetInvitationStats:
     'io.trustanchor.admin.getInvitationStats',

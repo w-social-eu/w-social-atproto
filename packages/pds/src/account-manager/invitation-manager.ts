@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto'
 import { DAY } from '@atproto/common'
 import { dbLogger } from '../logger'
 import { AccountDb } from './db'
@@ -6,7 +7,26 @@ import { PendingInvitationEntry } from './db/schema'
 const INVITATION_EXPIRY_MS = 30 * DAY // 30 days
 
 export class InvitationManager {
-  constructor(public db: AccountDb) {}
+  constructor(
+    public db: AccountDb,
+    private emailHashSalt: string | null = null,
+  ) {}
+
+  private normalizeEmail(email: string): string {
+    return email.trim().toLowerCase()
+  }
+
+  private normalizeHash(hash: string): string {
+    return hash.trim().toLowerCase()
+  }
+
+  private ensureInvitationHashSaltConfigured(): void {
+    if (!this.emailHashSalt) {
+      throw new Error(
+        'PDS_INVITATION_EMAIL_HASH_SALT is not set. Invitation creation is disabled until it is configured.',
+      )
+    }
+  }
 
   /**
    * Create a new invitation or update existing one
@@ -17,7 +37,10 @@ export class InvitationManager {
     preferredHandle?: string | null,
     invitationTimestamp?: number,
   ): Promise<void> {
-    const normalizedEmail = email.toLowerCase()
+    this.ensureInvitationHashSaltConfigured()
+
+    const normalizedEmail = this.normalizeEmail(email)
+    const emailHash = this.hashEmail(normalizedEmail)
     const now = new Date().toISOString()
     const timestamp = invitationTimestamp || Math.floor(Date.now() / 1000)
     const expiresAt = new Date(Date.now() + INVITATION_EXPIRY_MS).toISOString()
@@ -35,19 +58,23 @@ export class InvitationManager {
       .insertInto('pending_invitations')
       .values({
         email: normalizedEmail,
+        email_hash: emailHash,
         preferred_handle: preferredHandle || null,
         invitation_timestamp: timestamp,
         created_at: now,
         expires_at: expiresAt,
         status: 'pending',
+        email_attempt_count: 0,
       })
       .onConflict((oc) =>
         oc.column('email').doUpdateSet({
+          email_hash: emailHash,
           preferred_handle: preferredHandle || null,
           invitation_timestamp: timestamp,
           created_at: now,
           expires_at: expiresAt,
           status: 'pending',
+          email_attempt_count: 0,
         }),
       )
       .execute()
@@ -60,15 +87,87 @@ export class InvitationManager {
   async getInvitationByEmail(
     email: string,
   ): Promise<PendingInvitationEntry | null> {
-    const normalizedEmail = email.toLowerCase()
+    const normalizedEmail = this.normalizeEmail(email)
+    const emailHash = this.hashEmail(normalizedEmail)
     const now = new Date().toISOString()
 
     const invitation = await this.db.db
       .selectFrom('pending_invitations')
       .selectAll()
-      .where('email', '=', normalizedEmail)
+      .where((qb) =>
+        qb
+          .where('email_hash', '=', emailHash)
+          .orWhere('email', '=', normalizedEmail),
+      )
       .where('status', '=', 'pending')
       .where('expires_at', '>', now)
+      .executeTakeFirst()
+
+    return invitation || null
+  }
+
+  async getInvitationByEmailHash(
+    emailHash: string,
+  ): Promise<PendingInvitationEntry | null> {
+    const normalizedHash = this.normalizeHash(emailHash)
+    const now = new Date().toISOString()
+
+    const invitation = await this.db.db
+      .selectFrom('pending_invitations')
+      .selectAll()
+      .where('email_hash', '=', normalizedHash)
+      .where('status', '=', 'pending')
+      .where('expires_at', '>', now)
+      .executeTakeFirst()
+
+    return invitation || null
+  }
+
+  /**
+   * Get invitation by JID
+   * Returns null if not found or not in valid status
+   */
+  async getInvitationByJid(
+    jid: string,
+  ): Promise<PendingInvitationEntry | null> {
+    const now = new Date().toISOString()
+
+    const invitation = await this.db.db
+      .selectFrom('pending_invitations')
+      .selectAll()
+      .where('jid', '=', jid)
+      .where('status', 'in', [
+        'pending',
+        'email_pending',
+        'email_sent',
+        'email_failed',
+      ])
+      .where('expires_at', '>', now)
+      .executeTakeFirst()
+
+    return invitation || null
+  }
+
+  /**
+   * Get active invitation by email hash (for create-or-reuse flow)
+   * Returns row with JID if it exists and is reusable
+   */
+  async getActiveInvitationByEmailHash(
+    emailHash: string,
+  ): Promise<PendingInvitationEntry | null> {
+    const normalizedHash = this.normalizeHash(emailHash)
+
+    const invitation = await this.db.db
+      .selectFrom('pending_invitations')
+      .selectAll()
+      .where('email_hash', '=', normalizedHash)
+      .where('status', 'in', [
+        'pending',
+        'email_pending',
+        'email_sent',
+        'email_failed',
+      ])
+      .where('jid', 'is not', null)
       .executeTakeFirst()
 
     return invitation || null
@@ -94,7 +193,8 @@ export class InvitationManager {
     did: string,
     handle: string,
   ): Promise<void> {
-    const normalizedEmail = email.toLowerCase()
+    const normalizedEmail = this.normalizeEmail(email)
+    const emailHash = this.hashEmail(normalizedEmail)
     const now = new Date().toISOString()
 
     await this.db.db
@@ -105,7 +205,11 @@ export class InvitationManager {
         consuming_did: did,
         consuming_handle: handle,
       })
-      .where('email', '=', normalizedEmail)
+      .where((qb) =>
+        qb
+          .where('email_hash', '=', emailHash)
+          .orWhere('email', '=', normalizedEmail),
+      )
       .where('status', '=', 'pending')
       .execute()
 
@@ -116,6 +220,194 @@ export class InvitationManager {
         handle,
       },
       'Invitation consumed',
+    )
+  }
+
+  async consumeInvitationByHash(
+    emailHash: string,
+    did: string,
+    handle: string,
+  ): Promise<void> {
+    const normalizedHash = this.normalizeHash(emailHash)
+    const now = new Date().toISOString()
+
+    await this.db.db
+      .updateTable('pending_invitations')
+      .set({
+        status: 'consumed',
+        consumed_at: now,
+        consuming_did: did,
+        consuming_handle: handle,
+      })
+      .where('email_hash', '=', normalizedHash)
+      .where('status', '=', 'pending')
+      .execute()
+
+    dbLogger.info(
+      {
+        emailHash: normalizedHash,
+        did,
+        handle,
+      },
+      'Invitation consumed by hash',
+    )
+  }
+
+  /**
+   * Consume invitation by JID (for JID-based account creation)
+   * Only consumes invitations matching the specific JID
+   */
+  async consumeInvitationByJid(
+    jid: string,
+    did: string,
+    handle: string,
+  ): Promise<void> {
+    const now = new Date().toISOString()
+
+    const result = await this.db.db
+      .updateTable('pending_invitations')
+      .set({
+        status: 'consumed',
+        consumed_at: now,
+        consuming_did: did,
+        consuming_handle: handle,
+      })
+      .where('jid', '=', jid)
+      .where('status', 'in', [
+        'pending',
+        'email_pending',
+        'email_sent',
+        'email_failed',
+      ])
+      .executeTakeFirst()
+
+    if (Number(result.numUpdatedRows || 0) > 0) {
+      dbLogger.info(
+        {
+          jid: jid.substring(0, 8) + '...', // Log only prefix for privacy
+          did,
+          handle,
+        },
+        'Invitation consumed by JID',
+      )
+    }
+  }
+
+  /**
+   * Create invitation with JID and onboarding URL
+   * Used after successful Neuro account allocation
+   */
+  async createInvitationWithJid(
+    email: string,
+    jid: string,
+    onboardingUrl: string,
+    preferredHandle?: string | null,
+    invitationTimestamp?: number,
+  ): Promise<PendingInvitationEntry> {
+    this.ensureInvitationHashSaltConfigured()
+
+    const normalizedEmail = this.normalizeEmail(email)
+    const emailHash = this.hashEmail(normalizedEmail)
+    const now = new Date().toISOString()
+    const timestamp = invitationTimestamp || Math.floor(Date.now() / 1000)
+    const expiresAt = new Date(Date.now() + INVITATION_EXPIRY_MS).toISOString()
+
+    dbLogger.info(
+      {
+        emailHash,
+        jid: jid.substring(0, 8) + '...', // Log only prefix
+        hasPreferredHandle: !!preferredHandle,
+      },
+      'Creating invitation with JID',
+    )
+
+    // Insert new invitation with JID
+    await this.db.db
+      .insertInto('pending_invitations')
+      .values({
+        email: normalizedEmail,
+        email_hash: emailHash,
+        jid,
+        onboarding_url: onboardingUrl,
+        preferred_handle: preferredHandle || null,
+        invitation_timestamp: timestamp,
+        created_at: now,
+        expires_at: expiresAt,
+        status: 'email_pending',
+        email_attempt_count: 0,
+      })
+      .execute()
+
+    // Fetch the created invitation
+    const invitation = await this.db.db
+      .selectFrom('pending_invitations')
+      .selectAll()
+      .where('jid', '=', jid)
+      .orderBy('created_at', 'desc')
+      .executeTakeFirst()
+
+    if (!invitation) {
+      throw new Error('Failed to create invitation')
+    }
+
+    return invitation
+  }
+
+  /**
+   * Update existing invitation for reminder send
+   * Reuses same JID and onboarding URL
+   */
+  async updateInvitationForReminder(
+    id: number,
+    preferredHandle?: string | null,
+  ): Promise<void> {
+    const updates: Record<string, unknown> = {
+      status: 'email_pending',
+    }
+
+    if (preferredHandle !== undefined) {
+      updates.preferred_handle = preferredHandle
+    }
+
+    await this.db.db
+      .updateTable('pending_invitations')
+      .set(updates)
+      .where('id', '=', id)
+      .execute()
+
+    dbLogger.info({ invitationId: id }, 'Updated invitation for reminder')
+  }
+
+  /**
+   * Update email delivery status
+   */
+  async updateEmailDeliveryStatus(
+    id: number,
+    status: 'email_sent' | 'email_failed',
+    error?: string,
+  ): Promise<void> {
+    const now = new Date().toISOString()
+
+    const invitation = await this.db.db
+      .selectFrom('pending_invitations')
+      .select('email_attempt_count')
+      .where('id', '=', id)
+      .executeTakeFirst()
+
+    await this.db.db
+      .updateTable('pending_invitations')
+      .set({
+        status,
+        email_last_sent_at: now,
+        email_attempt_count: (invitation?.email_attempt_count || 0) + 1,
+        email_last_error: error || null,
+      })
+      .where('id', '=', id)
+      .execute()
+
+    dbLogger.info(
+      { invitationId: id, status, error },
+      'Updated email delivery status',
     )
   }
 
@@ -134,7 +426,21 @@ export class InvitationManager {
     if (isId) {
       query = query.where('id', '=', idOrEmail)
     } else {
-      query = query.where('email', '=', idOrEmail.toLowerCase())
+      const normalizedInput = idOrEmail.trim().toLowerCase()
+      if (normalizedInput.includes('@')) {
+        const emailHash = this.hashEmail(normalizedInput)
+        query = query.where((qb) =>
+          qb
+            .where('email_hash', '=', emailHash)
+            .orWhere('email', '=', normalizedInput),
+        )
+      } else {
+        query = query.where((qb) =>
+          qb
+            .where('email_hash', '=', normalizedInput)
+            .orWhere('email', '=', normalizedInput),
+        )
+      }
     }
 
     const result = await query.executeTakeFirst()
@@ -317,14 +623,11 @@ export class InvitationManager {
    * Hash email for logging (privacy)
    */
   hashEmail(email: string): string {
-    // Simple hash for logging - not cryptographic
-    let hash = 0
-    for (let i = 0; i < email.length; i++) {
-      const char = email.charCodeAt(i)
-      hash = (hash << 5) - hash + char
-      hash = hash & hash // Convert to 32bit integer
-    }
-    return hash.toString(16)
+    const normalizedEmail = this.normalizeEmail(email)
+    this.ensureInvitationHashSaltConfigured()
+    return createHmac('sha256', this.emailHashSalt!)
+      .update(normalizedEmail)
+      .digest('hex')
   }
 
   /**

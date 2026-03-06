@@ -15,8 +15,14 @@ import { TestPds } from '@atproto/dev-env/src/pds'
 
 describe('Invitation Manager', () => {
   let pds: TestPds
+  let previousInvitationEmailHashSalt: string | undefined
 
   beforeAll(async () => {
+    previousInvitationEmailHashSalt = process.env.PDS_INVITATION_EMAIL_HASH_SALT
+    process.env.PDS_INVITATION_EMAIL_HASH_SALT =
+      process.env.PDS_INVITATION_EMAIL_HASH_SALT ||
+      'test-invitation-email-hash-salt'
+
     pds = await TestPds.create({
       dbPostgresSchema: 'invitation_manager',
     })
@@ -24,6 +30,13 @@ describe('Invitation Manager', () => {
 
   afterAll(async () => {
     await pds.close()
+
+    if (previousInvitationEmailHashSalt === undefined) {
+      delete process.env.PDS_INVITATION_EMAIL_HASH_SALT
+    } else {
+      process.env.PDS_INVITATION_EMAIL_HASH_SALT =
+        previousInvitationEmailHashSalt
+    }
   })
 
   const ctx = () => pds.ctx
@@ -44,6 +57,7 @@ describe('Invitation Manager', () => {
         await ctx().invitationManager.getInvitationByEmail(email)
       expect(invitation).toBeDefined()
       expect(invitation?.email).toBe(email.toLowerCase())
+      expect(invitation?.email_hash).toBe(ctx().invitationManager.hashEmail(email))
       expect(invitation?.preferred_handle).toBe(preferredHandle)
     })
 
@@ -56,6 +70,9 @@ describe('Invitation Manager', () => {
       const invitation =
         await ctx().invitationManager.getInvitationByEmail(email)
       expect(invitation?.email).toBe('casesensitive@example.com')
+      expect(invitation?.email_hash).toBe(
+        ctx().invitationManager.hashEmail(email),
+      )
 
       // Should find by any case variation
       const invitation2 = await ctx().invitationManager.getInvitationByEmail(
