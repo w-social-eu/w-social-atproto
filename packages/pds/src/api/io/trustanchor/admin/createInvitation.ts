@@ -68,13 +68,14 @@ async function allocateNeuroAccount(
  */
 async function sendInvitationEmail(
   ctx: AppContext,
+  logger: { info: (data: unknown, msg: string) => void },
   email: string,
   onboardingUrl: string,
   preferredHandle?: string | null,
 ): Promise<void> {
   // TODO: Implement Brevo API call with invitation template
   // For now, just log that email would be sent
-  ctx.logger.info(
+  logger.info(
     {
       email: email.substring(0, 3) + '***', // Privacy: log prefix only
       hasHandle: !!preferredHandle,
@@ -137,7 +138,7 @@ export default function (server: Server, ctx: AppContext) {
             )
           }
 
-          invitation = await ctx.db.db
+          invitation = await ctx.accountManager.db.db
             .selectFrom('pending_invitations')
             .selectAll()
             .where('id', '=', existingInvitation.id)
@@ -148,6 +149,7 @@ export default function (server: Server, ctx: AppContext) {
             try {
               await sendInvitationEmail(
                 ctx,
+                req.log,
                 normalizedEmail,
                 invitation.onboarding_url,
                 invitation.preferred_handle,
@@ -184,7 +186,10 @@ export default function (server: Server, ctx: AppContext) {
           } catch (neuroErr) {
             const errorMsg =
               neuroErr instanceof Error ? neuroErr.message : String(neuroErr)
-            req.log.error({ error: errorMsg }, 'Neuro account allocation failed')
+            req.log.error(
+              { error: errorMsg },
+              'Neuro account allocation failed',
+            )
             throw new InvalidRequestError(
               'Failed to allocate WID account',
               'NeuroAllocationError',
@@ -204,6 +209,7 @@ export default function (server: Server, ctx: AppContext) {
           try {
             await sendInvitationEmail(
               ctx,
+              req.log,
               normalizedEmail,
               onboardingUrl,
               preferredHandle,
