@@ -120,6 +120,7 @@ WID Commands:
   wid show <did>                     Show W ID details for account
   wid update <did> <legal-id>        Update W ID for account
   wid handle <did> <new-handle>      Update account handle (admin override, bypasses user)
+  wid schema                         Show database schema for key tables (check migration status)
   wid db [--query=SQL]               Query neuro_identity_link table directly via sqlite3
                                      Default: show all rows with duplicates highlighted
                                      Use --query=SQL to run a custom query
@@ -293,13 +294,23 @@ cmd_account_delete() {
 cmd_wid_list() {
   if [ -n "$ENV" ]; then
     # Nomad available — query DB directly for full accuracy
-    cmd_nomad_exec_sqlite "
+    # Detect schema version: check if userJid column exists (migration 015)
+    local has_new_schema=0
+    if cmd_nomad_exec_sqlite "SELECT name FROM pragma_table_info('neuro_identity_link') WHERE name='userJid';" 2>/dev/null | grep -q "userJid"; then
+      has_new_schema=1
+    fi
+    
+    if [ "$has_new_schema" = "1" ]; then
+      # New schema (post-migration 015): userJid/testUserJid columns
+      cmd_nomad_exec_sqlite "
 SELECT
   a.did,
   COALESCE(a.handle, '?')        AS handle,
   COALESCE(ac.email, '-')        AS email,
-  COALESCE(nil.legalId, '-')     AS legalId,
-  COALESCE(nil.jid, '-')         AS jid,
+  COALESCE(
+    CASE WHEN nil.isTestUser = 1 THEN nil.testUserJid ELSE nil.userJid END,
+    '-'
+  ) AS jid,
   nil.isTestUser,
   nil.linkedAt,
   CASE WHEN cnt.n > 1 THEN 'DUP(' || cnt.n || ')' ELSE '' END AS flags
@@ -311,6 +322,30 @@ LEFT JOIN (
 ) cnt ON cnt.did = a.did
 ORDER BY a.handle, nil.linkedAt;
 "
+    else
+      # Old schema (pre-migration 015): neuroJid/jid/jidRef columns
+      cmd_nomad_exec_sqlite "
+SELECT
+  a.did,
+  COALESCE(a.handle, '?')        AS handle,
+  COALESCE(ac.email, '-')        AS email,
+  COALESCE(nil.neuroJid, '-')    AS legalId,
+  COALESCE(
+    CASE WHEN COALESCE(nil.isTestUser, 0) = 1 THEN nil.jid ELSE nil.jidRef END,
+    '-'
+  ) AS jid,
+  COALESCE(nil.isTestUser, 0)    AS isTestUser,
+  nil.linkedAt,
+  CASE WHEN cnt.n > 1 THEN 'DUP(' || cnt.n || ')' ELSE '' END AS flags
+FROM actor a
+LEFT JOIN account ac ON ac.did = a.did
+LEFT JOIN neuro_identity_link nil ON nil.did = a.did
+LEFT JOIN (
+  SELECT did, COUNT(*) AS n FROM neuro_identity_link GROUP BY did
+) cnt ON cnt.did = a.did
+ORDER BY a.handle, nil.linkedAt;
+"
+    fi
   else
     # No Nomad (plain pds-wadmin with env vars) — use API
     local response
@@ -961,6 +996,73 @@ if(isWrite){
     node -e "$node_script"
 }
 
+cmd_wid_schema() {
+  if [ -z "$ENV" ] || [ "$ENV" = "wadmin" ]; then
+    echo "ERROR: wid schema requires environment context (use pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod)"
+    exit 1
+  fi
+
+  echo "Database Schema for pds/${ENV}"
+  echo "=================================="
+  echo ""
+
+  # Show neuro_identity_link schema
+  echo "Table: neuro_identity_link"
+  echo "----------------------------"
+  cmd_nomad_exec_sqlite "PRAGMA table_info(neuro_identity_link);" | \
+    awk 'NR==1 || NR>2 {print}' | column -t
+  echo ""
+
+  # Show actor schema
+  echo "Table: actor"
+  echo "-------------"
+  cmd_nomad_exec_sqlite "PRAGMA table_info(actor);" | \
+    awk 'NR==1 || NR>2 {print}' | column -t
+  echo ""
+
+  # Show account schema
+  echo "Table: account"
+  echo "---------------"
+  cmd_nomad_exec_sqlite "PRAGMA table_info(account);" | \
+    awk 'NR==1 || NR>2 {print}' | column -t
+  echo ""
+
+  # Show pending_invitations schema
+  echo "Table: pending_invitations"
+  echo "---------------------------"
+  cmd_nomad_exec_sqlite "PRAGMA table_info(pending_invitations);" | \
+    awk 'NR==1 || NR>2 {print}' | column -t
+  echo ""
+
+  # Migration status check
+  echo "Migration Status Indicators:"
+  echo "----------------------------"
+  
+  # Check for migration 015 (userJid column)
+  if cmd_nomad_exec_sqlite "SELECT name FROM pragma_table_info('neuro_identity_link') WHERE name='userJid';" 2>/dev/null | grep -q "userJid"; then
+    echo "✓ Migration 015 applied (userJid/testUserJid schema)"
+  # Check for migration 014 (jidRef column)
+  elif cmd_nomad_exec_sqlite "SELECT name FROM pragma_table_info('neuro_identity_link') WHERE name='jidRef';" 2>/dev/null | grep -q "jidRef"; then
+    echo "✓ Migration 014 applied (jidRef column exists)"
+    echo "✗ Migration 015 NOT applied (userJid/testUserJid not present)"
+  # Check for pre-014 schema (neuroJid column)
+  elif cmd_nomad_exec_sqlite "SELECT name FROM pragma_table_info('neuro_identity_link') WHERE name='neuroJid';" 2>/dev/null | grep -q "neuroJid"; then
+    echo "✗ Pre-migration 014 schema (neuroJid as primary key)"
+    echo "✗ Migrations 014 and 015 NOT applied"
+  # Fallback: check for legalId (even older schema)
+  elif cmd_nomad_exec_sqlite "SELECT name FROM pragma_table_info('neuro_identity_link') WHERE name='legalId';" 2>/dev/null | grep -q "legalId"; then
+    echo "✗ Old schema (legalId as primary key)"
+    echo "✗ Migrations 014 and 015 NOT applied"
+  fi
+
+  # Check for migration 017 (invitation jid column)
+  if cmd_nomad_exec_sqlite "SELECT name FROM pragma_table_info('pending_invitations') WHERE name='jid';" 2>/dev/null | grep -q "jid"; then
+    echo "✓ Migration 017 applied (invitation JID fields present)"
+  else
+    echo "✗ Migration 017 NOT applied (invitation JID fields missing)"
+  fi
+}
+
 cmd_wid_db() {
   local custom_query=""
 
@@ -1138,6 +1240,9 @@ main() {
           ;;
         handle)
           cmd_wid_handle "$@"
+          ;;
+        schema)
+          cmd_wid_schema "$@"
           ;;
         db)
           cmd_wid_db "$@"
