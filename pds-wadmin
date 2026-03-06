@@ -299,7 +299,7 @@ cmd_wid_list() {
     if cmd_nomad_exec_sqlite "SELECT name FROM pragma_table_info('neuro_identity_link') WHERE name='userJid';" 2>/dev/null | grep -q "userJid"; then
       has_new_schema=1
     fi
-    
+
     if [ "$has_new_schema" = "1" ]; then
       # New schema (post-migration 015): userJid/testUserJid columns
       cmd_nomad_exec_sqlite "
@@ -430,16 +430,16 @@ cmd_wid_update() {
   local new_legal_id="$2"
 
   if [ -z "$did" ] || [ -z "$new_legal_id" ]; then
-    echo "ERROR: Both DID and new Legal ID are required"
-    echo "Usage: $0 wid update <did> <legal-id>"
+    echo "ERROR: Both DID and new JID are required"
+    echo "Usage: $0 wid update <did> <jid>"
     exit 1
   fi
 
-  # FIXME: Add validation for ID format
-  #if [[ ! "$new_legal_id" =~ @legal\. ]]; then
-  #  echo "ERROR: Invalid Legal ID format (must contain '@legal.')"
-  #  exit 1
-  #fi
+  # Validate JID format (must contain @auth)
+  if [[ ! "$new_legal_id" =~ @auth ]]; then
+    echo "ERROR: Invalid JID format (must contain '@auth')"
+    exit 1
+  fi
 
   local data
   data=$(jq -n \
@@ -1037,7 +1037,7 @@ cmd_wid_schema() {
   # Migration status check
   echo "Migration Status Indicators:"
   echo "----------------------------"
-  
+
   # Check for migration 015 (userJid column)
   if cmd_nomad_exec_sqlite "SELECT name FROM pragma_table_info('neuro_identity_link') WHERE name='userJid';" 2>/dev/null | grep -q "userJid"; then
     echo "✓ Migration 015 applied (userJid/testUserJid schema)"

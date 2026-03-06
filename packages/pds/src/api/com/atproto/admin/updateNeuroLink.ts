@@ -8,14 +8,6 @@ export default function (server: Server, ctx: AppContext) {
     handler: async ({ input, req }) => {
       const { did, newLegalId } = input.body
 
-      // Validate Legal ID format
-      if (!newLegalId.includes('@legal.')) {
-        throw new InvalidRequestError(
-          'Invalid Legal ID format. Must be in format: uuid@legal.domain',
-          'InvalidLegalId',
-        )
-      }
-
       // Check if account exists
       const account = await ctx.accountManager.db.db
         .selectFrom('account')
@@ -49,7 +41,8 @@ export default function (server: Server, ctx: AppContext) {
         .where('did', '=', did)
         .executeTakeFirst()
 
-      const oldLegalId = currentLink?.userJid || currentLink?.testUserJid || null
+      const oldLegalId =
+        currentLink?.userJid || currentLink?.testUserJid || null
       const updatedAt = new Date().toISOString()
 
       // Update or insert the link
