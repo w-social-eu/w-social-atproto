@@ -187,7 +187,7 @@ export class AccountManager {
       }
       await Promise.all([
         account.registerActor(dbTxn, { did, handle, deactivated }),
-        email && passwordScrypt
+        email
           ? account.registerAccount(dbTxn, { did, email, passwordScrypt })
           : Promise.resolve(),
         invite.recordInviteUse(dbTxn, {

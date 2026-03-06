@@ -131,7 +131,7 @@ export const registerAccount = async (
   opts: {
     did: string
     email: string
-    passwordScrypt: string
+    passwordScrypt: string | undefined
   },
 ) => {
   const { did, email, passwordScrypt } = opts
@@ -141,7 +141,8 @@ export const registerAccount = async (
       .values({
         did,
         email: email.toLowerCase(),
-        passwordScrypt,
+        // WID-authenticated accounts use marker instead of password hash
+        passwordScrypt: passwordScrypt ?? '__WID_AUTH_ACCT__',
       })
       .onConflict((oc) => oc.doNothing())
       .returning('did'),
