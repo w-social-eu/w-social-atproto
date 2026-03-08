@@ -106,7 +106,7 @@ Usage: $0 <category> <command> [args...]
 
 Categories:
   account       Account management (delete)
-  wid           W ID (Legal ID) management
+  wid           W ID (JID) management
   transfer      Account transfers (rehoming within cluster, import/export)
   invitation    Invitation management
   nomad         Nomad job management and logs
@@ -118,7 +118,7 @@ Account Commands:
 WID Commands:
   wid list                           List all accounts with W ID links
   wid show <did>                     Show W ID details for account
-  wid update <did> <legal-id>        Update W ID for account
+  wid update <did> <jid>             Update W ID (JID) for account
   wid handle <did> <new-handle>      Update account handle (admin override, bypasses user)
   wid schema                         Show database schema for key tables (check migration status)
   wid db [--query=SQL]               Query neuro_identity_link table directly via sqlite3
@@ -163,7 +163,7 @@ Examples:
   # WID management
   $0 wid list
   $0 wid show did:plc:abc123
-  $0 wid update did:plc:abc123 uuid@legal.lab.tagroot.io
+  $0 wid update did:plc:abc123 user@auth.wsocial.dev
   $0 wid handle did:plc:abc123 ingmar.wsocial.eu
 
   # Account transfer (rehoming)
@@ -329,7 +329,7 @@ SELECT
   a.did,
   COALESCE(a.handle, '?')        AS handle,
   COALESCE(ac.email, '-')        AS email,
-  COALESCE(nil.neuroJid, '-')    AS legalId,
+  COALESCE(nil.neuroJid, '-')    AS jid,
   COALESCE(
     CASE WHEN COALESCE(nil.isTestUser, 0) = 1 THEN nil.jid ELSE nil.jidRef END,
     '-'
@@ -350,24 +350,23 @@ ORDER BY a.handle, nil.linkedAt;
     # No Nomad (plain pds-wadmin with env vars) — use API
     local response
     response=$(api_call "GET" "com.atproto.admin.listNeuroAccounts?limit=1000")
-    # Handle both old format (flat legalId/jid scalars) and new format (neuroLinks array)
+    # Handle API response format (unified jid field)
     echo "$response" | jq -r '
-      ["DID", "HANDLE", "EMAIL", "LEGAL_ID", "JID", "LINKED_AT", "FLAGS"],
+      ["DID", "HANDLE", "EMAIL", "JID", "LINKED_AT", "FLAGS"],
       (
         .accounts[] |
         . as $acct |
         # Normalize: if neuroLinks array exists use it, else wrap flat scalars
         (if (.neuroLinks | type) == "array" and (.neuroLinks | length) > 0
          then .neuroLinks
-         else [{legalId: .legalId, jid: .jid, isTestUser: (.isTestUser // 0), linkedAt: .linkedAt}]
+         else [{jid: .jid, isTestUser: (.isTestUser // 0), linkedAt: .linkedAt}]
          end) as $links |
         $links[] |
         [
           $acct.did,
           ($acct.handle // "-"),
           ($acct.email // "-"),
-          (.legalId // "-"),
-          (.jid // .jidRef // "-"),
+          (.jid // "-"),
           (.linkedAt // "-"),
           ([(if .isTestUser == 1 then "TEST" else empty end),
             (if ($acct.duplicateLinks // false) then "DUP" else empty end)] |
@@ -401,7 +400,7 @@ cmd_wid_show() {
     # Build a normalized neuroLinks array regardless of API version
     (if (.neuroLinks | type) == "array"
      then .neuroLinks
-     else [{legalId: .legalId, jid: .jid, jidRef: .jidRef,
+     else [{jid: .jid,
              isTestUser: (.isTestUser // 0),
              linkedAt: .linkedAt, lastLoginAt: .lastLoginAt}]
      end) as $links |
@@ -413,9 +412,7 @@ cmd_wid_show() {
       "Neuro links": [
         $links[] |
         {
-          "Legal ID": (.legalId // "—"),
-          "JID (test)": (.jid // "—"),
-          "JID ref": (.jidRef // "—"),
+          "JID (W ID)": (.jid // "—"),
           "Test user": .isTestUser,
           "Linked at": (.linkedAt // "N/A"),
           "Last login": (.lastLoginAt // "N/A")
@@ -427,16 +424,16 @@ cmd_wid_show() {
 
 cmd_wid_update() {
   local did="$1"
-  local new_legal_id="$2"
+  local new_jid="$2"
 
-  if [ -z "$did" ] || [ -z "$new_legal_id" ]; then
+  if [ -z "$did" ] || [ -z "$new_jid" ]; then
     echo "ERROR: Both DID and new JID are required"
     echo "Usage: $0 wid update <did> <jid>"
     exit 1
   fi
 
   # Validate JID format (must contain @auth)
-  if [[ ! "$new_legal_id" =~ @auth ]]; then
+  if [[ ! "$new_jid" =~ @auth ]]; then
     echo "ERROR: Invalid JID format (must contain '@auth')"
     exit 1
   fi
@@ -444,8 +441,8 @@ cmd_wid_update() {
   local data
   data=$(jq -n \
     --arg did "$did" \
-    --arg newLegalId "$new_legal_id" \
-    '{did: $did, newLegalId: $newLegalId}')
+    --arg newJid "$new_jid" \
+    '{did: $did, newJid: $newJid}')
 
   local response
   response=$(api_call "POST" "com.atproto.admin.updateNeuroLink" "$data")
@@ -460,8 +457,8 @@ cmd_wid_update() {
   echo "$response" | jq '
     {
       "DID": .did,
-      "Old W ID": (.oldLegalId // "None"),
-      "New W ID": .newLegalId,
+      "Old W ID": (.oldJid // "None"),
+      "New W ID": .newJid,
       "Updated At": .updatedAt
     }
   '

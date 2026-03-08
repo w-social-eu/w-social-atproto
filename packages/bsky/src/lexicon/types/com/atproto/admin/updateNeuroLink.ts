@@ -19,16 +19,16 @@ export type QueryParams = {}
 export interface InputSchema {
   /** The DID of the account. */
   did: string
-  /** The new Neuro Legal ID (W ID) to link to this account. */
-  newLegalId: string
+  /** The new JID (W ID) to link to this account. */
+  newJid: string
 }
 
 export interface OutputSchema {
   success: boolean
   did: string
-  /** Previous Legal ID (if any) */
-  oldLegalId?: string
-  newLegalId: string
+  /** Previous JID (if any) */
+  oldJid?: string
+  newJid: string
   updatedAt: string
 }
 
@@ -46,7 +46,7 @@ export interface HandlerSuccess {
 export interface HandlerError {
   status: number
   message?: string
-  error?: 'NotFound' | 'InvalidLegalId' | 'LegalIdInUse'
+  error?: 'NotFound' | 'InvalidJid' | 'JidInUse'
 }
 
 export type HandlerOutput = HandlerError | HandlerSuccess

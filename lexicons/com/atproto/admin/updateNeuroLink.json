@@ -9,16 +9,16 @@
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["did", "newLegalId"],
+          "required": ["did", "newJid"],
           "properties": {
             "did": {
               "type": "string",
               "format": "did",
               "description": "The DID of the account."
             },
-            "newLegalId": {
+            "newJid": {
               "type": "string",
-              "description": "The new Neuro Legal ID (W ID) to link to this account."
+              "description": "The new JID (W ID) to link to this account."
             }
           }
         }
@@ -27,7 +27,7 @@
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["success", "did", "newLegalId", "updatedAt"],
+          "required": ["success", "did", "newJid", "updatedAt"],
           "properties": {
             "success": {
               "type": "boolean"
@@ -36,11 +36,11 @@
               "type": "string",
               "format": "did"
             },
-            "oldLegalId": {
+            "oldJid": {
               "type": "string",
-              "description": "Previous Legal ID (if any)"
+              "description": "Previous JID (if any)"
             },
-            "newLegalId": {
+            "newJid": {
               "type": "string"
             },
             "updatedAt": {
@@ -55,10 +55,10 @@
           "name": "NotFound"
         },
         {
-          "name": "InvalidLegalId"
+          "name": "InvalidJid"
         },
         {
-          "name": "LegalIdInUse"
+          "name": "JidInUse"
         }
       ]
     }

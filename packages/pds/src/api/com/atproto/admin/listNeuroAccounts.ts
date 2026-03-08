@@ -71,16 +71,14 @@ export default function (server: Server, ctx: AppContext) {
               did: account.did,
               handle: account.handle || '',
               email: account.email || undefined,
-              // Top-level scalar fields use the primary (oldest) row for backward compat
-              legalId: primary?.userJid || primary?.testUserJid || undefined,
-              jid: primary?.testUserJid || undefined,
+              // Unified JID field for both real and test users
+              jid: primary?.userJid || primary?.testUserJid || undefined,
               isTestUser: primary ? Boolean(primary.isTestUser) : undefined,
               linkedAt: primary?.linkedAt || undefined,
               lastLoginAt: primary?.lastLoginAt || undefined,
               // Full list of all rows — includes duplicates when present
               neuroLinks: links.map((l) => ({
-                legalId: l.userJid || l.testUserJid || undefined,
-                jid: l.testUserJid || undefined,
+                jid: l.userJid || l.testUserJid || undefined,
                 isTestUser: Boolean(l.isTestUser),
                 linkedAt: l.linkedAt || undefined,
                 lastLoginAt: l.lastLoginAt || undefined,

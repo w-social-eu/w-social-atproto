@@ -20,16 +20,16 @@ export type QueryParams = {}
 export interface InputSchema {
   /** The DID of the account. */
   did: string
-  /** The new Neuro Legal ID (W ID) to link to this account. */
-  newLegalId: string
+  /** The new JID (W ID) to link to this account. */
+  newJid: string
 }
 
 export interface OutputSchema {
   success: boolean
   did: string
-  /** Previous Legal ID (if any) */
-  oldLegalId?: string
-  newLegalId: string
+  /** Previous JID (if any) */
+  oldJid?: string
+  newJid: string
   updatedAt: string
 }
 
@@ -52,13 +52,13 @@ export class NotFoundError extends XRPCError {
   }
 }
 
-export class InvalidLegalIdError extends XRPCError {
+export class InvalidJidError extends XRPCError {
   constructor(src: XRPCError) {
     super(src.status, src.error, src.message, src.headers, { cause: src })
   }
 }
 
-export class LegalIdInUseError extends XRPCError {
+export class JidInUseError extends XRPCError {
   constructor(src: XRPCError) {
     super(src.status, src.error, src.message, src.headers, { cause: src })
   }
@@ -67,8 +67,8 @@ export class LegalIdInUseError extends XRPCError {
 export function toKnownErr(e: any) {
   if (e instanceof XRPCError) {
     if (e.error === 'NotFound') return new NotFoundError(e)
-    if (e.error === 'InvalidLegalId') return new InvalidLegalIdError(e)
-    if (e.error === 'LegalIdInUse') return new LegalIdInUseError(e)
+    if (e.error === 'InvalidJid') return new InvalidJidError(e)
+    if (e.error === 'JidInUse') return new JidInUseError(e)
   }
 
   return e

@@ -10889,13 +10889,10 @@ export const schemaDict = {
               email: {
                 type: 'string',
               },
-              legalId: {
-                type: 'string',
-                description: 'Neuro Legal ID (W ID) for real users',
-              },
               jid: {
                 type: 'string',
-                description: 'Neuro JID for test users',
+                description:
+                  'JID (W ID) - unified for both real and test users',
               },
               isTestUser: {
                 type: 'boolean',
@@ -11046,11 +11043,11 @@ export const schemaDict = {
       },
       neuroLinkData: {
         type: 'object',
-        required: ['legalId'],
+        required: ['jid'],
         properties: {
-          legalId: {
+          jid: {
             type: 'string',
-            description: 'Neuro Legal ID (W ID) in format: uuid@legal.domain',
+            description: 'JID (W ID) in format: user@auth.domain',
           },
           linkedAt: {
             type: 'string',
@@ -11162,13 +11159,9 @@ export const schemaDict = {
           email: {
             type: 'string',
           },
-          legalId: {
-            type: 'string',
-            description: 'Neuro Legal ID (W ID) for real users',
-          },
           jid: {
             type: 'string',
-            description: 'Neuro JID for test users',
+            description: 'JID (W ID) - unified for both real and test users',
           },
           isTestUser: {
             type: 'boolean',
@@ -11519,17 +11512,16 @@ export const schemaDict = {
           encoding: 'application/json',
           schema: {
             type: 'object',
-            required: ['did', 'newLegalId'],
+            required: ['did', 'newJid'],
             properties: {
               did: {
                 type: 'string',
                 format: 'did',
                 description: 'The DID of the account.',
               },
-              newLegalId: {
+              newJid: {
                 type: 'string',
-                description:
-                  'The new Neuro Legal ID (W ID) to link to this account.',
+                description: 'The new JID (W ID) to link to this account.',
               },
             },
           },
@@ -11538,7 +11530,7 @@ export const schemaDict = {
           encoding: 'application/json',
           schema: {
             type: 'object',
-            required: ['success', 'did', 'newLegalId', 'updatedAt'],
+            required: ['success', 'did', 'newJid', 'updatedAt'],
             properties: {
               success: {
                 type: 'boolean',
@@ -11547,11 +11539,11 @@ export const schemaDict = {
                 type: 'string',
                 format: 'did',
               },
-              oldLegalId: {
+              oldJid: {
                 type: 'string',
-                description: 'Previous Legal ID (if any)',
+                description: 'Previous JID (if any)',
               },
-              newLegalId: {
+              newJid: {
                 type: 'string',
               },
               updatedAt: {
@@ -11566,10 +11558,10 @@ export const schemaDict = {
             name: 'NotFound',
           },
           {
-            name: 'InvalidLegalId',
+            name: 'InvalidJid',
           },
           {
-            name: 'LegalIdInUse',
+            name: 'JidInUse',
           },
         ],
       },
@@ -11649,9 +11641,9 @@ export const schemaDict = {
               format: 'did',
               description: 'DID to migrate',
             },
-            legalId: {
+            jid: {
               type: 'string',
-              description: 'W ID (Neuro Legal ID) if account has one',
+              description: 'JID (W ID) if account has one',
             },
             targetHandle: {
               type: 'string',
@@ -11690,9 +11682,9 @@ export const schemaDict = {
             type: 'boolean',
             description: 'True if DID does not exist on target',
           },
-          legalIdAvailable: {
+          jidAvailable: {
             type: 'boolean',
-            description: 'True if W ID is not linked to another account',
+            description: 'True if JID (W ID) is not linked to another account',
           },
           handleAvailable: {
             type: 'boolean',
