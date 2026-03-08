@@ -6,15 +6,7 @@ export default function (server: Server, ctx: AppContext) {
   server.com.atproto.admin.updateNeuroLink({
     auth: ctx.authVerifier.adminToken,
     handler: async ({ input, req }) => {
-      const { did, newLegalId } = input.body
-
-      // Validate Legal ID format
-      if (!newLegalId.includes('@legal.')) {
-        throw new InvalidRequestError(
-          'Invalid Legal ID format. Must be in format: uuid@legal.domain',
-          'InvalidLegalId',
-        )
-      }
+      const { did, newJid } = input.body
 
       // Check if account exists
       const account = await ctx.accountManager.db.db
@@ -27,18 +19,18 @@ export default function (server: Server, ctx: AppContext) {
         throw new InvalidRequestError('Account not found', 'NotFound')
       }
 
-      // Check if the new Legal ID is already linked to a different account
+      // Check if the new JID is already linked to a different account
       const existingLink = await ctx.accountManager.db.db
         .selectFrom('neuro_identity_link')
         .select(['did', 'userJid', 'testUserJid'])
-        .where('userJid', '=', newLegalId)
+        .where('userJid', '=', newJid)
         .where('isTestUser', '=', 0)
         .executeTakeFirst()
 
       if (existingLink && existingLink.did !== did) {
         throw new InvalidRequestError(
-          `This Legal ID is already linked to account ${existingLink.did}`,
-          'LegalIdInUse',
+          `This JID is already linked to account ${existingLink.did}`,
+          'JidInUse',
         )
       }
 
@@ -49,7 +41,7 @@ export default function (server: Server, ctx: AppContext) {
         .where('did', '=', did)
         .executeTakeFirst()
 
-      const oldLegalId = currentLink?.userJid || currentLink?.testUserJid || null
+      const oldJid = currentLink?.userJid || currentLink?.testUserJid || null
       const updatedAt = new Date().toISOString()
 
       // Update or insert the link
@@ -58,7 +50,7 @@ export default function (server: Server, ctx: AppContext) {
         await ctx.accountManager.db.db
           .updateTable('neuro_identity_link')
           .set({
-            userJid: newLegalId,
+            userJid: newJid,
             testUserJid: null,
             isTestUser: 0,
             linkedAt: updatedAt,
@@ -67,16 +59,13 @@ export default function (server: Server, ctx: AppContext) {
           .where('did', '=', did)
           .execute()
 
-        req.log.info(
-          { did, oldLegalId, newLegalId },
-          'Updated Neuro identity link',
-        )
+        req.log.info({ did, oldJid, newJid }, 'Updated Neuro identity link')
       } else {
         // Create new link
         await ctx.accountManager.db.db
           .insertInto('neuro_identity_link')
           .values({
-            userJid: newLegalId,
+            userJid: newJid,
             testUserJid: null,
             did,
             isTestUser: 0,
@@ -85,7 +74,7 @@ export default function (server: Server, ctx: AppContext) {
           })
           .execute()
 
-        req.log.info({ did, newLegalId }, 'Created Neuro identity link')
+        req.log.info({ did, newJid }, 'Created Neuro identity link')
       }
 
       return {
@@ -93,8 +82,8 @@ export default function (server: Server, ctx: AppContext) {
         body: {
           success: true,
           did,
-          oldLegalId: oldLegalId || undefined,
-          newLegalId,
+          oldJid: oldJid || undefined,
+          newJid,
           updatedAt,
         },
       }

@@ -55,8 +55,8 @@ export type HandlerOutput = HandlerError | HandlerSuccess
 
 export interface NeuroLinkData {
   $type?: 'com.atproto.admin.importAccount#neuroLinkData'
-  /** Neuro Legal ID (W ID) in format: uuid@legal.domain */
-  legalId: string
+  /** JID (W ID) in format: user@auth.domain */
+  jid: string
   /** When the link was originally created */
   linkedAt?: string
   /** Last Neuro authentication time */

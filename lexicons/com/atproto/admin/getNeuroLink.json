@@ -32,13 +32,9 @@
             "email": {
               "type": "string"
             },
-            "legalId": {
-              "type": "string",
-              "description": "Neuro Legal ID (W ID) for real users"
-            },
             "jid": {
               "type": "string",
-              "description": "Neuro JID for test users"
+              "description": "JID (W ID) - unified for both real and test users"
             },
             "isTestUser": {
               "type": "boolean",
