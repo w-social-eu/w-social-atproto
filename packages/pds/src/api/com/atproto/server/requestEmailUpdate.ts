@@ -52,7 +52,12 @@ export default function (server: Server, ctx: AppContext) {
         throw new InvalidRequestError('account does not have an email address')
       }
 
-      const tokenRequired = !!account.emailConfirmedAt
+      // Check if email is a real address vs a placeholder
+      // Skip token requirement if email is empty, null, or a placeholder (.invalid domain)
+      const isPlaceholderEmail =
+        !account.email || account.email.endsWith('.invalid')
+
+      const tokenRequired = !!account.emailConfirmedAt && !isPlaceholderEmail
       if (tokenRequired) {
         const token = await ctx.accountManager.createEmailToken(
           did,
