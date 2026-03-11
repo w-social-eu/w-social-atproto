@@ -161,7 +161,7 @@ export function readEnv() {
     neuro: envBool('PDS_NEURO_ENABLED')
       ? ({
           enabled: true,
-          domain: envStr('PDS_NEURO_DOMAIN') || 'mateo.lab.tagroot.io',
+          domain: envStr('PDS_NEURO_DOMAIN'),
           storageBackend:
             (envStr('PDS_NEURO_STORAGE_BACKEND') as 'database' | 'redis') ||
             'database',
@@ -179,6 +179,7 @@ export function readEnv() {
     quickloginApiBaseUrl: envStr('PDS_QUICKLOGIN_API_BASE_URL'),
     quickloginPropertyFilter: envStr('PDS_QUICKLOGIN_PROPERTY_FILTER'),
     quickloginAttachmentFilter: envStr('PDS_QUICKLOGIN_ATTACHMENT_FILTER'),
+    neuroHostnameSuffixes: envList('PDS_NEURO_HOSTNAME_SUFFIXES'),
     debugNeuro: envBool('PDS_DEBUG_NEURO'),
 
     // test user support

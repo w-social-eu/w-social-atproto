@@ -70,7 +70,7 @@ export const NeuroErrorCodes = {
  * Configuration for Neuro Auth Manager
  */
 export interface NeuroConfig {
-  domain: string // e.g., 'mateo.lab.tagroot.io'
+  domain?: string // e.g., 'auth.example.com'
   callbackBaseUrl: string // e.g., 'https://your-pds.com'
   storageBackend: 'database' | 'redis'
 }
@@ -558,7 +558,9 @@ export class NeuroAuthManager {
     await this.db.db
       .updateTable('neuro_identity_link')
       .set({ lastLoginAt: new Date().toISOString() })
-      .where((eb) => eb.where('userJid', '=', jid).orWhere('testUserJid', '=', jid))
+      .where((eb) =>
+        eb.where('userJid', '=', jid).orWhere('testUserJid', '=', jid),
+      )
       .execute()
   }
 

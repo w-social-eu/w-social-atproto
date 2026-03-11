@@ -179,6 +179,60 @@ export async function handleQuickLoginCallback(
     throw new Error('JID missing from callback')
   }
 
+  // Validate Neuro server hostname against allowed suffixes (security check)
+  // If suffixes configured: REQUIRED validation
+  // If no suffixes configured: SKIP validation (development mode)
+  const domain = payload.Domain
+  const allowedSuffixes = ctx.cfg.quicklogin?.hostnameSuffixes || []
+
+  if (allowedSuffixes.length > 0) {
+    // Hostname validation is enabled
+    if (!domain) {
+      log.error(
+        { sessionId: session.sessionId },
+        'Domain field missing from callback payload - rejecting for security',
+      )
+      ctx.quickloginStore.updateSession(session.sessionId, {
+        status: 'failed',
+        error: 'Domain missing',
+      })
+      throw new Error('Domain field required in callback payload')
+    }
+
+    // Case-insensitive comparison
+    const domainLower = domain.toLowerCase()
+    const isAllowed = allowedSuffixes.some((suffix) =>
+      domainLower.endsWith(suffix.toLowerCase()),
+    )
+
+    if (!isAllowed) {
+      log.error(
+        {
+          sessionId: session.sessionId,
+          domain,
+          allowedSuffixes,
+        },
+        'Rejected callback from unauthorized Neuro server',
+      )
+      ctx.quickloginStore.updateSession(session.sessionId, {
+        status: 'failed',
+        error: 'Unauthorized Neuro server',
+      })
+      throw new Error(`Unauthorized Neuro server: ${domain}`)
+    }
+
+    log.info(
+      { sessionId: session.sessionId, domain },
+      'Neuro server hostname validated',
+    )
+  } else {
+    // No suffixes configured - skip validation (development mode)
+    log.info(
+      { sessionId: session.sessionId, domain: domain || 'not provided' },
+      'Hostname validation skipped (no suffixes configured)',
+    )
+  }
+
   // WP1/WID protocol update: parse test-user status.
   // Priority:
   // 1) explicit istestuser ('true'/'false') when present
