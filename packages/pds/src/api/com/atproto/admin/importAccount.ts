@@ -36,17 +36,17 @@ export default function (server: Server, ctx: AppContext) {
       }
 
       // Pre-flight validation: Check W ID uniqueness
-      if (neuroLink?.legalId) {
+      if (neuroLink?.jid) {
         const existingLink = await ctx.accountManager.db.db
           .selectFrom('neuro_identity_link')
           .select(['did', 'userJid', 'testUserJid'])
-          .where('userJid', '=', neuroLink.legalId)
+          .where('userJid', '=', neuroLink.jid)
           .where('isTestUser', '=', 0)
           .executeTakeFirst()
 
         if (existingLink && existingLink.did !== did) {
           throw new InvalidRequestError(
-            `W ID ${neuroLink.legalId} is already linked to a different account`,
+            `W ID ${neuroLink.jid} is already linked to a different account`,
             'DuplicateNeuroId',
           )
         }
@@ -104,12 +104,12 @@ export default function (server: Server, ctx: AppContext) {
         let neuroLinkRestored = false
 
         // Restore W ID (Neuro identity link)
-        if (neuroLink?.legalId) {
+        if (neuroLink?.jid) {
           await ctx.accountManager.db.db
             .insertInto('neuro_identity_link')
             .values({
               did,
-              userJid: neuroLink.legalId,
+              userJid: neuroLink.jid,
               testUserJid: null,
               isTestUser: 0,
               linkedAt: neuroLink.linkedAt || new Date().toISOString(),
@@ -119,7 +119,7 @@ export default function (server: Server, ctx: AppContext) {
 
           neuroLinkRestored = true
           req.log.info(
-            { did, legalId: neuroLink.legalId },
+            { did, jid: neuroLink.jid },
             'Neuro identity link restored',
           )
         }

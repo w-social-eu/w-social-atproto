@@ -18,8 +18,8 @@ const id = 'com.atproto.admin.validateMigrationTarget'
 export type QueryParams = {
   /** DID to migrate */
   did: string
-  /** W ID (Neuro Legal ID) if account has one */
-  legalId?: string
+  /** JID (W ID) if account has one */
+  jid?: string
   /** New handle on target (if changing) */
   targetHandle?: string
 }
@@ -53,8 +53,8 @@ export interface ValidationChecks {
   $type?: 'com.atproto.admin.validateMigrationTarget#validationChecks'
   /** True if DID does not exist on target */
   didAvailable?: boolean
-  /** True if W ID is not linked to another account */
-  legalIdAvailable?: boolean
+  /** True if JID (W ID) is not linked to another account */
+  jidAvailable?: boolean
   /** True if handle is available on target */
   handleAvailable?: boolean
 }

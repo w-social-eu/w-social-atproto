@@ -24,9 +24,7 @@ export interface OutputSchema {
   did: string
   handle: string
   email?: string
-  /** Neuro Legal ID (W ID) for real users */
-  legalId?: string
-  /** Neuro JID for test users */
+  /** JID (W ID) - unified for both real and test users */
   jid?: string
   /** Whether this is a test user account */
   isTestUser?: boolean

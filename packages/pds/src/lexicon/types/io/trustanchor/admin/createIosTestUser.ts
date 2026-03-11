@@ -12,24 +12,28 @@ import {
 
 const is$typed = _is$typed,
   validate = _validate
-const id = 'com.atproto.admin.updateNeuroLink'
+const id = 'io.trustanchor.admin.createIosTestUser'
 
 export type QueryParams = {}
 
 export interface InputSchema {
-  /** The DID of the account. */
-  did: string
-  /** The new JID (W ID) to link to this account. */
-  newJid: string
+  /** Handle for the test user (e.g., 'ios-test-alice') */
+  handle: string
+  /** Optional email for account recovery */
+  email?: string
+  /** Whether app password has full privileges (default: true) */
+  privileged: boolean
 }
 
 export interface OutputSchema {
-  success: boolean
+  /** DID of created account */
   did: string
-  /** Previous JID (if any) */
-  oldJid?: string
-  newJid: string
-  updatedAt: string
+  /** Full handle (e.g., 'ios-test-alice.wsky.social') */
+  handle: string
+  /** Generated app password (1234-abcd-5678-efgh) */
+  appPassword: string
+  /** Deep link URL for iOS auto-login */
+  deepLink: string
 }
 
 export interface HandlerInput {
@@ -46,7 +50,6 @@ export interface HandlerSuccess {
 export interface HandlerError {
   status: number
   message?: string
-  error?: 'NotFound' | 'InvalidJid' | 'JidInUse'
 }
 
 export type HandlerOutput = HandlerError | HandlerSuccess

@@ -355,9 +355,10 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
     quicklogin: env.quickloginEnabled
       ? {
           enabled: true,
-          apiBaseUrl: env.quickloginApiBaseUrl || 'https://lab.tagroot.io',
+          apiBaseUrl: env.quickloginApiBaseUrl,
           propertyFilter: env.quickloginPropertyFilter,
           attachmentFilter: env.quickloginAttachmentFilter,
+          hostnameSuffixes: env.neuroHostnameSuffixes || [],
         }
       : null,
     debugNeuro: env.debugNeuro ?? false,
@@ -548,7 +549,7 @@ export type ReportServiceConfig = {
 
 export type NeuroConfig = {
   enabled: boolean
-  domain: string
+  domain?: string
   storageBackend: 'database' | 'redis'
   customUiPath?: string
   // QuickLogin callback configuration
@@ -559,7 +560,8 @@ export type NeuroConfig = {
 
 export type QuickLoginConfig = {
   enabled: boolean
-  apiBaseUrl: string
+  apiBaseUrl?: string
   propertyFilter?: string
   attachmentFilter?: string
+  hostnameSuffixes: string[] // Allowed Neuro server hostname suffixes (e.g., ['.example.tld', '.example.dev']). Empty array = accept any domain (dev mode)
 }

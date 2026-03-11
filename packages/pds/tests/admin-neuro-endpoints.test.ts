@@ -50,9 +50,9 @@ describe('Admin Neuro Endpoints', () => {
     await network.close()
   })
 
-  it('getNeuroLink returns mapped legalId from userJid', async () => {
+  it('getNeuroLink returns mapped jid from userJid', async () => {
     const did = `did:plc:getlink${Date.now()}`
-    const userJid = `getlink${Date.now()}@legal.io`
+    const userJid = `getlink${Date.now()}@auth.io`
     await insertFixture(did, `getlink${Date.now()}.test`, `getlink@test.com`)
 
     await network.pds.ctx.accountManager.db.db
@@ -73,7 +73,7 @@ describe('Admin Neuro Endpoints', () => {
     )
 
     expect(data.did).toBe(did)
-    expect(data.legalId).toBe(userJid)
+    expect(data.jid).toBe(userJid)
   })
 
   it('listNeuroAccounts returns linked entries', async () => {
@@ -102,17 +102,17 @@ describe('Admin Neuro Endpoints', () => {
 
   it('updateNeuroLink creates and updates a link', async () => {
     const did = `did:plc:update${Date.now()}`
-    const first = `first${Date.now()}@legal.io`
-    const second = `second${Date.now()}@legal.io`
+    const first = `first${Date.now()}@auth.io`
+    const second = `second${Date.now()}@auth.io`
     await insertFixture(did, `update${Date.now()}.test`, `update@test.com`)
 
     await agent.com.atproto.admin.updateNeuroLink(
-      { did, newLegalId: first },
+      { did, newJid: first },
       { encoding: 'application/json', headers: { authorization: adminAuth } },
     )
 
     await agent.com.atproto.admin.updateNeuroLink(
-      { did, newLegalId: second },
+      { did, newJid: second },
       { encoding: 'application/json', headers: { authorization: adminAuth } },
     )
 
@@ -126,9 +126,9 @@ describe('Admin Neuro Endpoints', () => {
     expect(row?.isTestUser).toBe(0)
   })
 
-  it('validateMigrationTarget checks legalId and handle availability', async () => {
+  it('validateMigrationTarget checks jid and handle availability', async () => {
     const did = `did:plc:validate${Date.now()}`
-    const legalId = `validate${Date.now()}@legal.io`
+    const jid = `validate${Date.now()}@auth.io`
     const occupiedHandle = `occupied${Date.now()}.test`
 
     await insertFixture(
@@ -138,7 +138,7 @@ describe('Admin Neuro Endpoints', () => {
     )
 
     const { data } = await agent.com.atproto.admin.validateMigrationTarget(
-      { did, legalId, targetHandle: occupiedHandle },
+      { did, jid, targetHandle: occupiedHandle },
       { headers: { authorization: adminAuth } },
     )
 

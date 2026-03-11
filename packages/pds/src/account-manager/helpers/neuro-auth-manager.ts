@@ -70,7 +70,7 @@ export const NeuroErrorCodes = {
  * Configuration for Neuro Auth Manager
  */
 export interface NeuroConfig {
-  domain: string // e.g., 'mateo.lab.tagroot.io'
+  domain?: string // e.g., 'auth.example.com'
   callbackBaseUrl: string // e.g., 'https://your-pds.com'
   storageBackend: 'database' | 'redis'
 }
@@ -137,6 +137,11 @@ export class NeuroAuthManager {
     // Register callback with Neuro API (with retry logic)
     let response
     let lastError: Error | null = null
+
+    // Validate domain is configured
+    if (!this.config.domain) {
+      throw new Error('Neuro domain not configured')
+    }
 
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
@@ -558,7 +563,9 @@ export class NeuroAuthManager {
     await this.db.db
       .updateTable('neuro_identity_link')
       .set({ lastLoginAt: new Date().toISOString() })
-      .where((eb) => eb.where('userJid', '=', jid).orWhere('testUserJid', '=', jid))
+      .where((eb) =>
+        eb.where('userJid', '=', jid).orWhere('testUserJid', '=', jid),
+      )
       .execute()
   }
 

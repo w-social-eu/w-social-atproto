@@ -19,11 +19,11 @@ import { createAccountViaQuickLogin } from '../src/api/io/trustanchor/quicklogin
  *   pnpm test neuro-integration
  *
  * To run with REAL Neuro API (when you have credentials):
- *   NEURO_REAL_API=true NEURO_DOMAIN=mateo.lab.tagroot.io pnpm test neuro-integration
+ *   NEURO_REAL_API=true NEURO_DOMAIN=auth.example.com pnpm test neuro-integration
  */
 
 const USE_REAL_NEURO_API = process.env.NEURO_REAL_API === 'true'
-const NEURO_DOMAIN = process.env.NEURO_DOMAIN || 'mateo.lab.tagroot.io'
+const NEURO_DOMAIN = process.env.NEURO_DOMAIN || 'test.lab.example.com'
 
 describe('Neuro Quick Login Integration', () => {
   let network: TestNetworkNoAppView

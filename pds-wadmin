@@ -106,7 +106,8 @@ Usage: $0 <category> <command> [args...]
 
 Categories:
   account       Account management (delete)
-  wid           W ID (Legal ID) management
+  admin         Admin operations (iOS test users)
+  wid           W ID (JID) management
   transfer      Account transfers (rehoming within cluster, import/export)
   invitation    Invitation management
   nomad         Nomad job management and logs
@@ -115,10 +116,14 @@ Categories:
 Account Commands:
   account delete <did>               Delete account permanently (with confirmation)
 
+Admin Commands:
+  admin createIosTestUser <handle> [email]
+                                     Create iOS test user with app password (bypasses WID)
+
 WID Commands:
   wid list                           List all accounts with W ID links
   wid show <did>                     Show W ID details for account
-  wid update <did> <legal-id>        Update W ID for account
+  wid update <did> <jid>             Update W ID (JID) for account
   wid handle <did> <new-handle>      Update account handle (admin override, bypasses user)
   wid schema                         Show database schema for key tables (check migration status)
   wid db [--query=SQL]               Query neuro_identity_link table directly via sqlite3
@@ -160,10 +165,13 @@ Examples:
   # Account management
   $0 account delete did:plc:abc123
 
+  # Admin operations
+  $0 admin createIosTestUser ios-test-alice alice@example.com
+
   # WID management
   $0 wid list
   $0 wid show did:plc:abc123
-  $0 wid update did:plc:abc123 uuid@legal.lab.tagroot.io
+  $0 wid update did:plc:abc123 user@auth.wsocial.dev
   $0 wid handle did:plc:abc123 ingmar.wsocial.eu
 
   # Account transfer (rehoming)
@@ -288,6 +296,55 @@ cmd_account_delete() {
 }
 
 #
+# ADMIN COMMANDS
+#
+
+cmd_admin_create_ios_test_user() {
+  local handle="$1"
+  local email="$2"
+
+  if [ -z "$handle" ]; then
+    echo "ERROR: Handle is required"
+    echo "Usage: $0 admin createIosTestUser <handle> [email]"
+    exit 1
+  fi
+
+  # Build request body
+  local body="{\"handle\":\"$handle\""
+  if [ -n "$email" ]; then
+    body="$body,\"email\":\"$email\""
+  fi
+  body="$body}"
+
+  # Call PDS admin endpoint
+  local response
+  response=$(api_call "POST" "io.trustanchor.admin.createIosTestUser" "$body")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to create iOS test user"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  # Parse and display results
+  local did=$(echo "$response" | jq -r '.did')
+  local handle=$(echo "$response" | jq -r '.handle')
+  local password=$(echo "$response" | jq -r '.appPassword')
+  local deepLink=$(echo "$response" | jq -r '.deepLink')
+
+  echo "✓ iOS Test User Created"
+  echo ""
+  echo "  Handle:   $handle"
+  echo "  DID:      $did"
+  echo "  Password: $password"
+  echo ""
+  echo "Deep Link (send to tester):"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "$deepLink"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
+#
 # WID COMMANDS
 #
 
@@ -299,7 +356,7 @@ cmd_wid_list() {
     if cmd_nomad_exec_sqlite "SELECT name FROM pragma_table_info('neuro_identity_link') WHERE name='userJid';" 2>/dev/null | grep -q "userJid"; then
       has_new_schema=1
     fi
-    
+
     if [ "$has_new_schema" = "1" ]; then
       # New schema (post-migration 015): userJid/testUserJid columns
       cmd_nomad_exec_sqlite "
@@ -329,7 +386,7 @@ SELECT
   a.did,
   COALESCE(a.handle, '?')        AS handle,
   COALESCE(ac.email, '-')        AS email,
-  COALESCE(nil.neuroJid, '-')    AS legalId,
+  COALESCE(nil.neuroJid, '-')    AS jid,
   COALESCE(
     CASE WHEN COALESCE(nil.isTestUser, 0) = 1 THEN nil.jid ELSE nil.jidRef END,
     '-'
@@ -350,24 +407,23 @@ ORDER BY a.handle, nil.linkedAt;
     # No Nomad (plain pds-wadmin with env vars) — use API
     local response
     response=$(api_call "GET" "com.atproto.admin.listNeuroAccounts?limit=1000")
-    # Handle both old format (flat legalId/jid scalars) and new format (neuroLinks array)
+    # Handle API response format (unified jid field)
     echo "$response" | jq -r '
-      ["DID", "HANDLE", "EMAIL", "LEGAL_ID", "JID", "LINKED_AT", "FLAGS"],
+      ["DID", "HANDLE", "EMAIL", "JID", "LINKED_AT", "FLAGS"],
       (
         .accounts[] |
         . as $acct |
         # Normalize: if neuroLinks array exists use it, else wrap flat scalars
         (if (.neuroLinks | type) == "array" and (.neuroLinks | length) > 0
          then .neuroLinks
-         else [{legalId: .legalId, jid: .jid, isTestUser: (.isTestUser // 0), linkedAt: .linkedAt}]
+         else [{jid: .jid, isTestUser: (.isTestUser // 0), linkedAt: .linkedAt}]
          end) as $links |
         $links[] |
         [
           $acct.did,
           ($acct.handle // "-"),
           ($acct.email // "-"),
-          (.legalId // "-"),
-          (.jid // .jidRef // "-"),
+          (.jid // "-"),
           (.linkedAt // "-"),
           ([(if .isTestUser == 1 then "TEST" else empty end),
             (if ($acct.duplicateLinks // false) then "DUP" else empty end)] |
@@ -401,7 +457,7 @@ cmd_wid_show() {
     # Build a normalized neuroLinks array regardless of API version
     (if (.neuroLinks | type) == "array"
      then .neuroLinks
-     else [{legalId: .legalId, jid: .jid, jidRef: .jidRef,
+     else [{jid: .jid,
              isTestUser: (.isTestUser // 0),
              linkedAt: .linkedAt, lastLoginAt: .lastLoginAt}]
      end) as $links |
@@ -413,9 +469,7 @@ cmd_wid_show() {
       "Neuro links": [
         $links[] |
         {
-          "Legal ID": (.legalId // "—"),
-          "JID (test)": (.jid // "—"),
-          "JID ref": (.jidRef // "—"),
+          "JID (W ID)": (.jid // "—"),
           "Test user": .isTestUser,
           "Linked at": (.linkedAt // "N/A"),
           "Last login": (.lastLoginAt // "N/A")
@@ -427,25 +481,25 @@ cmd_wid_show() {
 
 cmd_wid_update() {
   local did="$1"
-  local new_legal_id="$2"
+  local new_jid="$2"
 
-  if [ -z "$did" ] || [ -z "$new_legal_id" ]; then
-    echo "ERROR: Both DID and new Legal ID are required"
-    echo "Usage: $0 wid update <did> <legal-id>"
+  if [ -z "$did" ] || [ -z "$new_jid" ]; then
+    echo "ERROR: Both DID and new JID are required"
+    echo "Usage: $0 wid update <did> <jid>"
     exit 1
   fi
 
-  # FIXME: Add validation for ID format
-  #if [[ ! "$new_legal_id" =~ @legal\. ]]; then
-  #  echo "ERROR: Invalid Legal ID format (must contain '@legal.')"
-  #  exit 1
-  #fi
+  # Validate JID format (must contain @auth)
+  if [[ ! "$new_jid" =~ @auth ]]; then
+    echo "ERROR: Invalid JID format (must contain '@auth')"
+    exit 1
+  fi
 
   local data
   data=$(jq -n \
     --arg did "$did" \
-    --arg newLegalId "$new_legal_id" \
-    '{did: $did, newLegalId: $newLegalId}')
+    --arg newJid "$new_jid" \
+    '{did: $did, newJid: $newJid}')
 
   local response
   response=$(api_call "POST" "com.atproto.admin.updateNeuroLink" "$data")
@@ -460,8 +514,8 @@ cmd_wid_update() {
   echo "$response" | jq '
     {
       "DID": .did,
-      "Old W ID": (.oldLegalId // "None"),
-      "New W ID": .newLegalId,
+      "Old W ID": (.oldJid // "None"),
+      "New W ID": .newJid,
       "Updated At": .updatedAt
     }
   '
@@ -1037,7 +1091,7 @@ cmd_wid_schema() {
   # Migration status check
   echo "Migration Status Indicators:"
   echo "----------------------------"
-  
+
   # Check for migration 015 (userJid column)
   if cmd_nomad_exec_sqlite "SELECT name FROM pragma_table_info('neuro_identity_link') WHERE name='userJid';" 2>/dev/null | grep -q "userJid"; then
     echo "✓ Migration 015 applied (userJid/testUserJid schema)"
@@ -1216,6 +1270,24 @@ main() {
           ;;
         *)
           echo "ERROR: Unknown account command: $cmd"
+          usage
+          ;;
+      esac
+      ;;
+
+    admin)
+      if [ $# -eq 0 ]; then
+        echo "ERROR: Admin command required"
+        usage
+      fi
+      local cmd="$1"
+      shift
+      case "$cmd" in
+        createIosTestUser|create-ios-test-user)
+          cmd_admin_create_ios_test_user "$@"
+          ;;
+        *)
+          echo "ERROR: Unknown admin command: $cmd"
           usage
           ;;
       esac
