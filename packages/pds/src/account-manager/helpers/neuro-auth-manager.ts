@@ -138,6 +138,11 @@ export class NeuroAuthManager {
     let response
     let lastError: Error | null = null
 
+    // Validate domain is configured
+    if (!this.config.domain) {
+      throw new Error('Neuro domain not configured')
+    }
+
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         // Use http:// for localhost, https:// for everything else
