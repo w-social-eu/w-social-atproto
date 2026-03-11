@@ -4,11 +4,12 @@ import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AccountStatus } from '../../../../account-manager/account-manager'
 import { AppContext } from '../../../../context'
 import { Server } from '../../../../lexicon'
+import { validateAdminAuth } from './shared'
 
 export default function (server: Server, ctx: AppContext) {
   server.io.trustanchor.admin.createIosTestUser({
-    auth: ctx.authVerifier.adminToken,
     handler: async ({ input, req }) => {
+      validateAdminAuth(req, ctx)
       const { handle, email, privileged = true } = input.body
 
       // Validate handle format (must start with ios-test-)
