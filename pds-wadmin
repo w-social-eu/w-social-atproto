@@ -106,6 +106,7 @@ Usage: $0 <category> <command> [args...]
 
 Categories:
   account       Account management (delete)
+  admin         Admin operations (iOS test users)
   wid           W ID (JID) management
   transfer      Account transfers (rehoming within cluster, import/export)
   invitation    Invitation management
@@ -114,6 +115,10 @@ Categories:
 
 Account Commands:
   account delete <did>               Delete account permanently (with confirmation)
+
+Admin Commands:
+  admin createIosTestUser <handle> [email]
+                                     Create iOS test user with app password (bypasses WID)
 
 WID Commands:
   wid list                           List all accounts with W ID links
@@ -159,6 +164,9 @@ Environment Variables (only when called as 'pds-wadmin'):
 Examples:
   # Account management
   $0 account delete did:plc:abc123
+
+  # Admin operations
+  $0 admin createIosTestUser ios-test-alice alice@example.com
 
   # WID management
   $0 wid list
@@ -285,6 +293,55 @@ cmd_account_delete() {
   echo "✓ Account deleted successfully"
   echo "  DID: $did"
   echo "  Handle: $actual_handle"
+}
+
+#
+# ADMIN COMMANDS
+#
+
+cmd_admin_create_ios_test_user() {
+  local handle="$1"
+  local email="$2"
+
+  if [ -z "$handle" ]; then
+    echo "ERROR: Handle is required"
+    echo "Usage: $0 admin createIosTestUser <handle> [email]"
+    exit 1
+  fi
+
+  # Build request body
+  local body="{\"handle\":\"$handle\""
+  if [ -n "$email" ]; then
+    body="$body,\"email\":\"$email\""
+  fi
+  body="$body}"
+
+  # Call PDS admin endpoint
+  local response
+  response=$(api_call "POST" "io.trustanchor.admin.createIosTestUser" "$body")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to create iOS test user"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  # Parse and display results
+  local did=$(echo "$response" | jq -r '.did')
+  local handle=$(echo "$response" | jq -r '.handle')
+  local password=$(echo "$response" | jq -r '.appPassword')
+  local deepLink=$(echo "$response" | jq -r '.deepLink')
+
+  echo "✓ iOS Test User Created"
+  echo ""
+  echo "  Handle:   $handle"
+  echo "  DID:      $did"
+  echo "  Password: $password"
+  echo ""
+  echo "Deep Link (send to tester):"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "$deepLink"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
 #
@@ -1213,6 +1270,24 @@ main() {
           ;;
         *)
           echo "ERROR: Unknown account command: $cmd"
+          usage
+          ;;
+      esac
+      ;;
+
+    admin)
+      if [ $# -eq 0 ]; then
+        echo "ERROR: Admin command required"
+        usage
+      fi
+      local cmd="$1"
+      shift
+      case "$cmd" in
+        createIosTestUser|create-ios-test-user)
+          cmd_admin_create_ios_test_user "$@"
+          ;;
+        *)
+          echo "ERROR: Unknown admin command: $cmd"
           usage
           ;;
       esac

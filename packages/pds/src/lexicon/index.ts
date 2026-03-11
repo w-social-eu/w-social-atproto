@@ -227,6 +227,7 @@ import * as ComAtprotoTempFetchLabels from './types/com/atproto/temp/fetchLabels
 import * as ComAtprotoTempRequestPhoneVerification from './types/com/atproto/temp/requestPhoneVerification.js'
 import * as ComAtprotoTempRevokeAccountCredentials from './types/com/atproto/temp/revokeAccountCredentials.js'
 import * as IoTrustanchorAdminCreateInvitation from './types/io/trustanchor/admin/createInvitation.js'
+import * as IoTrustanchorAdminCreateIosTestUser from './types/io/trustanchor/admin/createIosTestUser.js'
 import * as IoTrustanchorAdminDeleteInvitation from './types/io/trustanchor/admin/deleteInvitation.js'
 import * as IoTrustanchorAdminGetInvitationStats from './types/io/trustanchor/admin/getInvitationStats.js'
 import * as IoTrustanchorAdminListInvitations from './types/io/trustanchor/admin/listInvitations.js'
@@ -3346,6 +3347,18 @@ export class IoTrustanchorAdminNS {
     >,
   ) {
     const nsid = 'io.trustanchor.admin.createInvitation' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  createIosTestUser<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorAdminCreateIosTestUser.QueryParams,
+      IoTrustanchorAdminCreateIosTestUser.HandlerInput,
+      IoTrustanchorAdminCreateIosTestUser.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.admin.createIosTestUser' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 
