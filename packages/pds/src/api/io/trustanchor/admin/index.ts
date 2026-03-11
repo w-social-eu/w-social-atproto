@@ -5,6 +5,7 @@ import getInvitationStats from './getInvitationStats'
 import deleteInvitation from './deleteInvitation'
 import purgeInvitations from './purgeInvitations'
 import createInvitation from './createInvitation'
+import createIosTestUser from './createIosTestUser'
 
 export default function (server: Server, ctx: AppContext) {
   createInvitation(server, ctx)
@@ -12,4 +13,5 @@ export default function (server: Server, ctx: AppContext) {
   getInvitationStats(server, ctx)
   deleteInvitation(server, ctx)
   purgeInvitations(server, ctx)
+  createIosTestUser(server, ctx)
 }

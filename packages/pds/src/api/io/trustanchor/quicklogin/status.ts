@@ -24,6 +24,7 @@ export function statusQuickLogin(router: Router, ctx: AppContext) {
       const statusResponse = {
         status: session.status,
         result: session.result || undefined,
+        approvalToken: session.approvalToken || undefined,
         error: session.error || undefined,
         expiresAt: session.expiresAt,
       }
