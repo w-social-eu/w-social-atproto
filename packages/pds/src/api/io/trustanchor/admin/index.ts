@@ -6,6 +6,8 @@ import deleteInvitation from './deleteInvitation'
 import purgeInvitations from './purgeInvitations'
 import createInvitation from './createInvitation'
 import createIosTestUser from './createIosTestUser'
+import getInventoryStatus from './getInventoryStatus'
+import loadInventory from './loadInventory'
 
 export default function (server: Server, ctx: AppContext) {
   createInvitation(server, ctx)
@@ -14,4 +16,6 @@ export default function (server: Server, ctx: AppContext) {
   deleteInvitation(server, ctx)
   purgeInvitations(server, ctx)
   createIosTestUser(server, ctx)
+  getInventoryStatus(server, ctx)
+  loadInventory(server, ctx)
 }

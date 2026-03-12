@@ -71,15 +71,23 @@ async function sendInvitationEmail(
   logger: { info: (data: unknown, msg: string) => void },
   email: string,
   onboardingUrl: string,
+  qrCodeUrl: string,
   preferredHandle?: string | null,
 ): Promise<void> {
   // TODO: Implement Brevo API call with invitation template
+  // Template should receive:
+  // - ONBOARDING_URL: onboardingUrl
+  // - QR_CODE_IMAGE: qrCodeUrl (hosted image URL)
+  // - INLINE_QR_CODE: base64-encoded data URI (fetch and encode qrCodeUrl)
+  // - PREFERRED_HANDLE: preferredHandle (optional)
+
   // For now, just log that email would be sent
   logger.info(
     {
       email: email.substring(0, 3) + '***', // Privacy: log prefix only
       hasHandle: !!preferredHandle,
       onboardingUrl: onboardingUrl.substring(0, 20) + '...',
+      qrCodeUrl: qrCodeUrl.substring(0, 30) + '...',
     },
     'TODO: Send invitation email via Brevo',
   )
@@ -145,13 +153,19 @@ export default function (server: Server, ctx: AppContext) {
             .executeTakeFirst()
 
           // Send reminder email (idempotent - always sends per policy)
-          if (invitation && invitation.onboarding_url) {
+          if (invitation && invitation.onboarding_url && invitation.jid) {
+            // Get QR code URL from inventory
+            const inventoryAccount =
+              await ctx.widInventoryManager.getAccountByDid(invitation.jid)
+            const qrCodeUrl = inventoryAccount?.qr_code_url || ''
+
             try {
               await sendInvitationEmail(
                 ctx,
                 req.log,
                 normalizedEmail,
                 invitation.onboarding_url,
+                qrCodeUrl,
                 invitation.preferred_handle,
               )
               await ctx.invitationManager.updateEmailDeliveryStatus(
@@ -173,30 +187,51 @@ export default function (server: Server, ctx: AppContext) {
             }
           }
         } else {
-          // Step 2: No reusable invitation - allocate new JID from Neuro
-          req.log.info('Allocating new JID from Neuro')
+          // Step 2: No reusable invitation - allocate account from WID inventory
+          req.log.info('Allocating WID account from inventory')
 
           let jid: string
           let onboardingUrl: string
+          let qrCodeUrl: string
 
           try {
-            const neuroAccount = await allocateNeuroAccount(ctx)
-            jid = neuroAccount.jid
-            onboardingUrl = neuroAccount.onboardingUrl
-          } catch (neuroErr) {
+            const inventoryAccount =
+              await ctx.widInventoryManager.allocateAccount(normalizedEmail)
+
+            if (!inventoryAccount) {
+              throw new Error('No WID accounts available in inventory')
+            }
+
+            // Use the DID from inventory as the JID
+            jid = inventoryAccount.did
+            onboardingUrl = inventoryAccount.onboarding_url
+            qrCodeUrl = inventoryAccount.qr_code_url || ''
+
+            req.log.info(
+              {
+                jid: jid.substring(0, 8) + '...',
+                allocated_to: normalizedEmail.substring(0, 3) + '***',
+              },
+              'WID account allocated from inventory',
+            )
+          } catch (inventoryErr) {
             const errorMsg =
-              neuroErr instanceof Error ? neuroErr.message : String(neuroErr)
+              inventoryErr instanceof Error
+                ? inventoryErr.message
+                : String(inventoryErr)
             req.log.error(
               { error: errorMsg },
-              'Neuro account allocation failed',
+              'WID inventory allocation failed',
             )
             throw new InvalidRequestError(
-              'Failed to allocate WID account',
-              'NeuroAllocationError',
+              errorMsg.includes('No WID accounts available')
+                ? 'No WID accounts available in inventory. Load more accounts to continue.'
+                : 'Failed to allocate WID account from inventory',
+              'InventoryAllocationError',
             )
           }
 
-          // Step 3: Persist invitation with JID (only after successful Neuro allocation)
+          // Step 3: Persist invitation with JID (only after successful inventory allocation)
           invitation = await ctx.invitationManager.createInvitationWithJid(
             normalizedEmail,
             jid,
@@ -212,6 +247,7 @@ export default function (server: Server, ctx: AppContext) {
               req.log,
               normalizedEmail,
               onboardingUrl,
+              qrCodeUrl,
               preferredHandle,
             )
             await ctx.invitationManager.updateEmailDeliveryStatus(

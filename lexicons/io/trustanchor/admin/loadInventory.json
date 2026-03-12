@@ -1,0 +1,74 @@
+{
+  "lexicon": 1,
+  "id": "io.trustanchor.admin.loadInventory",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Load WID account inventory from batch JSON. Admin only.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["accounts"],
+          "properties": {
+            "accounts": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#inventoryAccount"
+              },
+              "description": "Array of WID accounts to load"
+            },
+            "batchName": {
+              "type": "string",
+              "description": "Optional batch identifier"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["loaded", "skipped", "total"],
+          "properties": {
+            "loaded": {
+              "type": "integer",
+              "description": "Number of accounts successfully loaded"
+            },
+            "skipped": {
+              "type": "integer",
+              "description": "Number of accounts skipped (duplicates)"
+            },
+            "total": {
+              "type": "integer",
+              "description": "Total accounts processed"
+            }
+          }
+        }
+      }
+    },
+    "inventoryAccount": {
+      "type": "object",
+      "required": ["did", "onboardingUrl", "qrCodeUrl"],
+      "properties": {
+        "did": {
+          "type": "string",
+          "description": "Account DID (used as JID)"
+        },
+        "onboardingUrl": {
+          "type": "string",
+          "description": "Onboarding URL for account activation"
+        },
+        "qrCodeUrl": {
+          "type": "string",
+          "description": "URL to QR code image"
+        },
+        "preferredHandle": {
+          "type": "string",
+          "description": "Optional suggested handle"
+        }
+      }
+    }
+  }
+}

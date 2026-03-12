@@ -77,6 +77,7 @@ export type AppContextOptions = {
   neuroAuthManager?: import('./account-manager/helpers/neuro-auth-manager').NeuroAuthManager
   quickloginStore: QuickLoginSessionStore
   invitationManager: import('./account-manager/invitation-manager').InvitationManager
+  widInventoryManager: import('./account-manager/wid-inventory-manager').WidInventoryManager
   authVerifier: AuthVerifier
   plcRotationKey: crypto.Keypair
   cfg: ServerConfig
@@ -108,6 +109,7 @@ export class AppContext {
   public neuroAuthManager?: import('./account-manager/helpers/neuro-auth-manager').NeuroAuthManager
   public quickloginStore: QuickLoginSessionStore
   public invitationManager: import('./account-manager/invitation-manager').InvitationManager
+  public widInventoryManager: import('./account-manager/wid-inventory-manager').WidInventoryManager
   public plcRotationKey: crypto.Keypair
   public cfg: ServerConfig
 
@@ -136,6 +138,7 @@ export class AppContext {
     this.oauthProvider = opts.oauthProvider
     this.quickloginStore = opts.quickloginStore
     this.invitationManager = opts.invitationManager
+    this.widInventoryManager = opts.widInventoryManager
     this.neuroAuthManager = opts.neuroAuthManager
     this.plcRotationKey = opts.plcRotationKey
     this.cfg = opts.cfg
@@ -494,6 +497,12 @@ export class AppContext {
       cfg.invites.emailHashSalt,
     )
 
+    // Create WidInventoryManager
+    const { WidInventoryManager } = await import(
+      './account-manager/wid-inventory-manager'
+    )
+    const widInventoryManager = new WidInventoryManager(accountManager.db)
+
     return new AppContext({
       actorStore,
       blobstore,
@@ -520,6 +529,7 @@ export class AppContext {
       neuroAuthManager,
       quickloginStore,
       invitationManager,
+      widInventoryManager,
       plcRotationKey,
       cfg,
       ...(overrides ?? {}),

@@ -12,6 +12,11 @@
 #   PDS_HOST - The PDS hostname (e.g., https://pds-stage.wsocial.dev)
 #   PDS_ADMIN_PASSWORD - Admin password for authentication
 #
+#   For Nomad operations (inventory load, logs, etc.), also requires:
+#   PDS_NOMAD_JOB_NAME - Nomad job name (e.g., pds-dev, pds-stage, pds-prod)
+#   NOMAD_ADDR - Nomad cluster address (e.g., https://nomad.wsocial.cloud)
+#   NOMAD_TOKEN - Nomad authentication token
+#
 # When called via symlinks (pds-wadmin-dev, pds-wadmin-stage, pds-wadmin-prod),
 # automatically fetches credentials from Vault based on the environment name.
 #
@@ -59,39 +64,84 @@ check_env() {
 # Check and ensure Nomad authentication
 check_nomad_auth() {
   if [ -z "$ENV" ]; then
-    echo "ERROR: Nomad commands require environment context (use pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod)"
-    exit 1
-  fi
+    # Called as base 'pds-wadmin' - require explicit environment variables
+    local missing_vars=()
 
-  # Nomad cluster address — always the same regardless of PDS env
-  export NOMAD_ADDR="https://nomad.wsocial.cloud"
+    if [ -z "${PDS_NOMAD_JOB_NAME:-}" ]; then
+      missing_vars+=("PDS_NOMAD_JOB_NAME")
+    fi
 
-  # Export nomad token from cache if it exists
-  local token_cache="$HOME/.nomad-token"
-  if [ -f "$token_cache" ]; then
-    export NOMAD_TOKEN="$(cat "$token_cache")"
-  fi
+    if [ -z "${NOMAD_ADDR:-}" ]; then
+      missing_vars+=("NOMAD_ADDR")
+    fi
 
-  # Check if authentication works, login if needed
-  if ! nomad status -token="${NOMAD_TOKEN:-}" >/dev/null 2>&1; then
-    echo "Nomad authentication required..."
-    local login_output
-    login_output=$(nomad login -method=vault-oidc 2>&1)
-    echo "$login_output"
+    if [ -z "${NOMAD_TOKEN:-}" ]; then
+      missing_vars+=("NOMAD_TOKEN")
+    fi
 
-    # Extract Secret ID from output
-    local secret_id
-    secret_id=$(echo "$login_output" | grep "^Secret ID" | awk '{print $4}')
-
-    if [ -z "$secret_id" ]; then
-      echo "ERROR: Failed to extract token from nomad login output"
+    if [ ${#missing_vars[@]} -gt 0 ]; then
+      echo "ERROR: Nomad operations require the following environment variables:"
+      for var in "${missing_vars[@]}"; do
+        echo "  - $var"
+      done
+      echo ""
+      echo "Examples:"
+      echo "  export PDS_NOMAD_JOB_NAME=pds-dev"
+      echo "  export NOMAD_ADDR=https://nomad.wsocial.cloud"
+      echo "  export NOMAD_TOKEN=your-nomad-token"
+      echo ""
+      echo "Or use environment-specific commands:"
+      echo "  pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod"
       exit 1
     fi
 
-    # Set and cache the token
-    export NOMAD_TOKEN="$secret_id"
-    echo "$NOMAD_TOKEN" > "$token_cache"
-    chmod 600 "$token_cache"
+    # Validate NOMAD_TOKEN works
+    if ! nomad status -token="${NOMAD_TOKEN}" >/dev/null 2>&1; then
+      echo "ERROR: NOMAD_TOKEN is invalid or expired"
+      echo "Please set a valid NOMAD_TOKEN or use pds-wadmin-dev/stage/prod"
+      exit 1
+    fi
+  else
+    # Called via symlink (dev/stage/prod) - use vault authentication
+    # Nomad cluster address — always the same regardless of PDS env
+    export NOMAD_ADDR="https://nomad.wsocial.cloud"
+
+    # Export nomad token from cache if it exists
+    local token_cache="$HOME/.nomad-token"
+    if [ -f "$token_cache" ]; then
+      export NOMAD_TOKEN="$(cat "$token_cache")"
+    fi
+
+    # Check if authentication works, login if needed
+    if ! nomad status -token="${NOMAD_TOKEN:-}" >/dev/null 2>&1; then
+      echo "Nomad authentication required..."
+      local login_output
+      login_output=$(nomad login -method=vault-oidc 2>&1)
+      echo "$login_output"
+
+      # Extract Secret ID from output
+      local secret_id
+      secret_id=$(echo "$login_output" | grep "^Secret ID" | awk '{print $4}')
+
+      if [ -z "$secret_id" ]; then
+        echo "ERROR: Failed to extract token from nomad login output"
+        exit 1
+      fi
+
+      # Set and cache the token
+      export NOMAD_TOKEN="$secret_id"
+      echo "$NOMAD_TOKEN" > "$token_cache"
+      chmod 600 "$token_cache"
+    fi
+  fi
+}
+
+# Get Nomad job name (helper for both ENV-based and direct env var modes)
+get_nomad_job_name() {
+  if [ -n "$ENV" ]; then
+    echo "pds-${ENV}"
+  else
+    echo "${PDS_NOMAD_JOB_NAME}"
   fi
 }
 
@@ -127,6 +177,8 @@ WID Commands:
   wid handle <did> <new-handle>      Update account handle (admin override, bypasses user)
   wid check-handle <handle>          Check handle resolution (DNS, well-known, PDS, AppView)
   wid check-db <did>                 Check database consistency for account (actor, account, W ID link)
+  wid inventory load <json-file>     Load WID accounts from CreatedAccounts.json into inventory
+  wid inventory status               Show WID inventory status (available/allocated/consumed counts)
   wid schema                         Show database schema for key tables (check migration status)
   wid db [--query=SQL]               Query neuro_identity_link table directly via sqlite3
                                      Default: show all rows with duplicates highlighted
@@ -159,9 +211,14 @@ Goat Commands:
   goat <command> [args...]           Run goat admin tool with auto-configured credentials
                                      (passes all arguments through to goat)
 
-Environment Variables (only when called as 'pds-wadmin'):
+Environment Variables (when called as 'pds-wadmin'):
   PDS_HOST                  PDS hostname (e.g., https://pds-stage.wsocial.dev)
   PDS_ADMIN_PASSWORD        Admin password
+
+  For Nomad operations (logs, etc.):
+    PDS_NOMAD_JOB_NAME        Nomad job name (e.g., pds-dev, pds-stage, pds-prod)
+    NOMAD_ADDR                Nomad cluster address (e.g., https://nomad.wsocial.cloud)
+    NOMAD_TOKEN               Nomad authentication token
 
 Examples:
   # Account management
@@ -177,6 +234,11 @@ Examples:
   $0 wid handle did:plc:abc123 ingmar.wsocial.eu
   $0 wid check-handle ingmar.wsocial.eu
   pds-wadmin-dev wid check-db did:plc:abc123
+
+  # WID inventory (via API - works locally and remotely)
+  $0 wid inventory status
+  $0 wid inventory load CreatedAccounts.json
+  pds-wadmin-dev wid inventory status
 
   # Account transfer (rehoming)
   $0 transfer rehome did:plc:abc123 https://pds2.wsocial.dev
@@ -1226,7 +1288,8 @@ cmd_nomad_exec_sqlite() {
 
   check_nomad_auth
 
-  local job_name="pds-${ENV}"
+  local job_name
+  job_name="$(get_nomad_job_name)"
   local alloc_id
   alloc_id=$(nomad status -token="${NOMAD_TOKEN}" "$job_name" 2>/dev/null \
     | grep -E "^[a-f0-9]{8}\s+" | grep "running" | head -n1 | awk '{print $1}')
@@ -1561,10 +1624,157 @@ cmd_wid_check_db() {
   echo "═══════════════════════════════════════════════════════════════"
 }
 
+cmd_wid_inventory() {
+  local subcmd="$1"
+  shift
+
+  case "$subcmd" in
+    load)
+      cmd_wid_inventory_load "$@"
+      ;;
+    status)
+      cmd_wid_inventory_status "$@"
+      ;;
+    *)
+      echo "ERROR: Unknown inventory subcommand: $subcmd"
+      echo "Usage: $0 wid inventory <load|status>"
+      exit 1
+      ;;
+  esac
+}
+
+cmd_wid_inventory_load() {
+  local json_file="$1"
+
+  if [ -z "$json_file" ]; then
+    echo "ERROR: JSON file required"
+    echo "Usage: $0 wid inventory load <path-to-CreatedAccounts.json>"
+    exit 1
+  fi
+
+  if [ ! -f "$json_file" ]; then
+    echo "ERROR: File not found: $json_file"
+    exit 1
+  fi
+
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "Loading WID Account Inventory"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo ""
+  echo "📄 Reading: $json_file"
+
+  # Parse the CreatedAccounts.json format and transform to API format
+  # Expected input format:
+  # {
+  #   "NrAccounts": 100,
+  #   "Created": 1773236086,
+  #   "Records": [
+  #     {
+  #       "AccountNr": 1,
+  #       "UserName": "c368377a-0c6a-4efc-b4e1-002436730907",
+  #       "OnboardingUrl": "obinfo:id.tagroot.io:...",
+  #       "QrCodeUrl": "https://auth-dev.widentity.dev/QR/...",
+  #       "QrCode": "C:\\ProgramData\\IoT Gateway\\Batch\\000000001.png"
+  #     }
+  #   ]
+  # }
+
+  # Transform to API format using jq
+  local request_data
+  request_data=$(jq '{
+    accounts: [
+      .Records[] | {
+        did: .UserName,
+        onboardingUrl: .OnboardingUrl,
+        qrCodeUrl: .QrCodeUrl
+      } + (if .PreferredHandle then {preferredHandle: .PreferredHandle} else {} end)
+    ],
+    batchName: ("batch-" + (.Created | tostring))
+  }' "$json_file")
+
+  local account_count
+  account_count=$(echo "$request_data" | jq '.accounts | length')
+
+  echo "📊 Accounts to load: $account_count"
+  echo ""
+  echo "Uploading to PDS..."
+
+  # Call the API endpoint
+  local response
+  response=$(api_call "POST" "io.trustanchor.admin.loadInventory" "$request_data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "❌ ERROR: Failed to load inventory"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  local loaded
+  local skipped
+  local total
+
+  loaded=$(echo "$response" | jq -r '.loaded')
+  skipped=$(echo "$response" | jq -r '.skipped')
+  total=$(echo "$response" | jq -r '.total')
+
+  echo ""
+  echo "✅ Import complete!"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "   Loaded:  $loaded"
+  echo "   Skipped: $skipped (duplicates)"
+  echo "   Total:   $total"
+}
+
+cmd_wid_inventory_status() {
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "WID Account Inventory Status"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo ""
+  echo "Querying PDS..."
+
+  # Call the API endpoint
+  local response
+  response=$(api_call "GET" "io.trustanchor.admin.getInventoryStatus" "")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "❌ ERROR: Failed to get inventory status"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  local available
+  local allocated
+  local consumed
+  local total
+
+  available=$(echo "$response" | jq -r '.available')
+  allocated=$(echo "$response" | jq -r '.allocated')
+  consumed=$(echo "$response" | jq -r '.consumed')
+  total=$(echo "$response" | jq -r '.total')
+
+  echo "📦 Available:  $available  (ready to allocate)"
+  echo "🔒 Allocated:  $allocated  (assigned to invitations)"
+  echo "✓ Consumed:   $consumed  (activated accounts)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📊 Total:      $total"
+  echo ""
+
+  # Show warning if inventory is low
+  if [ "$available" -lt 100 ]; then
+    echo "⚠️  WARNING: Inventory is low (< 100 available)"
+    echo "   Consider loading more accounts"
+  elif [ "$available" -lt 500 ]; then
+    echo "ℹ️  NOTICE: Inventory is below recommended threshold (< 500)"
+  else
+    echo "✅ Inventory levels are healthy"
+  fi
+}
+
 cmd_nomad_status() {
   check_nomad_auth
 
-  local job_name="pds-${ENV}"
+  local job_name
+  job_name="$(get_nomad_job_name)"
   echo "Checking status for job: $job_name"
   echo ""
 
@@ -1596,7 +1806,8 @@ cmd_nomad_logs() {
   export NOMAD_ADDR="https://nomad.wsocial.cloud"
   check_nomad_auth
 
-  local job_name="pds-${ENV}"
+  local job_name
+  job_name="$(get_nomad_job_name)"
   echo "Fetching logs for job: $job_name"
 
   # Get the running allocation ID
@@ -1714,6 +1925,9 @@ main() {
           ;;
         check-db)
           cmd_wid_check_db "$@"
+          ;;
+        inventory)
+          cmd_wid_inventory "$@"
           ;;
         schema)
           cmd_wid_schema "$@"

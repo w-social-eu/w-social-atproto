@@ -309,6 +309,17 @@ export async function handleQuickLoginCallback(
     // Consume matching JID invitation if present (policy: always consume on login)
     await ctx.invitationManager.consumeInvitationByJid(jid, did, handle)
 
+    // Mark WID inventory account as consumed
+    try {
+      await ctx.widInventoryManager.markAccountConsumed(jid)
+    } catch (err) {
+      // Log but don't fail - inventory tracking is non-critical
+      log.warn(
+        { jid: jid.substring(0, 8) + '...', error: (err as Error).message },
+        'Failed to mark inventory account as consumed',
+      )
+    }
+
     // Create session
     const account = await ctx.accountManager.getAccount(did)
     if (!account) {
@@ -365,6 +376,17 @@ export async function handleQuickLoginCallback(
 
       // Consume invitation by JID (only matching JID row)
       await ctx.invitationManager.consumeInvitationByJid(jid, did, handle)
+
+      // Mark WID inventory account as consumed
+      try {
+        await ctx.widInventoryManager.markAccountConsumed(jid)
+      } catch (err) {
+        // Log but don't fail - inventory tracking is non-critical
+        log.warn(
+          { jid: jid.substring(0, 8) + '...', error: (err as Error).message },
+          'Failed to mark inventory account as consumed',
+        )
+      }
 
       log.info(
         { sessionId: session.sessionId },
