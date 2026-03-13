@@ -4,6 +4,7 @@ import {
   NeuroCallbackPayload,
   createAccountViaQuickLogin,
   getHandleForDid,
+  normalizeJid,
 } from './helpers'
 import type { QuickLoginSession } from './store'
 
@@ -40,6 +41,16 @@ const throwInvitationRequired = (message: string): never => {
   const err = new Error(message) as Error & { code: string }
   err.code = 'InvitationRequired'
   throw err
+}
+
+/**
+ * Normalize domain by stripping resource identifier suffix
+ * WID may send: domain/resourceId
+ * We validate: domain
+ */
+const normalizeDomain = (domain: string): string => {
+  const slashIndex = domain.indexOf('/')
+  return slashIndex > 0 ? domain.substring(0, slashIndex) : domain
 }
 
 // Unused in JID-based flow but kept for backwards compatibility
@@ -169,8 +180,9 @@ export async function handleQuickLoginCallback(
   }
 
   // WP1: Parse JID from payload (required, pseudonymous lookup key)
-  const jid = payload.JID
-  if (!jid) {
+  // Normalize to strip any resource identifier suffix (e.g., user@domain/resourceId → user@domain)
+  const rawJid = payload.JID
+  if (!rawJid) {
     log.error({ payload }, 'JID missing from callback')
     ctx.quickloginStore.updateSession(session.sessionId, {
       status: 'failed',
@@ -178,11 +190,14 @@ export async function handleQuickLoginCallback(
     })
     throw new Error('JID missing from callback')
   }
+  const jid = normalizeJid(rawJid)
 
   // Validate Neuro server hostname against allowed suffixes (security check)
   // If suffixes configured: REQUIRED validation
   // If no suffixes configured: SKIP validation (development mode)
-  const domain = payload.Domain
+  // Normalize domain to strip any resource identifier suffix
+  const rawDomain = payload.Domain
+  const domain = rawDomain ? normalizeDomain(rawDomain) : undefined
   const allowedSuffixes = ctx.cfg.quicklogin?.hostnameSuffixes || []
 
   if (allowedSuffixes.length > 0) {

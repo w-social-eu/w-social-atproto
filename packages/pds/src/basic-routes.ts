@@ -1,5 +1,6 @@
 import express, { Router } from 'express'
 import { sql } from 'kysely'
+import { normalizeJid } from './api/io/trustanchor/quicklogin/helpers'
 import { AppContext } from './context'
 
 export const createRouter = (ctx: AppContext): Router => {
@@ -55,11 +56,17 @@ Most API routes are under /xrpc/
   if (ctx.neuroAuthManager) {
     router.post('/neuro/callback', async function (req, res) {
       try {
-        const { sessionId, jid, userName, email, eMail, ...otherFields } =
-          req.body
+        const {
+          sessionId,
+          jid: rawJid,
+          userName,
+          email,
+          eMail,
+          ...otherFields
+        } = req.body
 
         // Validate required fields
-        if (!sessionId || !jid) {
+        if (!sessionId || !rawJid) {
           req.log.warn({ body: req.body }, 'Neuro callback missing fields')
           return res.status(400).json({
             error: 'Missing required fields',
@@ -67,6 +74,9 @@ Most API routes are under /xrpc/
             details: 'sessionId and jid are required',
           })
         }
+
+        // Normalize JID (strip resource suffix and remove hyphens from local part)
+        const jid = normalizeJid(rawJid)
 
         // Basic JID validation
         if (!jid.includes('@')) {

@@ -58,6 +58,8 @@ check_env() {
     # Set up env vars from vault
     export PDS_ADMIN_PASSWORD="$(vault kv get -mount=secret -field ADMIN_PASSWORD $PDS_ENV)"
     export PDS_HOST="https://$(vault kv get -mount=secret -field HOSTNAME $PDS_ENV)"
+    export PDS_BREVO_API_KEY="$(vault kv get -mount=secret -field BREVO_API_KEY $PDS_ENV)"
+    export PDS_BREVO_INVITATION_TEMPLATE_ID="$(vault kv get -mount=secret -field BREVO_INVITATION_TEMPLATE_ID $PDS_ENV)"
   fi
 }
 
@@ -292,6 +294,7 @@ WID Commands:
   wid list                           List all accounts with W ID links
   wid show <did>                     Show W ID details for account
   wid update <did> <jid>             Update W ID (JID) for account
+  wid swap <did1> <did2>             Swap JIDs between two accounts (for testing)
   wid handle <did> <new-handle>      Update account handle (admin override, bypasses user)
   wid check-handle <handle>          Check handle resolution (DNS, well-known, PDS, AppView)
   wid check-db <did>                 Check database consistency for account (actor, account, W ID link)
@@ -349,6 +352,7 @@ Examples:
   $0 wid list
   $0 wid show did:plc:abc123
   $0 wid update did:plc:abc123 user@auth.wsocial.dev
+  $0 wid swap did:plc:abc123 did:plc:def456
   $0 wid handle did:plc:abc123 ingmar.wsocial.eu
   $0 wid check-handle ingmar.wsocial.eu
   pds-wadmin-dev wid check-db did:plc:abc123
@@ -671,6 +675,130 @@ cmd_wid_update() {
       "Updated At": .updatedAt
     }
   '
+}
+
+cmd_wid_swap() {
+  local did1="$1"
+  local did2="$2"
+
+  if [ -z "$did1" ] || [ -z "$did2" ]; then
+    echo "ERROR: Both DIDs are required"
+    echo "Usage: $0 wid swap <did1> <did2>"
+    exit 1
+  fi
+
+  if [ "$did1" = "$did2" ]; then
+    echo "ERROR: Cannot swap a DID with itself"
+    exit 1
+  fi
+
+  echo "Fetching current JIDs..."
+
+  # Get JID for did1
+  local response1
+  response1=$(api_call "GET" "com.atproto.admin.getNeuroLink?did=$did1")
+
+  if echo "$response1" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to fetch details for $did1"
+    echo "$response1" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  local jid1
+  jid1=$(echo "$response1" | jq -r '
+    if (.neuroLinks | type) == "array"
+    then .neuroLinks[0].jid // empty
+    else .jid // empty
+    end
+  ')
+
+  if [ -z "$jid1" ]; then
+    echo "ERROR: No JID found for $did1"
+    exit 1
+  fi
+
+  # Get JID for did2
+  local response2
+  response2=$(api_call "GET" "com.atproto.admin.getNeuroLink?did=$did2")
+
+  if echo "$response2" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to fetch details for $did2"
+    echo "$response2" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  local jid2
+  jid2=$(echo "$response2" | jq -r '
+    if (.neuroLinks | type) == "array"
+    then .neuroLinks[0].jid // empty
+    else .jid // empty
+    end
+  ')
+
+  if [ -z "$jid2" ]; then
+    echo "ERROR: No JID found for $did2"
+    exit 1
+  fi
+
+  echo "Current state:"
+  echo "  $did1 → $jid1"
+  echo "  $did2 → $jid2"
+  echo ""
+  echo "Swapping JIDs..."
+
+  # Generate temporary JID by appending timestamp
+  local temp_jid="${jid1}-temp-$(date +%s)@auth.wsocial.dev"
+
+  # Step 1: Move did1 to temp JID
+  echo "  [1/3] Parking $did1 at temporary JID..."
+  local data
+  data=$(jq -n --arg did "$did1" --arg newJid "$temp_jid" '{did: $did, newJid: $newJid}')
+  local response
+  response=$(api_call "POST" "com.atproto.admin.updateNeuroLink" "$data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to update $did1 to temporary JID"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  # Step 2: Move did2 to jid1
+  echo "  [2/3] Moving $did2 to $jid1..."
+  data=$(jq -n --arg did "$did2" --arg newJid "$jid1" '{did: $did, newJid: $newJid}')
+  response=$(api_call "POST" "com.atproto.admin.updateNeuroLink" "$data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to update $did2 to $jid1"
+    echo "$response" | jq -r '.message // .error'
+    echo ""
+    echo "WARNING: $did1 is still at temporary JID $temp_jid"
+    echo "To recover, run: $0 wid update $did1 $jid1"
+    exit 1
+  fi
+
+  # Step 3: Move did1 to jid2
+  echo "  [3/3] Moving $did1 to $jid2..."
+  data=$(jq -n --arg did "$did1" --arg newJid "$jid2" '{did: $did, newJid: $newJid}')
+  response=$(api_call "POST" "com.atproto.admin.updateNeuroLink" "$data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to update $did1 to $jid2"
+    echo "$response" | jq -r '.message // .error'
+    echo ""
+    echo "WARNING: Swap is incomplete!"
+    echo "  $did1 is at: $temp_jid"
+    echo "  $did2 is at: $jid1"
+    echo ""
+    echo "To recover, run:"
+    echo "  $0 wid update $did1 $jid2"
+    exit 1
+  fi
+
+  echo ""
+  echo "✓ Swap completed successfully!"
+  echo "New state:"
+  echo "  $did1 → $jid2"
+  echo "  $did2 → $jid1"
 }
 
 cmd_wid_handle() {
@@ -2076,6 +2204,9 @@ main() {
           ;;
         update)
           cmd_wid_update "$@"
+          ;;
+        swap)
+          cmd_wid_swap "$@"
           ;;
         handle)
           cmd_wid_handle "$@"
