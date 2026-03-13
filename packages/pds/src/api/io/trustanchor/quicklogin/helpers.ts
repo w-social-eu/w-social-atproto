@@ -23,12 +23,37 @@ export type NeuroCallbackPayload = {
 }
 
 /**
+ * Normalize JID by stripping resource identifier suffix and removing hyphens from local part
+ * WID may send: aa7d758f-0726-4a77-a99a-815c5fa98f14@domain/resourceId
+ * We store/use: aa7d758f07264a77a99a815c5fa98f14@domain
+ */
+export function normalizeJid(jid: string): string {
+  // First strip resource identifier (everything after /)
+  const slashIndex = jid.indexOf('/')
+  const withoutResource = slashIndex > 0 ? jid.substring(0, slashIndex) : jid
+
+  // Split on @ to separate local part from domain
+  const atIndex = withoutResource.indexOf('@')
+  if (atIndex <= 0) {
+    return withoutResource // No @ found, return as-is
+  }
+
+  const localPart = withoutResource.substring(0, atIndex)
+  const domain = withoutResource.substring(atIndex) // includes the @
+
+  // Remove hyphens from local part only
+  const normalizedLocal = localPart.replace(/-/g, '')
+
+  return normalizedLocal + domain
+}
+
+/**
  * Parse and validate QuickLogin payload (WP1)
  * Returns parsed fields with defaults
  */
 export function parseQuickLoginPayload(payload: NeuroCallbackPayload) {
   return {
-    jid: payload.JID || '',
+    jid: normalizeJid(payload.JID || ''),
     isTestUser: payload.istestuser === 'true' ? 1 : 0,
     preferredHandle: payload.preferredhandle || undefined,
   }
