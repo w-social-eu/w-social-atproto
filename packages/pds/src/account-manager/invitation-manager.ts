@@ -126,16 +126,25 @@ export class InvitationManager {
   /**
    * Get invitation by JID
    * Returns null if not found or not in valid status
+   *
+   * NOTE: Compares only the UUID portion (local part before @)
+   * since CreatedAccounts.json doesn't include domain information.
+   * Received JID: f0d860cc-60c0-4260-b54f-782c9d9a749f@auth-dev.widentity.dev
+   * Stored JID:   f0d860cc-60c0-4260-b54f-782c9d9a749f
+   * Comparison:   f0d860cc-60c0-4260-b54f-782c9d9a749f (extract local part)
    */
   async getInvitationByJid(
     jid: string,
   ): Promise<PendingInvitationEntry | null> {
     const now = new Date().toISOString()
 
-    const invitation = await this.db.db
+    // Extract just the UUID portion (local part before @)
+    const jidLocalPart = jid.split('@')[0]
+
+    // Fetch all active invitations (status and expiry check)
+    const invitations = await this.db.db
       .selectFrom('pending_invitations')
       .selectAll()
-      .where('jid', '=', jid)
       .where('status', 'in', [
         'pending',
         'email_pending',
@@ -143,7 +152,17 @@ export class InvitationManager {
         'email_failed',
       ])
       .where('expires_at', '>', now)
-      .executeTakeFirst()
+      .where('jid', 'is not', null)
+      .execute()
+
+    // Find matching invitation by UUID comparison
+    const invitation = invitations.find((inv) => {
+      if (!inv.jid) return false
+
+      const storedLocalPart = inv.jid.split('@')[0]
+
+      return storedLocalPart === jidLocalPart
+    })
 
     return invitation || null
   }
@@ -256,6 +275,9 @@ export class InvitationManager {
   /**
    * Consume invitation by JID (for JID-based account creation)
    * Only consumes invitations matching the specific JID
+   *
+   * NOTE: Compares only the UUID portion (local part before @)
+   * to handle cases where stored JID is just UUID but received JID includes domain
    */
   async consumeInvitationByJid(
     jid: string,
@@ -264,6 +286,36 @@ export class InvitationManager {
   ): Promise<void> {
     const now = new Date().toISOString()
 
+    // Extract just the UUID portion (local part before @)
+    const jidLocalPart = jid.split('@')[0]
+
+    // Fetch active invitations
+    const invitations = await this.db.db
+      .selectFrom('pending_invitations')
+      .selectAll()
+      .where('status', 'in', [
+        'pending',
+        'email_pending',
+        'email_sent',
+        'email_failed',
+      ])
+      .where('jid', 'is not', null)
+      .execute()
+
+    // Find matching invitation by UUID comparison
+    const matchingInvitation = invitations.find((inv) => {
+      if (!inv.jid) return false
+
+      const storedLocalPart = inv.jid.split('@')[0]
+
+      return storedLocalPart === jidLocalPart
+    })
+
+    if (!matchingInvitation) {
+      return // No matching invitation to consume
+    }
+
+    // Update the matching invitation
     const result = await this.db.db
       .updateTable('pending_invitations')
       .set({
@@ -272,13 +324,7 @@ export class InvitationManager {
         consuming_did: did,
         consuming_handle: handle,
       })
-      .where('jid', '=', jid)
-      .where('status', 'in', [
-        'pending',
-        'email_pending',
-        'email_sent',
-        'email_failed',
-      ])
+      .where('id', '=', matchingInvitation.id)
       .executeTakeFirst()
 
     if (Number(result.numUpdatedRows || 0) > 0) {
