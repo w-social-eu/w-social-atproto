@@ -15895,6 +15895,14 @@ export const schemaDict = {
               preferredHandle: {
                 type: 'string',
               },
+              onboardingUrl: {
+                type: 'string',
+                description: 'Onboarding URL for invitation',
+              },
+              qrCodeUrl: {
+                type: 'string',
+                description: 'QR code image URL',
+              },
               expiresAt: {
                 type: 'string',
                 format: 'datetime',
@@ -16321,6 +16329,58 @@ export const schemaDict = {
               before: {
                 type: 'string',
                 format: 'datetime',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  IoTrustanchorAdminUpdateInvitationEmailStatus: {
+    lexicon: 1,
+    id: 'io.trustanchor.admin.updateInvitationEmailStatus',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Update email delivery status for an invitation. Admin only. Called from CLI after sending via Brevo.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['email', 'status'],
+            properties: {
+              email: {
+                type: 'string',
+                description: 'Invitation email address',
+              },
+              status: {
+                type: 'string',
+                enum: ['email_sent', 'email_failed'],
+                description: 'Email delivery status',
+              },
+              error: {
+                type: 'string',
+                description: 'Error message if status is email_failed',
+              },
+              messageId: {
+                type: 'string',
+                description: 'Brevo message ID if status is email_sent',
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['success'],
+            properties: {
+              success: {
+                type: 'boolean',
+              },
+              invitationId: {
+                type: 'integer',
               },
             },
           },
@@ -22110,6 +22170,8 @@ export const ids = {
   IoTrustanchorAdminListInvitations: 'io.trustanchor.admin.listInvitations',
   IoTrustanchorAdminLoadInventory: 'io.trustanchor.admin.loadInventory',
   IoTrustanchorAdminPurgeInvitations: 'io.trustanchor.admin.purgeInvitations',
+  IoTrustanchorAdminUpdateInvitationEmailStatus:
+    'io.trustanchor.admin.updateInvitationEmailStatus',
   IoTrustanchorQuickloginCallback: 'io.trustanchor.quicklogin.callback',
   IoTrustanchorQuickloginInit: 'io.trustanchor.quicklogin.init',
   IoTrustanchorQuickloginStatus: 'io.trustanchor.quicklogin.status',

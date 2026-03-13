@@ -16,6 +16,7 @@ import * as mig015 from './015-privacy-separated-neuro-schema'
 import * as mig016 from './016-invitation-email-hash'
 import * as mig017 from './017-invitation-jid-delivery'
 import * as mig018 from './018-wid-account-inventory'
+import * as mig019 from './019-invitation-email-message-id'
 
 export default {
   '001': mig001,
@@ -36,4 +37,5 @@ export default {
   '016': mig016,
   '017': mig017,
   '018': mig018,
+  '019': mig019,
 }

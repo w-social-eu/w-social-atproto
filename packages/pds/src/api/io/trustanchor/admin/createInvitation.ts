@@ -152,40 +152,7 @@ export default function (server: Server, ctx: AppContext) {
             .where('id', '=', existingInvitation.id)
             .executeTakeFirst()
 
-          // Send reminder email (idempotent - always sends per policy)
-          if (invitation && invitation.onboarding_url && invitation.jid) {
-            // Get QR code URL from inventory
-            const inventoryAccount =
-              await ctx.widInventoryManager.getAccountByDid(invitation.jid)
-            const qrCodeUrl = inventoryAccount?.qr_code_url || ''
-
-            try {
-              await sendInvitationEmail(
-                ctx,
-                req.log,
-                normalizedEmail,
-                invitation.onboarding_url,
-                qrCodeUrl,
-                invitation.preferred_handle,
-              )
-              await ctx.invitationManager.updateEmailDeliveryStatus(
-                invitation.id,
-                'email_sent',
-              )
-            } catch (emailErr) {
-              const errorMsg =
-                emailErr instanceof Error ? emailErr.message : String(emailErr)
-              await ctx.invitationManager.updateEmailDeliveryStatus(
-                invitation.id,
-                'email_failed',
-                errorMsg,
-              )
-              throw new InvalidRequestError(
-                'Invitation reminder email failed',
-                'EmailDeliveryError',
-              )
-            }
-          }
+          // Email sending handled by CLI (pds-wadmin), not by PDS
         } else {
           // Step 2: No reusable invitation - allocate account from WID inventory
           req.log.info('Allocating WID account from inventory')
@@ -240,33 +207,7 @@ export default function (server: Server, ctx: AppContext) {
             invitationTimestamp,
           )
 
-          // Step 4: Send initial invitation email
-          try {
-            await sendInvitationEmail(
-              ctx,
-              req.log,
-              normalizedEmail,
-              onboardingUrl,
-              qrCodeUrl,
-              preferredHandle,
-            )
-            await ctx.invitationManager.updateEmailDeliveryStatus(
-              invitation.id,
-              'email_sent',
-            )
-          } catch (emailErr) {
-            const errorMsg =
-              emailErr instanceof Error ? emailErr.message : String(emailErr)
-            await ctx.invitationManager.updateEmailDeliveryStatus(
-              invitation.id,
-              'email_failed',
-              errorMsg,
-            )
-            throw new InvalidRequestError(
-              'Invitation email failed',
-              'EmailDeliveryError',
-            )
-          }
+          // Email sending handled by CLI (pds-wadmin), not by PDS
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
@@ -290,6 +231,11 @@ export default function (server: Server, ctx: AppContext) {
           success: true,
           email: invitation.email,
           preferredHandle: invitation.preferred_handle ?? undefined,
+          onboardingUrl: invitation.onboarding_url ?? undefined,
+          qrCodeUrl: invitation.jid
+            ? (await ctx.widInventoryManager.getAccountByDid(invitation.jid))
+                ?.qr_code_url ?? undefined
+            : undefined,
           expiresAt: invitation.expires_at,
           emailStatus: invitation.status,
           // JID is not returned for privacy (admin doesn't need it)

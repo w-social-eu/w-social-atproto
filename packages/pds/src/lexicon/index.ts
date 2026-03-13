@@ -234,6 +234,7 @@ import * as IoTrustanchorAdminGetInvitationStats from './types/io/trustanchor/ad
 import * as IoTrustanchorAdminListInvitations from './types/io/trustanchor/admin/listInvitations.js'
 import * as IoTrustanchorAdminLoadInventory from './types/io/trustanchor/admin/loadInventory.js'
 import * as IoTrustanchorAdminPurgeInvitations from './types/io/trustanchor/admin/purgeInvitations.js'
+import * as IoTrustanchorAdminUpdateInvitationEmailStatus from './types/io/trustanchor/admin/updateInvitationEmailStatus.js'
 import * as IoTrustanchorQuickloginCallback from './types/io/trustanchor/quicklogin/callback.js'
 import * as IoTrustanchorQuickloginInit from './types/io/trustanchor/quicklogin/init.js'
 import * as IoTrustanchorQuickloginStatus from './types/io/trustanchor/quicklogin/status.js'
@@ -3433,6 +3434,18 @@ export class IoTrustanchorAdminNS {
     >,
   ) {
     const nsid = 'io.trustanchor.admin.purgeInvitations' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  updateInvitationEmailStatus<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorAdminUpdateInvitationEmailStatus.QueryParams,
+      IoTrustanchorAdminUpdateInvitationEmailStatus.HandlerInput,
+      IoTrustanchorAdminUpdateInvitationEmailStatus.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.admin.updateInvitationEmailStatus' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 }

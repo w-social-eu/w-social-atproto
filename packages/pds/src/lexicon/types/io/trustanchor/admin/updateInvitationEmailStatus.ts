@@ -12,28 +12,24 @@ import {
 
 const is$typed = _is$typed,
   validate = _validate
-const id = 'io.trustanchor.admin.createInvitation'
+const id = 'io.trustanchor.admin.updateInvitationEmailStatus'
 
 export type QueryParams = {}
 
 export interface InputSchema {
-  /** Invitation email */
+  /** Invitation email address */
   email: string
-  /** Optional suggested handle */
-  preferredHandle?: string
-  /** Unix timestamp when invitation was issued */
-  invitationTimestamp: number
+  /** Email delivery status */
+  status: 'email_sent' | 'email_failed'
+  /** Error message if status is email_failed */
+  error?: string
+  /** Brevo message ID if status is email_sent */
+  messageId?: string
 }
 
 export interface OutputSchema {
   success: boolean
-  email: string
-  preferredHandle?: string
-  /** Onboarding URL for invitation */
-  onboardingUrl?: string
-  /** QR code image URL */
-  qrCodeUrl?: string
-  expiresAt?: string
+  invitationId?: number
 }
 
 export interface HandlerInput {

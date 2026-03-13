@@ -145,6 +145,124 @@ get_nomad_job_name() {
   fi
 }
 
+# Check Brevo configuration for email sending
+check_brevo_config() {
+  local missing_vars=()
+
+  if [ -z "${PDS_BREVO_API_KEY:-}" ]; then
+    missing_vars+=("PDS_BREVO_API_KEY")
+  fi
+
+  if [ -z "${PDS_BREVO_INVITATION_TEMPLATE_ID:-}" ]; then
+    missing_vars+=("PDS_BREVO_INVITATION_TEMPLATE_ID")
+  fi
+
+  if [ ${#missing_vars[@]} -gt 0 ]; then
+    echo "WARNING: Brevo email sending is not configured. Invitation created but email not sent."
+    echo "Missing environment variables:"
+    for var in "${missing_vars[@]}"; do
+      echo "  - $var"
+    done
+    echo ""
+    echo "To enable email sending:"
+    echo "  export PDS_BREVO_API_KEY=xkeysib-..."
+    echo "  export PDS_BREVO_INVITATION_TEMPLATE_ID=21"
+    return 1
+  fi
+
+  return 0
+}
+
+# Send invitation email via Brevo
+# Args: email, onboarding_url, qr_code_url, [preferred_handle]
+send_invitation_email() {
+  local email="$1"
+  local onboarding_url="$2"
+  local qr_code_url="$3"
+  local preferred_handle="${4:-}"
+
+  # Path to Python module
+  local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local python_module="$script_dir/pds-wadmin-modules/brevo_integration.py"
+
+  if [ ! -f "$python_module" ]; then
+    echo "ERROR: Brevo integration module not found: $python_module"
+    return 1
+  fi
+
+  # Build command
+  local cmd="python3 \"$python_module\""
+  cmd="$cmd --api-key=\"$PDS_BREVO_API_KEY\""
+  cmd="$cmd --template-id=$PDS_BREVO_INVITATION_TEMPLATE_ID"
+  cmd="$cmd --email=\"$email\""
+  cmd="$cmd --onboarding-url=\"$onboarding_url\""
+  cmd="$cmd --qr-code-url=\"$qr_code_url\""
+
+  if [ -n "$preferred_handle" ]; then
+    cmd="$cmd --preferred-handle=\"$preferred_handle\""
+  fi
+
+  # Add sender configuration if provided
+  if [ -n "${PDS_INVITATION_EMAIL_FROM:-}" ]; then
+    cmd="$cmd --from-email=\"$PDS_INVITATION_EMAIL_FROM\""
+  fi
+
+  if [ -n "${PDS_INVITATION_EMAIL_FROM_NAME:-}" ]; then
+    cmd="$cmd --from-name=\"$PDS_INVITATION_EMAIL_FROM_NAME\""
+  fi
+
+  # Execute and capture JSON output
+  local result
+  result=$(eval "$cmd" 2>&1)
+  local exit_code=$?
+
+  # Parse JSON result
+  if [ $exit_code -eq 0 ]; then
+    local message_id
+    message_id=$(echo "$result" | jq -r '.message_id // empty')
+    echo "$result"  # Return JSON for caller to parse
+    return 0
+  else
+    echo "$result"  # Return error JSON
+    return 1
+  fi
+}
+
+# Update invitation email status via PDS API
+# Args: email, status (email_sent|email_failed), [error], [message_id]
+update_invitation_email_status() {
+  local email="$1"
+  local status="$2"
+  local error="${3:-}"
+  local message_id="${4:-}"
+
+  local data
+  if [ -n "$error" ]; then
+    data=$(jq -n \
+      --arg email "$email" \
+      --arg status "$status" \
+      --arg error "$error" \
+      '{email: $email, status: $status, error: $error}')
+  else
+    data=$(jq -n \
+      --arg email "$email" \
+      --arg status "$status" \
+      --arg message_id "$message_id" \
+      '{email: $email, status: $status, messageId: $message_id}')
+  fi
+
+  local response
+  response=$(api_call "POST" "io.trustanchor.admin.updateInvitationEmailStatus" "$data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "WARNING: Failed to update email status in PDS"
+    echo "$response" | jq -r '.message // .error' >&2
+    return 1
+  fi
+
+  return 0
+}
+
 # Print usage information
 usage() {
   cat <<EOF
@@ -1178,6 +1296,48 @@ cmd_invitation_create() {
   [ -n "$handle" ] && echo "Suggested handle: $handle"
   if echo "$response" | jq -e '.expiresAt' > /dev/null 2>&1; then
     echo "Expires: $(echo "$response" | jq -r '.expiresAt')"
+  fi
+
+  # Extract onboarding URL and QR code URL from response
+  local onboarding_url
+  local qr_code_url
+  onboarding_url=$(echo "$response" | jq -r '.onboardingUrl // empty')
+  qr_code_url=$(echo "$response" | jq -r '.qrCodeUrl // empty')
+
+  # Send email via Brevo if configured
+  if check_brevo_config; then
+    if [ -n "$onboarding_url" ] && [ -n "$qr_code_url" ]; then
+      echo ""
+      echo "Sending invitation email via Brevo..."
+
+      local email_result
+      if email_result=$(send_invitation_email "$email" "$onboarding_url" "$qr_code_url" "$handle"); then
+        local message_id from_email from_name
+        message_id=$(echo "$email_result" | jq -r '.message_id // empty')
+        from_email=$(echo "$email_result" | jq -r '.from_email // empty')
+        from_name=$(echo "$email_result" | jq -r '.from_name // empty')
+        echo "✓ Email sent successfully"
+        if [ -n "$from_name" ] && [ -n "$from_email" ]; then
+          echo "  From: $from_name <$from_email>"
+        elif [ -n "$from_email" ]; then
+          echo "  From: $from_email"
+        fi
+        [ -n "$message_id" ] && echo "  Message ID: $message_id"
+
+        # Update PDS invitation status
+        update_invitation_email_status "$email" "email_sent" "" "$message_id" || true
+      else
+        local error_msg
+        error_msg=$(echo "$email_result" | jq -r '.error // "Unknown error"')
+        echo "✗ Email sending failed: $error_msg"
+
+        # Update PDS invitation status
+        update_invitation_email_status "$email" "email_failed" "$error_msg" || true
+      fi
+    else
+      echo ""
+      echo "WARNING: Cannot send email - missing onboardingUrl or qrCodeUrl in response"
+    fi
   fi
 }
 

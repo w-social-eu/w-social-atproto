@@ -41,6 +41,14 @@
             "preferredHandle": {
               "type": "string"
             },
+            "onboardingUrl": {
+              "type": "string",
+              "description": "Onboarding URL for invitation"
+            },
+            "qrCodeUrl": {
+              "type": "string",
+              "description": "QR code image URL"
+            },
             "expiresAt": {
               "type": "string",
               "format": "datetime"

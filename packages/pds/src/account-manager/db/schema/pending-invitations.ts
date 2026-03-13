@@ -17,6 +17,7 @@ export interface PendingInvitation {
   email_last_sent_at: string | null
   email_attempt_count: number
   email_last_error: string | null
+  email_message_id: string | null
 }
 
 export type PendingInvitationEntry = Selectable<PendingInvitation>
