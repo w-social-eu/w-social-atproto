@@ -333,7 +333,7 @@ export class InvitationManager {
         invitation_timestamp: timestamp,
         created_at: now,
         expires_at: expiresAt,
-        status: 'email_pending',
+        status: 'pending', // Main invitation status
         email_attempt_count: 0,
       })
       .execute()
@@ -362,7 +362,7 @@ export class InvitationManager {
     preferredHandle?: string | null,
   ): Promise<void> {
     const updates: Record<string, unknown> = {
-      status: 'email_pending',
+      // Status remains 'pending' - email tracking is separate
     }
 
     if (preferredHandle !== undefined) {
@@ -385,6 +385,7 @@ export class InvitationManager {
     id: number,
     status: 'email_sent' | 'email_failed',
     error?: string,
+    messageId?: string,
   ): Promise<void> {
     const now = new Date().toISOString()
 
@@ -397,16 +398,16 @@ export class InvitationManager {
     await this.db.db
       .updateTable('pending_invitations')
       .set({
-        status,
         email_last_sent_at: now,
         email_attempt_count: (invitation?.email_attempt_count || 0) + 1,
         email_last_error: error || null,
+        email_message_id: messageId || null,
       })
       .where('id', '=', id)
       .execute()
 
     dbLogger.info(
-      { invitationId: id, status, error },
+      { invitationId: id, emailStatus: status, error, messageId },
       'Updated email delivery status',
     )
   }

@@ -1,0 +1,5 @@
+# Python dependencies for pds-wadmin CLI tools
+# Install with: pip install -r requirements.txt
+
+requests>=2.31.0
+sib-api-v3-sdk>=7.6.0  # Brevo (formerly SendInBlue) SDK

@@ -229,9 +229,12 @@ import * as ComAtprotoTempRevokeAccountCredentials from './types/com/atproto/tem
 import * as IoTrustanchorAdminCreateInvitation from './types/io/trustanchor/admin/createInvitation.js'
 import * as IoTrustanchorAdminCreateIosTestUser from './types/io/trustanchor/admin/createIosTestUser.js'
 import * as IoTrustanchorAdminDeleteInvitation from './types/io/trustanchor/admin/deleteInvitation.js'
+import * as IoTrustanchorAdminGetInventoryStatus from './types/io/trustanchor/admin/getInventoryStatus.js'
 import * as IoTrustanchorAdminGetInvitationStats from './types/io/trustanchor/admin/getInvitationStats.js'
 import * as IoTrustanchorAdminListInvitations from './types/io/trustanchor/admin/listInvitations.js'
+import * as IoTrustanchorAdminLoadInventory from './types/io/trustanchor/admin/loadInventory.js'
 import * as IoTrustanchorAdminPurgeInvitations from './types/io/trustanchor/admin/purgeInvitations.js'
+import * as IoTrustanchorAdminUpdateInvitationEmailStatus from './types/io/trustanchor/admin/updateInvitationEmailStatus.js'
 import * as IoTrustanchorQuickloginCallback from './types/io/trustanchor/quicklogin/callback.js'
 import * as IoTrustanchorQuickloginInit from './types/io/trustanchor/quicklogin/init.js'
 import * as IoTrustanchorQuickloginStatus from './types/io/trustanchor/quicklogin/status.js'
@@ -3374,6 +3377,18 @@ export class IoTrustanchorAdminNS {
     return this._server.xrpc.method(nsid, cfg)
   }
 
+  getInventoryStatus<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorAdminGetInventoryStatus.QueryParams,
+      IoTrustanchorAdminGetInventoryStatus.HandlerInput,
+      IoTrustanchorAdminGetInventoryStatus.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.admin.getInventoryStatus' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
   getInvitationStats<A extends Auth = void>(
     cfg: MethodConfigOrHandler<
       A,
@@ -3398,6 +3413,18 @@ export class IoTrustanchorAdminNS {
     return this._server.xrpc.method(nsid, cfg)
   }
 
+  loadInventory<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorAdminLoadInventory.QueryParams,
+      IoTrustanchorAdminLoadInventory.HandlerInput,
+      IoTrustanchorAdminLoadInventory.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.admin.loadInventory' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
   purgeInvitations<A extends Auth = void>(
     cfg: MethodConfigOrHandler<
       A,
@@ -3407,6 +3434,18 @@ export class IoTrustanchorAdminNS {
     >,
   ) {
     const nsid = 'io.trustanchor.admin.purgeInvitations' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  updateInvitationEmailStatus<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorAdminUpdateInvitationEmailStatus.QueryParams,
+      IoTrustanchorAdminUpdateInvitationEmailStatus.HandlerInput,
+      IoTrustanchorAdminUpdateInvitationEmailStatus.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.admin.updateInvitationEmailStatus' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 }

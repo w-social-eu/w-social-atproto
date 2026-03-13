@@ -12,6 +12,11 @@
 #   PDS_HOST - The PDS hostname (e.g., https://pds-stage.wsocial.dev)
 #   PDS_ADMIN_PASSWORD - Admin password for authentication
 #
+#   For Nomad operations (inventory load, logs, etc.), also requires:
+#   PDS_NOMAD_JOB_NAME - Nomad job name (e.g., pds-dev, pds-stage, pds-prod)
+#   NOMAD_ADDR - Nomad cluster address (e.g., https://nomad.wsocial.cloud)
+#   NOMAD_TOKEN - Nomad authentication token
+#
 # When called via symlinks (pds-wadmin-dev, pds-wadmin-stage, pds-wadmin-prod),
 # automatically fetches credentials from Vault based on the environment name.
 #
@@ -59,40 +64,203 @@ check_env() {
 # Check and ensure Nomad authentication
 check_nomad_auth() {
   if [ -z "$ENV" ]; then
-    echo "ERROR: Nomad commands require environment context (use pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod)"
-    exit 1
-  fi
+    # Called as base 'pds-wadmin' - require explicit environment variables
+    local missing_vars=()
 
-  # Nomad cluster address — always the same regardless of PDS env
-  export NOMAD_ADDR="https://nomad.wsocial.cloud"
+    if [ -z "${PDS_NOMAD_JOB_NAME:-}" ]; then
+      missing_vars+=("PDS_NOMAD_JOB_NAME")
+    fi
 
-  # Export nomad token from cache if it exists
-  local token_cache="$HOME/.nomad-token"
-  if [ -f "$token_cache" ]; then
-    export NOMAD_TOKEN="$(cat "$token_cache")"
-  fi
+    if [ -z "${NOMAD_ADDR:-}" ]; then
+      missing_vars+=("NOMAD_ADDR")
+    fi
 
-  # Check if authentication works, login if needed
-  if ! nomad status -token="${NOMAD_TOKEN:-}" >/dev/null 2>&1; then
-    echo "Nomad authentication required..."
-    local login_output
-    login_output=$(nomad login -method=vault-oidc 2>&1)
-    echo "$login_output"
+    if [ -z "${NOMAD_TOKEN:-}" ]; then
+      missing_vars+=("NOMAD_TOKEN")
+    fi
 
-    # Extract Secret ID from output
-    local secret_id
-    secret_id=$(echo "$login_output" | grep "^Secret ID" | awk '{print $4}')
-
-    if [ -z "$secret_id" ]; then
-      echo "ERROR: Failed to extract token from nomad login output"
+    if [ ${#missing_vars[@]} -gt 0 ]; then
+      echo "ERROR: Nomad operations require the following environment variables:"
+      for var in "${missing_vars[@]}"; do
+        echo "  - $var"
+      done
+      echo ""
+      echo "Examples:"
+      echo "  export PDS_NOMAD_JOB_NAME=pds-dev"
+      echo "  export NOMAD_ADDR=https://nomad.wsocial.cloud"
+      echo "  export NOMAD_TOKEN=your-nomad-token"
+      echo ""
+      echo "Or use environment-specific commands:"
+      echo "  pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod"
       exit 1
     fi
 
-    # Set and cache the token
-    export NOMAD_TOKEN="$secret_id"
-    echo "$NOMAD_TOKEN" > "$token_cache"
-    chmod 600 "$token_cache"
+    # Validate NOMAD_TOKEN works
+    if ! nomad status -token="${NOMAD_TOKEN}" >/dev/null 2>&1; then
+      echo "ERROR: NOMAD_TOKEN is invalid or expired"
+      echo "Please set a valid NOMAD_TOKEN or use pds-wadmin-dev/stage/prod"
+      exit 1
+    fi
+  else
+    # Called via symlink (dev/stage/prod) - use vault authentication
+    # Nomad cluster address — always the same regardless of PDS env
+    export NOMAD_ADDR="https://nomad.wsocial.cloud"
+
+    # Export nomad token from cache if it exists
+    local token_cache="$HOME/.nomad-token"
+    if [ -f "$token_cache" ]; then
+      export NOMAD_TOKEN="$(cat "$token_cache")"
+    fi
+
+    # Check if authentication works, login if needed
+    if ! nomad status -token="${NOMAD_TOKEN:-}" >/dev/null 2>&1; then
+      echo "Nomad authentication required..."
+      local login_output
+      login_output=$(nomad login -method=vault-oidc 2>&1)
+      echo "$login_output"
+
+      # Extract Secret ID from output
+      local secret_id
+      secret_id=$(echo "$login_output" | grep "^Secret ID" | awk '{print $4}')
+
+      if [ -z "$secret_id" ]; then
+        echo "ERROR: Failed to extract token from nomad login output"
+        exit 1
+      fi
+
+      # Set and cache the token
+      export NOMAD_TOKEN="$secret_id"
+      echo "$NOMAD_TOKEN" > "$token_cache"
+      chmod 600 "$token_cache"
+    fi
   fi
+}
+
+# Get Nomad job name (helper for both ENV-based and direct env var modes)
+get_nomad_job_name() {
+  if [ -n "$ENV" ]; then
+    echo "pds-${ENV}"
+  else
+    echo "${PDS_NOMAD_JOB_NAME}"
+  fi
+}
+
+# Check Brevo configuration for email sending
+check_brevo_config() {
+  local missing_vars=()
+
+  if [ -z "${PDS_BREVO_API_KEY:-}" ]; then
+    missing_vars+=("PDS_BREVO_API_KEY")
+  fi
+
+  if [ -z "${PDS_BREVO_INVITATION_TEMPLATE_ID:-}" ]; then
+    missing_vars+=("PDS_BREVO_INVITATION_TEMPLATE_ID")
+  fi
+
+  if [ ${#missing_vars[@]} -gt 0 ]; then
+    echo "WARNING: Brevo email sending is not configured. Invitation created but email not sent."
+    echo "Missing environment variables:"
+    for var in "${missing_vars[@]}"; do
+      echo "  - $var"
+    done
+    echo ""
+    echo "To enable email sending:"
+    echo "  export PDS_BREVO_API_KEY=xkeysib-..."
+    echo "  export PDS_BREVO_INVITATION_TEMPLATE_ID=21"
+    return 1
+  fi
+
+  return 0
+}
+
+# Send invitation email via Brevo
+# Args: email, onboarding_url, qr_code_url, [preferred_handle]
+send_invitation_email() {
+  local email="$1"
+  local onboarding_url="$2"
+  local qr_code_url="$3"
+  local preferred_handle="${4:-}"
+
+  # Path to Python module
+  local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local python_module="$script_dir/pds-wadmin-modules/brevo_integration.py"
+
+  if [ ! -f "$python_module" ]; then
+    echo "ERROR: Brevo integration module not found: $python_module"
+    return 1
+  fi
+
+  # Build command
+  local cmd="python3 \"$python_module\""
+  cmd="$cmd --api-key=\"$PDS_BREVO_API_KEY\""
+  cmd="$cmd --template-id=$PDS_BREVO_INVITATION_TEMPLATE_ID"
+  cmd="$cmd --email=\"$email\""
+  cmd="$cmd --onboarding-url=\"$onboarding_url\""
+  cmd="$cmd --qr-code-url=\"$qr_code_url\""
+
+  if [ -n "$preferred_handle" ]; then
+    cmd="$cmd --preferred-handle=\"$preferred_handle\""
+  fi
+
+  # Add sender configuration if provided
+  if [ -n "${PDS_INVITATION_EMAIL_FROM:-}" ]; then
+    cmd="$cmd --from-email=\"$PDS_INVITATION_EMAIL_FROM\""
+  fi
+
+  if [ -n "${PDS_INVITATION_EMAIL_FROM_NAME:-}" ]; then
+    cmd="$cmd --from-name=\"$PDS_INVITATION_EMAIL_FROM_NAME\""
+  fi
+
+  # Execute and capture JSON output
+  local result
+  result=$(eval "$cmd" 2>&1)
+  local exit_code=$?
+
+  # Parse JSON result
+  if [ $exit_code -eq 0 ]; then
+    local message_id
+    message_id=$(echo "$result" | jq -r '.message_id // empty')
+    echo "$result"  # Return JSON for caller to parse
+    return 0
+  else
+    echo "$result"  # Return error JSON
+    return 1
+  fi
+}
+
+# Update invitation email status via PDS API
+# Args: email, status (email_sent|email_failed), [error], [message_id]
+update_invitation_email_status() {
+  local email="$1"
+  local status="$2"
+  local error="${3:-}"
+  local message_id="${4:-}"
+
+  local data
+  if [ -n "$error" ]; then
+    data=$(jq -n \
+      --arg email "$email" \
+      --arg status "$status" \
+      --arg error "$error" \
+      '{email: $email, status: $status, error: $error}')
+  else
+    data=$(jq -n \
+      --arg email "$email" \
+      --arg status "$status" \
+      --arg message_id "$message_id" \
+      '{email: $email, status: $status, messageId: $message_id}')
+  fi
+
+  local response
+  response=$(api_call "POST" "io.trustanchor.admin.updateInvitationEmailStatus" "$data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "WARNING: Failed to update email status in PDS"
+    echo "$response" | jq -r '.message // .error' >&2
+    return 1
+  fi
+
+  return 0
 }
 
 # Print usage information
@@ -125,6 +293,10 @@ WID Commands:
   wid show <did>                     Show W ID details for account
   wid update <did> <jid>             Update W ID (JID) for account
   wid handle <did> <new-handle>      Update account handle (admin override, bypasses user)
+  wid check-handle <handle>          Check handle resolution (DNS, well-known, PDS, AppView)
+  wid check-db <did>                 Check database consistency for account (actor, account, W ID link)
+  wid inventory load <json-file>     Load WID accounts from CreatedAccounts.json into inventory
+  wid inventory status               Show WID inventory status (available/allocated/consumed counts)
   wid schema                         Show database schema for key tables (check migration status)
   wid db [--query=SQL]               Query neuro_identity_link table directly via sqlite3
                                      Default: show all rows with duplicates highlighted
@@ -157,9 +329,14 @@ Goat Commands:
   goat <command> [args...]           Run goat admin tool with auto-configured credentials
                                      (passes all arguments through to goat)
 
-Environment Variables (only when called as 'pds-wadmin'):
+Environment Variables (when called as 'pds-wadmin'):
   PDS_HOST                  PDS hostname (e.g., https://pds-stage.wsocial.dev)
   PDS_ADMIN_PASSWORD        Admin password
+
+  For Nomad operations (logs, etc.):
+    PDS_NOMAD_JOB_NAME        Nomad job name (e.g., pds-dev, pds-stage, pds-prod)
+    NOMAD_ADDR                Nomad cluster address (e.g., https://nomad.wsocial.cloud)
+    NOMAD_TOKEN               Nomad authentication token
 
 Examples:
   # Account management
@@ -173,6 +350,13 @@ Examples:
   $0 wid show did:plc:abc123
   $0 wid update did:plc:abc123 user@auth.wsocial.dev
   $0 wid handle did:plc:abc123 ingmar.wsocial.eu
+  $0 wid check-handle ingmar.wsocial.eu
+  pds-wadmin-dev wid check-db did:plc:abc123
+
+  # WID inventory (via API - works locally and remotely)
+  $0 wid inventory status
+  $0 wid inventory load CreatedAccounts.json
+  pds-wadmin-dev wid inventory status
 
   # Account transfer (rehoming)
   $0 transfer rehome did:plc:abc123 https://pds2.wsocial.dev
@@ -351,15 +535,7 @@ cmd_admin_create_ios_test_user() {
 cmd_wid_list() {
   if [ -n "$ENV" ]; then
     # Nomad available — query DB directly for full accuracy
-    # Detect schema version: check if userJid column exists (migration 015)
-    local has_new_schema=0
-    if cmd_nomad_exec_sqlite "SELECT name FROM pragma_table_info('neuro_identity_link') WHERE name='userJid';" 2>/dev/null | grep -q "userJid"; then
-      has_new_schema=1
-    fi
-
-    if [ "$has_new_schema" = "1" ]; then
-      # New schema (post-migration 015): userJid/testUserJid columns
-      cmd_nomad_exec_sqlite "
+    cmd_nomad_exec_sqlite "
 SELECT
   a.did,
   COALESCE(a.handle, '?')        AS handle,
@@ -379,30 +555,6 @@ LEFT JOIN (
 ) cnt ON cnt.did = a.did
 ORDER BY a.handle, nil.linkedAt;
 "
-    else
-      # Old schema (pre-migration 015): neuroJid/jid/jidRef columns
-      cmd_nomad_exec_sqlite "
-SELECT
-  a.did,
-  COALESCE(a.handle, '?')        AS handle,
-  COALESCE(ac.email, '-')        AS email,
-  COALESCE(nil.neuroJid, '-')    AS jid,
-  COALESCE(
-    CASE WHEN COALESCE(nil.isTestUser, 0) = 1 THEN nil.jid ELSE nil.jidRef END,
-    '-'
-  ) AS jid,
-  COALESCE(nil.isTestUser, 0)    AS isTestUser,
-  nil.linkedAt,
-  CASE WHEN cnt.n > 1 THEN 'DUP(' || cnt.n || ')' ELSE '' END AS flags
-FROM actor a
-LEFT JOIN account ac ON ac.did = a.did
-LEFT JOIN neuro_identity_link nil ON nil.did = a.did
-LEFT JOIN (
-  SELECT did, COUNT(*) AS n FROM neuro_identity_link GROUP BY did
-) cnt ON cnt.did = a.did
-ORDER BY a.handle, nil.linkedAt;
-"
-    fi
   else
     # No Nomad (plain pds-wadmin with env vars) — use API
     local response
@@ -563,6 +715,289 @@ cmd_wid_handle() {
   echo "  1. Verify DNS TXT:  dig TXT _atproto.$new_handle +short"
   echo "  2. Verify well-known: curl https://$new_handle/.well-known/atproto-did"
   echo "  3. Verify resolve:  curl '${PDS_HOST}/xrpc/com.atproto.identity.resolveHandle?handle=$new_handle'"
+}
+
+cmd_wid_check_handle() {
+  local handle="$1"
+
+  if [ -z "$handle" ]; then
+    echo "ERROR: Handle is required"
+    echo "Usage: $0 wid check-handle <handle>"
+    exit 1
+  fi
+
+  # Get AppView URL from Vault if we have an environment context
+  local appview_url=""
+  if [ -n "$ENV" ] && [ "$ENV" != "wadmin" ]; then
+    appview_url=$(vault kv get -mount=secret -field BSKY_APP_VIEW_URL "pds/${ENV}" 2>/dev/null || echo "")
+  fi
+
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "Handle Resolution Check: $handle"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo ""
+
+  # 1. DNS TXT Record Check
+  echo "1️⃣  DNS TXT Record (_atproto.$handle)"
+  echo "───────────────────────────────────────────────────────────────"
+  local dns_result
+  dns_result=$(dig TXT "_atproto.$handle" +short 2>&1)
+
+  if [ -n "$dns_result" ]; then
+    echo "✓ Found DNS TXT record:"
+    echo "$dns_result" | sed 's/^/  /'
+
+    # Extract DID from DNS result
+    local dns_did
+    dns_did=$(echo "$dns_result" | grep -o 'did:plc:[a-z0-9]*' | head -n1)
+    if [ -n "$dns_did" ]; then
+      echo "  Extracted DID: $dns_did"
+    fi
+  else
+    echo "✗ No DNS TXT record found"
+    dns_did=""
+  fi
+  echo ""
+
+  # 2. Well-Known HTTPS Check
+  echo "2️⃣  Well-Known HTTPS (https://$handle/.well-known/atproto-did)"
+  echo "───────────────────────────────────────────────────────────────"
+  local wellknown_result
+  local wellknown_status
+  local wellknown_body
+
+  # Disable exit-on-error for curl (handle failures gracefully)
+  set +e
+  wellknown_result=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" "https://$handle/.well-known/atproto-did" 2>&1)
+  local curl_exit=$?
+  set -e
+
+  if [ $curl_exit -ne 0 ]; then
+    echo "✗ Well-known endpoint not accessible (connection failed)"
+    echo "  Error: $(echo "$wellknown_result" | head -n 1)"
+    wellknown_did=""
+  else
+    wellknown_status=$(echo "$wellknown_result" | grep "HTTP_STATUS:" | cut -d: -f2)
+    wellknown_body=$(echo "$wellknown_result" | sed '/HTTP_STATUS:/d')
+
+    if [ "$wellknown_status" = "200" ]; then
+      echo "✓ Well-known endpoint accessible (HTTP $wellknown_status)"
+      echo "  Content: $wellknown_body"
+
+      # Validate it's a DID
+      if [[ "$wellknown_body" =~ ^did:plc:[a-z0-9]+$ ]]; then
+        echo "  Valid DID format: $wellknown_body"
+        wellknown_did="$wellknown_body"
+      else
+        echo "  ⚠️  Response is not a valid DID"
+        wellknown_did=""
+      fi
+    else
+      echo "✗ Well-known endpoint failed (HTTP ${wellknown_status:-ERROR})"
+      if [ -n "$wellknown_body" ]; then
+        echo "  Error: $wellknown_body" | head -n 3
+      fi
+      wellknown_did=""
+    fi
+  fi
+  echo ""
+
+  # 3. PDS resolveHandle Check
+  echo "3️⃣  PDS resolveHandle (${PDS_HOST}/xrpc/com.atproto.identity.resolveHandle)"
+  echo "───────────────────────────────────────────────────────────────"
+  local resolve_result
+  local resolved_did=""
+
+  # Disable exit-on-error for curl (handle failures gracefully)
+  set +e
+  resolve_result=$(curl -sS "${PDS_HOST}/xrpc/com.atproto.identity.resolveHandle?handle=$handle" 2>&1)
+  local curl_exit=$?
+  set -e
+
+  if [ $curl_exit -ne 0 ]; then
+    echo "✗ PDS resolution failed (connection error)"
+    echo "  Error: $(echo "$resolve_result" | head -n 1)"
+  elif echo "$resolve_result" | jq -e '.did' > /dev/null 2>&1; then
+    resolved_did=$(echo "$resolve_result" | jq -r '.did')
+    echo "✓ PDS resolved handle successfully"
+    echo "  Resolved DID: $resolved_did"
+  else
+    echo "✗ PDS resolution failed"
+    if echo "$resolve_result" | jq -e '.error' > /dev/null 2>&1; then
+      echo "  Error: $(echo "$resolve_result" | jq -r '.message // .error')"
+    else
+      echo "  Raw response: $resolve_result" | head -n 3
+    fi
+  fi
+  echo ""
+
+  # 4. AppView resolveHandle Check (only if AppView URL is configured)
+  local appview_did=""
+  if [ -n "$appview_url" ]; then
+    echo "4️⃣  AppView resolveHandle (${appview_url}/xrpc/com.atproto.identity.resolveHandle)"
+    echo "───────────────────────────────────────────────────────────────"
+    local appview_result
+
+    # Disable exit-on-error for curl (handle failures gracefully)
+    set +e
+    appview_result=$(curl -sS "${appview_url}/xrpc/com.atproto.identity.resolveHandle?handle=$handle" 2>&1)
+    local curl_exit=$?
+    set -e
+
+    if [ $curl_exit -ne 0 ]; then
+      echo "✗ AppView resolution failed (connection error)"
+      echo "  Error: $(echo "$appview_result" | head -n 1)"
+    elif echo "$appview_result" | jq -e '.did' > /dev/null 2>&1; then
+      appview_did=$(echo "$appview_result" | jq -r '.did')
+      echo "✓ AppView resolved handle successfully"
+      echo "  Resolved DID: $appview_did"
+    else
+      echo "✗ AppView resolution failed"
+      if echo "$appview_result" | jq -e '.error' > /dev/null 2>&1; then
+        echo "  Error: $(echo "$appview_result" | jq -r '.message // .error')"
+      else
+        echo "  Raw response: $appview_result" | head -n 3
+      fi
+    fi
+    echo ""
+  else
+    echo "4️⃣  AppView resolveHandle"
+    echo "───────────────────────────────────────────────────────────────"
+    echo "⊘ Skipped (BSKY_APP_VIEW_URL not configured in Vault)"
+    echo ""
+  fi
+
+  # 5. Summary
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "Summary"
+  echo "═══════════════════════════════════════════════════════════════"
+
+  # For handle verification, we need EITHER DNS TXT OR well-known (not both)
+  local handle_method_ok=false
+  local has_both=false
+
+  if [ -n "$dns_did" ] && [ -n "$wellknown_did" ]; then
+    has_both=true
+    handle_method_ok=true  # Works, but unusual
+  elif [ -n "$dns_did" ] || [ -n "$wellknown_did" ]; then
+    handle_method_ok=true
+  fi
+
+  # Check if all required checks passed
+  local all_required_passed=false
+  if [ "$handle_method_ok" = true ] && [ -n "$resolved_did" ]; then
+    all_required_passed=true
+  fi
+
+  # If AppView was checked, require it to pass too
+  local all_checks_passed=false
+  if [ "$all_required_passed" = true ]; then
+    if [ -n "$appview_url" ]; then
+      # AppView is configured, so require it to pass
+      if [ -n "$appview_did" ]; then
+        all_checks_passed=true
+      fi
+    else
+      # AppView not configured, so all required checks passing is sufficient
+      all_checks_passed=true
+    fi
+  fi
+
+  if [ "$all_checks_passed" = true ]; then
+    echo "Status: ✓ All checks passed"
+    echo ""
+
+    # Determine which DID to use as reference (prefer DNS, then well-known)
+    local reference_did="${dns_did:-$wellknown_did}"
+
+    # Check if all DIDs match (including AppView if checked)
+    local all_match=true
+    if [ -n "$dns_did" ] && [ "$dns_did" != "$reference_did" ]; then
+      all_match=false
+    fi
+    if [ -n "$wellknown_did" ] && [ "$wellknown_did" != "$reference_did" ]; then
+      all_match=false
+    fi
+    if [ "$resolved_did" != "$reference_did" ]; then
+      all_match=false
+    fi
+    if [ -n "$appview_did" ] && [ "$appview_did" != "$reference_did" ]; then
+      all_match=false
+    fi
+
+    if [ "$all_match" = true ]; then
+      echo "DID Consistency: ✓ All methods return same DID"
+      echo "  DID: $reference_did"
+
+      # Warn if both handle methods are present
+      if [ "$has_both" = true ]; then
+        echo ""
+        echo "⚠️  Note: Both DNS TXT and well-known are configured"
+        echo "    This is unusual - typically handles use one method or the other"
+      fi
+    else
+      echo "DID Consistency: ✗ MISMATCH DETECTED"
+      if [ -n "$dns_did" ]; then
+        echo "  DNS TXT:      $dns_did"
+      fi
+      if [ -n "$wellknown_did" ]; then
+        echo "  Well-Known:   $wellknown_did"
+      fi
+      echo "  PDS Resolve:  ${resolved_did:-N/A}"
+      if [ -n "$appview_url" ]; then
+        echo "  AppView:      ${appview_did:-N/A}"
+      fi
+    fi
+  else
+    echo "Status: ✗ Some checks failed"
+    echo ""
+    echo "Results:"
+    if [ -n "$dns_did" ]; then
+      echo "  DNS TXT:      ✓ $dns_did"
+    elif [ -n "$wellknown_did" ]; then
+      echo "  DNS TXT:      ⊘ Not used (well-known configured instead)"
+    else
+      echo "  DNS TXT:      ✗ Not found"
+    fi
+
+    if [ -n "$wellknown_did" ]; then
+      echo "  Well-Known:   ✓ $wellknown_did"
+    elif [ -n "$dns_did" ]; then
+      echo "  Well-Known:   ⊘ Not used (DNS TXT configured instead)"
+    else
+      echo "  Well-Known:   ✗ Not accessible"
+    fi
+
+    echo "  PDS Resolve:  $([ -n "$resolved_did" ] && echo "✓ $resolved_did" || echo "✗ Failed")"
+    if [ -n "$appview_url" ]; then
+      echo "  AppView:      $([ -n "$appview_did" ] && echo "✓ $appview_did" || echo "✗ Failed")"
+    else
+      echo "  AppView:      ⊘ Skipped (not configured)"
+    fi
+
+    # Warn if both handle methods are present
+    if [ "$has_both" = true ]; then
+      echo ""
+      echo "⚠️  Note: Both DNS TXT and well-known are configured"
+      echo "    This is unusual - typically handles use one method or the other"
+    fi
+
+    echo ""
+    echo "Troubleshooting:"
+    if [ "$handle_method_ok" = false ]; then
+      echo "  • No handle verification method found - need either:"
+      echo "    - DNS TXT record at _atproto.$handle, OR"
+      echo "    - HTTPS endpoint at https://$handle/.well-known/atproto-did"
+    fi
+    if [ -z "$resolved_did" ]; then
+      echo "  • PDS cannot resolve handle - may need to refresh identity cache"
+    fi
+    if [ -n "$appview_url" ] && [ -z "$appview_did" ]; then
+      echo "  • AppView cannot resolve handle - account may not be indexed yet"
+      echo "    (AppView syncs from PDS; check if account creation was recent)"
+    fi
+  fi
+  echo "═══════════════════════════════════════════════════════════════"
 }
 
 #
@@ -862,6 +1297,48 @@ cmd_invitation_create() {
   if echo "$response" | jq -e '.expiresAt' > /dev/null 2>&1; then
     echo "Expires: $(echo "$response" | jq -r '.expiresAt')"
   fi
+
+  # Extract onboarding URL and QR code URL from response
+  local onboarding_url
+  local qr_code_url
+  onboarding_url=$(echo "$response" | jq -r '.onboardingUrl // empty')
+  qr_code_url=$(echo "$response" | jq -r '.qrCodeUrl // empty')
+
+  # Send email via Brevo if configured
+  if check_brevo_config; then
+    if [ -n "$onboarding_url" ] && [ -n "$qr_code_url" ]; then
+      echo ""
+      echo "Sending invitation email via Brevo..."
+
+      local email_result
+      if email_result=$(send_invitation_email "$email" "$onboarding_url" "$qr_code_url" "$handle"); then
+        local message_id from_email from_name
+        message_id=$(echo "$email_result" | jq -r '.message_id // empty')
+        from_email=$(echo "$email_result" | jq -r '.from_email // empty')
+        from_name=$(echo "$email_result" | jq -r '.from_name // empty')
+        echo "✓ Email sent successfully"
+        if [ -n "$from_name" ] && [ -n "$from_email" ]; then
+          echo "  From: $from_name <$from_email>"
+        elif [ -n "$from_email" ]; then
+          echo "  From: $from_email"
+        fi
+        [ -n "$message_id" ] && echo "  Message ID: $message_id"
+
+        # Update PDS invitation status
+        update_invitation_email_status "$email" "email_sent" "" "$message_id" || true
+      else
+        local error_msg
+        error_msg=$(echo "$email_result" | jq -r '.error // "Unknown error"')
+        echo "✗ Email sending failed: $error_msg"
+
+        # Update PDS invitation status
+        update_invitation_email_status "$email" "email_failed" "$error_msg" || true
+      fi
+    else
+      echo ""
+      echo "WARNING: Cannot send email - missing onboardingUrl or qrCodeUrl in response"
+    fi
+  fi
 }
 
 cmd_invitation_revoke() {
@@ -971,7 +1448,8 @@ cmd_nomad_exec_sqlite() {
 
   check_nomad_auth
 
-  local job_name="pds-${ENV}"
+  local job_name
+  job_name="$(get_nomad_job_name)"
   local alloc_id
   alloc_id=$(nomad status -token="${NOMAD_TOKEN}" "$job_name" 2>/dev/null \
     | grep -E "^[a-f0-9]{8}\s+" | grep "running" | head -n1 | awk '{print $1}')
@@ -1091,30 +1569,6 @@ cmd_wid_schema() {
   # Migration status check
   echo "Migration Status Indicators:"
   echo "----------------------------"
-
-  # Check for migration 015 (userJid column)
-  if cmd_nomad_exec_sqlite "SELECT name FROM pragma_table_info('neuro_identity_link') WHERE name='userJid';" 2>/dev/null | grep -q "userJid"; then
-    echo "✓ Migration 015 applied (userJid/testUserJid schema)"
-  # Check for migration 014 (jidRef column)
-  elif cmd_nomad_exec_sqlite "SELECT name FROM pragma_table_info('neuro_identity_link') WHERE name='jidRef';" 2>/dev/null | grep -q "jidRef"; then
-    echo "✓ Migration 014 applied (jidRef column exists)"
-    echo "✗ Migration 015 NOT applied (userJid/testUserJid not present)"
-  # Check for pre-014 schema (neuroJid column)
-  elif cmd_nomad_exec_sqlite "SELECT name FROM pragma_table_info('neuro_identity_link') WHERE name='neuroJid';" 2>/dev/null | grep -q "neuroJid"; then
-    echo "✗ Pre-migration 014 schema (neuroJid as primary key)"
-    echo "✗ Migrations 014 and 015 NOT applied"
-  # Fallback: check for legalId (even older schema)
-  elif cmd_nomad_exec_sqlite "SELECT name FROM pragma_table_info('neuro_identity_link') WHERE name='legalId';" 2>/dev/null | grep -q "legalId"; then
-    echo "✗ Old schema (legalId as primary key)"
-    echo "✗ Migrations 014 and 015 NOT applied"
-  fi
-
-  # Check for migration 017 (invitation jid column)
-  if cmd_nomad_exec_sqlite "SELECT name FROM pragma_table_info('pending_invitations') WHERE name='jid';" 2>/dev/null | grep -q "jid"; then
-    echo "✓ Migration 017 applied (invitation JID fields present)"
-  else
-    echo "✗ Migration 017 NOT applied (invitation JID fields missing)"
-  fi
 }
 
 cmd_wid_db() {
@@ -1144,14 +1598,11 @@ cmd_wid_db() {
   fi
 
   # Default: full neuro_identity_link dump with duplicate annotation.
-  # jidRef is omitted here because migration 014 may not yet be deployed;
-  # use --query= to include it once the column exists.
   cmd_nomad_exec_sqlite "
 SELECT
   nil.did,
   COALESCE(a.handle, '?') AS handle,
-  nil.legalId,
-  nil.jid,
+  CASE WHEN nil.isTestUser = 1 THEN nil.testUserJid ELSE nil.userJid END AS jid,
   nil.isTestUser,
   nil.linkedAt,
   nil.lastLoginAt,
@@ -1165,10 +1616,325 @@ ORDER BY nil.did, nil.linkedAt;
 "
 }
 
+cmd_wid_check_db() {
+  local did="$1"
+
+  if [ -z "$did" ]; then
+    echo "ERROR: DID is required"
+    echo "Usage: $0 wid check-db <did>"
+    exit 1
+  fi
+
+  # This command requires direct database access via Nomad
+  if [ -z "$ENV" ] || [ "$ENV" = "wadmin" ]; then
+    echo "ERROR: wid check-db requires environment context (use pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod)"
+    exit 1
+  fi
+
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "Database Consistency Check: $did"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo ""
+
+  local issues_found=0
+
+  # 1. Check actor table
+  echo "1️⃣  Actor Table"
+  echo "───────────────────────────────────────────────────────────────"
+  local actor_result
+  actor_result=$(cmd_nomad_exec_sqlite "SELECT did, handle, createdAt FROM actor WHERE did='$did';" 2>&1)
+
+  if echo "$actor_result" | grep -q "$did"; then
+    local handle
+    local created
+    handle=$(echo "$actor_result" | grep "$did" | awk '{print $2}')
+    created=$(echo "$actor_result" | grep "$did" | awk '{print $3}')
+    echo "✓ Actor record found"
+    echo "  Handle: ${handle:--}"
+    echo "  Created: ${created:--}"
+  else
+    echo "✗ Actor record NOT FOUND"
+    ((issues_found++))
+  fi
+  echo ""
+
+  # 2. Check account table
+  echo "2️⃣  Account Table"
+  echo "───────────────────────────────────────────────────────────────"
+  local account_result
+  account_result=$(cmd_nomad_exec_sqlite "SELECT did, email, emailConfirmedAt FROM account WHERE did='$did';" 2>&1)
+
+  if echo "$account_result" | grep -q "$did"; then
+    echo "✓ Account record found"
+    local email
+    local confirmed
+    email=$(echo "$account_result" | grep "$did" | awk '{print $2}')
+    confirmed=$(echo "$account_result" | grep "$did" | awk '{print $3}')
+    echo "  Email: ${email:--}"
+    echo "  Email Confirmed: ${confirmed:-No}"
+  else
+    echo "✗ Account record NOT FOUND"
+    ((issues_found++))
+  fi
+  echo ""
+
+  # 3. Check neuro_identity_link table
+  echo "3️⃣  Neuro Identity Link Table"
+  echo "───────────────────────────────────────────────────────────────"
+
+  local nil_result
+  nil_result=$(cmd_nomad_exec_sqlite "SELECT did, CASE WHEN isTestUser = 1 THEN testUserJid ELSE userJid END AS jid, isTestUser, linkedAt, lastLoginAt FROM neuro_identity_link WHERE did='$did';" 2>&1)
+
+  if echo "$nil_result" | grep -q "$did"; then
+    # Count how many records
+    local count
+    count=$(echo "$nil_result" | grep -c "$did" || echo "0")
+
+    if [ "$count" -eq 1 ]; then
+      echo "✓ One W ID link found (correct)"
+      local jid
+      local is_test
+      local linked
+      local last_login
+      jid=$(echo "$nil_result" | grep "$did" | awk '{print $2}')
+      is_test=$(echo "$nil_result" | grep "$did" | awk '{print $3}')
+      linked=$(echo "$nil_result" | grep "$did" | awk '{print $4}')
+      last_login=$(echo "$nil_result" | grep "$did" | awk '{print $5}')
+      echo "  JID: ${jid:--}"
+      echo "  Test User: ${is_test:-0}"
+      echo "  Linked At: ${linked:--}"
+      echo "  Last Login: ${last_login:--}"
+    else
+      echo "✗ DUPLICATE W ID links found: $count records"
+      ((issues_found++))
+      echo ""
+      echo "Records:"
+      echo "$nil_result" | grep "$did" | while read -r line; do
+        local jid
+        local linked
+        jid=$(echo "$line" | awk '{print $2}')
+        linked=$(echo "$line" | awk '{print $4}')
+        echo "  - JID: ${jid:-N/A}, Linked: ${linked:-N/A}"
+      done
+    fi
+  else
+    echo "✗ W ID link NOT FOUND"
+    echo "  This account exists but has no W ID mapping"
+    ((issues_found++))
+  fi
+  echo ""
+
+  # 4. Check for orphaned records
+  echo "4️⃣  Orphan Check"
+  echo "───────────────────────────────────────────────────────────────"
+
+  # Check if actor exists but account doesn't
+  local has_actor
+  local has_account
+  has_actor=0
+  has_account=0
+
+  if echo "$actor_result" | grep -q "$did"; then
+    has_actor=1
+  fi
+  if echo "$account_result" | grep -q "$did"; then
+    has_account=1
+  fi
+
+  if [ "$has_actor" -eq 1 ] && [ "$has_account" -eq 0 ]; then
+    echo "✗ ORPHANED: Actor exists without Account record"
+    ((issues_found++))
+  elif [ "$has_actor" -eq 0 ] && [ "$has_account" -eq 1 ]; then
+    echo "✗ ORPHANED: Account exists without Actor record"
+    ((issues_found++))
+  else
+    echo "✓ No orphaned records detected"
+  fi
+  echo ""
+
+  # 5. Summary
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "Summary"
+  echo "═══════════════════════════════════════════════════════════════"
+
+  if [ $issues_found -eq 0 ]; then
+    echo "Status: ✓ Database consistency check passed"
+    echo "  All required records present and correctly linked"
+  else
+    echo "Status: ✗ Found $issues_found issue(s)"
+    echo ""
+    echo "Recommended Actions:"
+    if [ "$has_actor" -eq 0 ]; then
+      echo "  • Missing actor record - account may be corrupted"
+    fi
+    if [ "$has_account" -eq 0 ]; then
+      echo "  • Missing account record - account may be corrupted"
+    fi
+    if ! echo "$nil_result" | grep -q "$did"; then
+      echo "  • Missing W ID link - user cannot authenticate via W ID"
+      echo "    Use: ./pds-wadmin wid update $did <jid>"
+    fi
+    local nil_count
+    nil_count=$(echo "$nil_result" | grep -c "$did" || echo "0")
+    if [ "$nil_count" -gt 1 ]; then
+      echo "  • Duplicate W ID links - may cause authentication issues"
+      echo "    Review with: ./pds-wadmin wid db --query=\"SELECT * FROM neuro_identity_link WHERE did='$did'\""
+    fi
+  fi
+  echo "═══════════════════════════════════════════════════════════════"
+}
+
+cmd_wid_inventory() {
+  local subcmd="$1"
+  shift
+
+  case "$subcmd" in
+    load)
+      cmd_wid_inventory_load "$@"
+      ;;
+    status)
+      cmd_wid_inventory_status "$@"
+      ;;
+    *)
+      echo "ERROR: Unknown inventory subcommand: $subcmd"
+      echo "Usage: $0 wid inventory <load|status>"
+      exit 1
+      ;;
+  esac
+}
+
+cmd_wid_inventory_load() {
+  local json_file="$1"
+
+  if [ -z "$json_file" ]; then
+    echo "ERROR: JSON file required"
+    echo "Usage: $0 wid inventory load <path-to-CreatedAccounts.json>"
+    exit 1
+  fi
+
+  if [ ! -f "$json_file" ]; then
+    echo "ERROR: File not found: $json_file"
+    exit 1
+  fi
+
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "Loading WID Account Inventory"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo ""
+  echo "📄 Reading: $json_file"
+
+  # Parse the CreatedAccounts.json format and transform to API format
+  # Expected input format:
+  # {
+  #   "NrAccounts": 100,
+  #   "Created": 1773236086,
+  #   "Records": [
+  #     {
+  #       "AccountNr": 1,
+  #       "UserName": "c368377a-0c6a-4efc-b4e1-002436730907",
+  #       "OnboardingUrl": "obinfo:id.tagroot.io:...",
+  #       "QrCodeUrl": "https://auth-dev.widentity.dev/QR/...",
+  #       "QrCode": "C:\\ProgramData\\IoT Gateway\\Batch\\000000001.png"
+  #     }
+  #   ]
+  # }
+
+  # Transform to API format using jq
+  local request_data
+  request_data=$(jq '{
+    accounts: [
+      .Records[] | {
+        did: .UserName,
+        onboardingUrl: .OnboardingUrl,
+        qrCodeUrl: .QrCodeUrl
+      } + (if .PreferredHandle then {preferredHandle: .PreferredHandle} else {} end)
+    ],
+    batchName: ("batch-" + (.Created | tostring))
+  }' "$json_file")
+
+  local account_count
+  account_count=$(echo "$request_data" | jq '.accounts | length')
+
+  echo "📊 Accounts to load: $account_count"
+  echo ""
+  echo "Uploading to PDS..."
+
+  # Call the API endpoint
+  local response
+  response=$(api_call "POST" "io.trustanchor.admin.loadInventory" "$request_data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "❌ ERROR: Failed to load inventory"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  local loaded
+  local skipped
+  local total
+
+  loaded=$(echo "$response" | jq -r '.loaded')
+  skipped=$(echo "$response" | jq -r '.skipped')
+  total=$(echo "$response" | jq -r '.total')
+
+  echo ""
+  echo "✅ Import complete!"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "   Loaded:  $loaded"
+  echo "   Skipped: $skipped (duplicates)"
+  echo "   Total:   $total"
+}
+
+cmd_wid_inventory_status() {
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "WID Account Inventory Status"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo ""
+  echo "Querying PDS..."
+
+  # Call the API endpoint
+  local response
+  response=$(api_call "GET" "io.trustanchor.admin.getInventoryStatus" "")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "❌ ERROR: Failed to get inventory status"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  local available
+  local allocated
+  local consumed
+  local total
+
+  available=$(echo "$response" | jq -r '.available')
+  allocated=$(echo "$response" | jq -r '.allocated')
+  consumed=$(echo "$response" | jq -r '.consumed')
+  total=$(echo "$response" | jq -r '.total')
+
+  echo "📦 Available:  $available  (ready to allocate)"
+  echo "🔒 Allocated:  $allocated  (assigned to invitations)"
+  echo "✓ Consumed:   $consumed  (activated accounts)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📊 Total:      $total"
+  echo ""
+
+  # Show warning if inventory is low
+  if [ "$available" -lt 100 ]; then
+    echo "⚠️  WARNING: Inventory is low (< 100 available)"
+    echo "   Consider loading more accounts"
+  elif [ "$available" -lt 500 ]; then
+    echo "ℹ️  NOTICE: Inventory is below recommended threshold (< 500)"
+  else
+    echo "✅ Inventory levels are healthy"
+  fi
+}
+
 cmd_nomad_status() {
   check_nomad_auth
 
-  local job_name="pds-${ENV}"
+  local job_name
+  job_name="$(get_nomad_job_name)"
   echo "Checking status for job: $job_name"
   echo ""
 
@@ -1200,7 +1966,8 @@ cmd_nomad_logs() {
   export NOMAD_ADDR="https://nomad.wsocial.cloud"
   check_nomad_auth
 
-  local job_name="pds-${ENV}"
+  local job_name
+  job_name="$(get_nomad_job_name)"
   echo "Fetching logs for job: $job_name"
 
   # Get the running allocation ID
@@ -1312,6 +2079,15 @@ main() {
           ;;
         handle)
           cmd_wid_handle "$@"
+          ;;
+        check-handle)
+          cmd_wid_check_handle "$@"
+          ;;
+        check-db)
+          cmd_wid_check_db "$@"
+          ;;
+        inventory)
+          cmd_wid_inventory "$@"
           ;;
         schema)
           cmd_wid_schema "$@"

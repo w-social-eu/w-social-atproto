@@ -16,6 +16,7 @@ import * as refreshToken from './refresh-token'
 import * as repoRoot from './repo-root'
 import * as token from './token'
 import * as usedRefreshToken from './used-refresh-token'
+import * as widAccountInventory from './wid-account-inventory'
 
 export type DatabaseSchema = actor.PartialDB &
   account.PartialDB &
@@ -34,7 +35,8 @@ export type DatabaseSchema = actor.PartialDB &
   neuroIdentityLink.PartialDB &
   neuroPendingSession.PartialDB &
   neuroProvisionNonce.PartialDB &
-  pendingInvitations.PartialDB
+  pendingInvitations.PartialDB &
+  widAccountInventory.PartialDB
 
 export type { Actor, ActorEntry } from './actor'
 export type { Account, AccountEntry } from './account'
@@ -56,3 +58,7 @@ export type {
   PendingInvitationEntry,
 } from './pending-invitations'
 export type { NeuroProvisionNonce } from './neuro-provision-nonce'
+export type {
+  WidAccountInventory,
+  WidAccountInventoryEntry,
+} from './wid-account-inventory'

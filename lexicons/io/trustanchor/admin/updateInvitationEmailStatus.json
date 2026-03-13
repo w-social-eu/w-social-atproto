@@ -1,0 +1,51 @@
+{
+  "lexicon": 1,
+  "id": "io.trustanchor.admin.updateInvitationEmailStatus",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Update email delivery status for an invitation. Admin only. Called from CLI after sending via Brevo.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["email", "status"],
+          "properties": {
+            "email": {
+              "type": "string",
+              "description": "Invitation email address"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["email_sent", "email_failed"],
+              "description": "Email delivery status"
+            },
+            "error": {
+              "type": "string",
+              "description": "Error message if status is email_failed"
+            },
+            "messageId": {
+              "type": "string",
+              "description": "Brevo message ID if status is email_sent"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["success"],
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "invitationId": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    }
+  }
+}
