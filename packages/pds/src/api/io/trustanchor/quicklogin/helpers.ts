@@ -23,28 +23,14 @@ export type NeuroCallbackPayload = {
 }
 
 /**
- * Normalize JID by stripping resource identifier suffix and removing hyphens from local part
+ * Normalize JID by stripping resource identifier suffix
  * WID may send: aa7d758f-0726-4a77-a99a-815c5fa98f14@domain/resourceId
- * We store/use: aa7d758f07264a77a99a815c5fa98f14@domain
+ * We use:       aa7d758f-0726-4a77-a99a-815c5fa98f14@domain
  */
 export function normalizeJid(jid: string): string {
-  // First strip resource identifier (everything after /)
+  // Strip resource identifier suffix (everything after /)
   const slashIndex = jid.indexOf('/')
-  const withoutResource = slashIndex > 0 ? jid.substring(0, slashIndex) : jid
-
-  // Split on @ to separate local part from domain
-  const atIndex = withoutResource.indexOf('@')
-  if (atIndex <= 0) {
-    return withoutResource // No @ found, return as-is
-  }
-
-  const localPart = withoutResource.substring(0, atIndex)
-  const domain = withoutResource.substring(atIndex) // includes the @
-
-  // Remove hyphens from local part only
-  const normalizedLocal = localPart.replace(/-/g, '')
-
-  return normalizedLocal + domain
+  return slashIndex > 0 ? jid.substring(0, slashIndex) : jid
 }
 
 /**

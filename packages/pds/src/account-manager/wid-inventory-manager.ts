@@ -59,16 +59,48 @@ export class WidInventoryManager {
 
   /**
    * Mark account as consumed after successful activation
+   *
+   * NOTE: Compares by UUID only (strips domain if present)
+   * since received JID may include domain but stored DID is just the UUID
    */
   async markAccountConsumed(did: string): Promise<void> {
-    await this.db.db
-      .updateTable('wid_account_inventory')
-      .set({ status: 'consumed' })
-      .where('did', '=', did)
+    // Extract just the UUID portion (local part before @)
+    const didLocalPart = did.split('@')[0]
+
+    // Fetch allocated accounts
+    const accounts = await this.db.db
+      .selectFrom('wid_account_inventory')
+      .selectAll()
       .where('status', '=', 'allocated')
       .execute()
 
-    dbLogger.info({ did }, 'Marked WID account as consumed')
+    // Find matching account by UUID comparison
+    const matchingAccount = accounts.find((acct) => {
+      const storedLocalPart = acct.did.split('@')[0]
+
+      return storedLocalPart === didLocalPart
+    })
+
+    if (!matchingAccount) {
+      dbLogger.warn(
+        { did: did.substring(0, 8) + '...' },
+        'No matching allocated account found to mark as consumed',
+      )
+      return
+    }
+
+    // Update the matching account
+    await this.db.db
+      .updateTable('wid_account_inventory')
+      .set({ status: 'consumed' })
+      .where('did', '=', matchingAccount.did)
+      .where('status', '=', 'allocated')
+      .execute()
+
+    dbLogger.info(
+      { did: matchingAccount.did },
+      'Marked WID account as consumed',
+    )
   }
 
   /**

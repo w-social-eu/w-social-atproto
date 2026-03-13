@@ -19,7 +19,6 @@ import {
   XRPCError,
 } from '@atproto/xrpc-server'
 import apiRoutes from './api'
-import ioTrustanchor from './api/io/trustanchor'
 import * as authRoutes from './auth-routes'
 import * as basicRoutes from './basic-routes'
 import { ServerConfig, ServerSecrets } from './config'
@@ -219,8 +218,6 @@ export class PDS {
     app.use(cors({ maxAge: DAY / SECOND }))
     app.use(basicRoutes.createRouter(ctx))
     app.use(wellKnown.createRouter(ctx))
-    // QuickLogin API routes (using /api/quicklogin/* instead of /xrpc/* to avoid XRPC router)
-    app.use(ioTrustanchor(ctx))
     app.use(server.xrpc.router)
     app.use(error.handler)
 
