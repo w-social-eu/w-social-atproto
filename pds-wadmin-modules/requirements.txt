@@ -1,5 +1,13 @@
 # Python dependencies for pds-wadmin CLI tools
 # Install with: pip install -r requirements.txt
 
+# Core dependencies (existing)
 requests>=2.31.0
 sib-api-v3-sdk>=7.6.0  # Brevo (formerly SendInBlue) SDK
+
+# New dependencies for Python CLI (Phase 1)
+click>=8.1.0           # CLI framework
+hvac>=2.0.0            # Vault client for batch secret fetching
+rich>=13.0.0           # Terminal colors, progress bars, formatting
+tabulate>=0.9.0        # Table formatting
+python-dateutil>=2.8.0 # Date parsing and formatting

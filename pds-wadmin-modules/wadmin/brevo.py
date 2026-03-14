@@ -1,52 +1,29 @@
-#!/usr/bin/env python3
 """
 Brevo email integration for invitation system.
 
-This module handles sending invitation emails via Brevo's Transactional Email API.
-It is called from pds-wadmin CLI tool, NOT from PDS application code.
-
-Architecture:
-- PDS: Manages invitation state lifecycle (pending → consumed)
-- CLI (this module): Coordinates PDS API + Brevo API for email delivery
-- Benefit: User onboarding never blocked by Brevo API issues
-
-Usage:
-    python3 -m brevo_integration send-invitation \
-        --api-key="xkeysib-..." \
-        --template-id=21 \
-        --email="user@example.com" \
-        --onboarding-url="https://..." \
-        --qr-code-url="https://..." \
-        [--preferred-handle="john"]
+Handles sending invitation emails via Brevo's Transactional Email API
+and managing contact lists.
 """
 
-import argparse
 import base64
-import sys
 import time
-from typing import Optional, List, Dict
+from typing import Optional, Dict, List
 
 try:
     import requests
     import sib_api_v3_sdk
     from sib_api_v3_sdk.rest import ApiException
 except ImportError as e:
-    print(f"ERROR: Missing required Python package: {e}", file=sys.stderr)
-    print("Install dependencies with: pip install -r pds-wadmin-modules/requirements.txt", file=sys.stderr)
-    sys.exit(1)
+    raise ImportError(
+        f"Brevo SDK not installed: {e}\n"
+        "Install with: pip install sib-api-v3-sdk requests"
+    )
 
-
-# Brevo Configuration (hardcoded for visibility)
-BREVO_INVITATION_TEMPLATE_ID = 21  # Update after template creation
 
 # Brevo List IDs
 BREVO_WAITLIST_LIST_ID = 23     # Users who signed up for early access
 BREVO_INVITED_LIST_ID = 24      # Invitations sent, waiting for onboarding
 BREVO_ONBOARDED_LIST_ID = 27    # Completed first login
-
-# Inventory Thresholds
-WID_INVENTORY_WARN_THRESHOLD = 500    # Show warning
-WID_INVENTORY_CRITICAL_THRESHOLD = 100  # Show error
 
 
 def fetch_and_encode_qr_code(qr_code_url: str, timeout: int = 10) -> Optional[str]:
@@ -73,8 +50,8 @@ def fetch_and_encode_qr_code(qr_code_url: str, timeout: int = 10) -> Optional[st
         # Return as data URI
         return f"data:{content_type};base64,{image_data}"
 
-    except Exception as e:
-        print(f"WARNING: Failed to fetch QR code image: {e}", file=sys.stderr)
+    except Exception:
+        # Silently fail - email will still work with hosted URL
         return None
 
 
@@ -88,7 +65,7 @@ def send_invitation_email(
     from_email: str = "invitations@wsocial.app",
     from_name: str = "W Social Team",
     max_retries: int = 3,
-) -> dict:
+) -> Dict:
     """
     Send invitation email via Brevo Transactional Email API.
 
@@ -170,8 +147,6 @@ def send_invitation_email(
                 if attempt < max_retries - 1:
                     # Exponential backoff: 1s, 2s, 4s
                     sleep_time = 2 ** attempt
-                    print(f"Transient error (attempt {attempt + 1}/{max_retries}): {error_message}", file=sys.stderr)
-                    print(f"Retrying in {sleep_time}s...", file=sys.stderr)
                     time.sleep(sleep_time)
                     continue
 
@@ -190,7 +165,12 @@ def send_invitation_email(
     }
 
 
-def get_list_contacts(api_key: str, list_id: int, limit: int = 500, offset: int = 0) -> Dict:
+def get_list_contacts(
+    api_key: str,
+    list_id: int,
+    limit: int = 500,
+    offset: int = 0
+) -> Dict:
     """
     Fetch contacts from a Brevo list.
 
@@ -217,10 +197,20 @@ def get_list_contacts(api_key: str, list_id: int, limit: int = 500, offset: int 
             offset=offset
         )
 
+        # Convert contact objects to dicts
+        # The SDK returns Contact objects with .email and .id attributes
+        contacts = []
+        if hasattr(contacts_list, 'contacts') and contacts_list.contacts:
+            for c in contacts_list.contacts:
+                if hasattr(c, 'email'):
+                    contacts.append({"email": c.email, "id": c.id if hasattr(c, 'id') else None})
+                elif isinstance(c, dict):
+                    contacts.append({"email": c.get("email"), "id": c.get("id")})
+
         return {
             "success": True,
-            "contacts": [{"email": c.email, "id": c.id} for c in contacts_list.contacts],
-            "count": contacts_list.count,
+            "contacts": contacts,
+            "count": contacts_list.count if hasattr(contacts_list, 'count') else len(contacts),
             "error": None,
         }
 
@@ -249,7 +239,7 @@ def get_list_count(api_key: str, list_id: int) -> Dict:
         list_id: Brevo list ID
 
     Returns:
-        dict with keys: count (int), error (str)
+        dict with keys: count (int), name (str), error (str)
     """
     try:
         configuration = sib_api_v3_sdk.Configuration()
@@ -284,7 +274,12 @@ def get_list_count(api_key: str, list_id: int) -> Dict:
         }
 
 
-def move_contact_between_lists(api_key: str, email: str, from_list_id: int, to_list_id: int) -> Dict:
+def move_contact_between_lists(
+    api_key: str,
+    email: str,
+    from_list_id: int,
+    to_list_id: int
+) -> Dict:
     """
     Move a contact from one Brevo list to another.
 
@@ -327,96 +322,3 @@ def move_contact_between_lists(api_key: str, email: str, from_list_id: int, to_l
             "success": False,
             "error": str(e),
         }
-
-
-def main():
-    """CLI entry point for Brevo operations."""
-    parser = argparse.ArgumentParser(
-        description="Brevo integration for W Social invitations"
-    )
-    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
-
-    # Subcommand: send-invitation
-    send_parser = subparsers.add_parser("send-invitation", help="Send invitation email")
-    send_parser.add_argument("--api-key", required=True, help="Brevo API key")
-    send_parser.add_argument("--template-id", type=int, required=True, help="Brevo template ID")
-    send_parser.add_argument("--email", required=True, help="Recipient email address")
-    send_parser.add_argument("--onboarding-url", required=True, help="Onboarding URL")
-    send_parser.add_argument("--qr-code-url", required=True, help="QR code image URL")
-    send_parser.add_argument("--preferred-handle", help="Suggested handle (optional)")
-    send_parser.add_argument("--from-email", default="invitations@wsocial.app", help="Sender email")
-    send_parser.add_argument("--from-name", default="W Social Team", help="Sender name")
-
-    # Subcommand: list-contacts
-    list_parser = subparsers.add_parser("list-contacts", help="Get contacts from Brevo list")
-    list_parser.add_argument("--api-key", required=True, help="Brevo API key")
-    list_parser.add_argument("--list-id", type=int, required=True, help="Brevo list ID")
-    list_parser.add_argument("--limit", type=int, default=500, help="Max contacts to fetch")
-    list_parser.add_argument("--offset", type=int, default=0, help="Pagination offset")
-
-    # Subcommand: list-count
-    count_parser = subparsers.add_parser("list-count", help="Get contact count for Brevo list")
-    count_parser.add_argument("--api-key", required=True, help="Brevo API key")
-    count_parser.add_argument("--list-id", type=int, required=True, help="Brevo list ID")
-
-    # Subcommand: move-contact
-    move_parser = subparsers.add_parser("move-contact", help="Move contact between lists")
-    move_parser.add_argument("--api-key", required=True, help="Brevo API key")
-    move_parser.add_argument("--email", required=True, help="Contact email")
-    move_parser.add_argument("--from-list", type=int, required=True, help="Source list ID")
-    move_parser.add_argument("--to-list", type=int, required=True, help="Destination list ID")
-
-    args = parser.parse_args()
-
-    # Execute command
-    import json
-
-    if args.command == "send-invitation":
-        result = send_invitation_email(
-            api_key=args.api_key,
-            template_id=args.template_id,
-            email=args.email,
-            onboarding_url=args.onboarding_url,
-            qr_code_url=args.qr_code_url,
-            preferred_handle=args.preferred_handle,
-            from_email=args.from_email,
-            from_name=args.from_name,
-        )
-        print(json.dumps(result))
-        sys.exit(0 if result["success"] else 1)
-
-    elif args.command == "list-contacts":
-        result = get_list_contacts(
-            api_key=args.api_key,
-            list_id=args.list_id,
-            limit=args.limit,
-            offset=args.offset,
-        )
-        print(json.dumps(result))
-        sys.exit(0 if result["success"] else 1)
-
-    elif args.command == "list-count":
-        result = get_list_count(
-            api_key=args.api_key,
-            list_id=args.list_id,
-        )
-        print(json.dumps(result))
-        sys.exit(0 if result["success"] else 1)
-
-    elif args.command == "move-contact":
-        result = move_contact_between_lists(
-            api_key=args.api_key,
-            email=args.email,
-            from_list_id=args.from_list,
-            to_list_id=args.to_list,
-        )
-        print(json.dumps(result))
-        sys.exit(0 if result["success"] else 1)
-
-    else:
-        parser.print_help()
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
