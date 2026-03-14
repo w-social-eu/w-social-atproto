@@ -3,99 +3,6 @@ import { AppContext } from '../../../../context'
 import { Server } from '../../../../lexicon'
 import { validateAdminAuth } from './shared'
 
-/**
- * Call Neuro to create empty WID account
- * Returns JID and onboarding URL/QR
- * TODO: Finalize Neuro API contract (endpoint, request/response format)
- */
-async function allocateNeuroAccount(
-  ctx: AppContext,
-): Promise<{ jid: string; onboardingUrl: string }> {
-  // TODO: Replace with actual Neuro endpoint once contract is finalized
-  if (!ctx.cfg.quicklogin?.apiBaseUrl) {
-    throw new Error(
-      'Neuro API base URL not configured (PDS_NEURO_API_BASE_URL required)',
-    )
-  }
-
-  const neuroUrl = new URL(
-    '/api/create-empty-account', // Placeholder endpoint
-    ctx.cfg.quicklogin.apiBaseUrl,
-  ).toString()
-
-  try {
-    const response = await ctx.safeFetch.call(undefined, neuroUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        // TODO: Add required parameters once contract is known
-        purpose: 'invitation',
-      }),
-    })
-
-    if (!response.ok) {
-      const body = await response.text()
-      throw new Error(
-        `Neuro account creation failed: ${response.status} ${body}`,
-      )
-    }
-
-    const data = (await response.json()) as {
-      jid?: string
-      onboardingUrl?: string
-      qrCodeUrl?: string
-    }
-
-    // TODO: Adjust field names based on actual Neuro response format
-    if (!data.jid || (!data.onboardingUrl && !data.qrCodeUrl)) {
-      throw new Error('Invalid Neuro response: missing jid or onboarding URL')
-    }
-
-    return {
-      jid: data.jid,
-      onboardingUrl: data.onboardingUrl || data.qrCodeUrl || '',
-    }
-  } catch (err) {
-    throw new Error(
-      `Neuro account allocation failed: ${err instanceof Error ? err.message : String(err)}`,
-    )
-  }
-}
-
-/**
- * Send invitation email via Brevo
- * TODO: Implement Brevo integration with template
- */
-async function sendInvitationEmail(
-  ctx: AppContext,
-  logger: { info: (data: unknown, msg: string) => void },
-  email: string,
-  onboardingUrl: string,
-  qrCodeUrl: string,
-  preferredHandle?: string | null,
-): Promise<void> {
-  // TODO: Implement Brevo API call with invitation template
-  // Template should receive:
-  // - ONBOARDING_URL: onboardingUrl
-  // - QR_CODE_IMAGE: qrCodeUrl (hosted image URL)
-  // - INLINE_QR_CODE: base64-encoded data URI (fetch and encode qrCodeUrl)
-  // - PREFERRED_HANDLE: preferredHandle (optional)
-
-  // For now, just log that email would be sent
-  logger.info(
-    {
-      email: email.substring(0, 3) + '***', // Privacy: log prefix only
-      hasHandle: !!preferredHandle,
-      onboardingUrl: onboardingUrl.substring(0, 20) + '...',
-      qrCodeUrl: qrCodeUrl.substring(0, 30) + '...',
-    },
-    'TODO: Send invitation email via Brevo',
-  )
-
-  // Placeholder - in production this would call Brevo API
-  // throw new Error('Brevo integration not yet implemented')
-}
-
 export default function (server: Server, ctx: AppContext) {
   server.io.trustanchor.admin.createInvitation({
     handler: async ({ req, input }) => {
@@ -159,7 +66,6 @@ export default function (server: Server, ctx: AppContext) {
 
           let jid: string
           let onboardingUrl: string
-          let qrCodeUrl: string
 
           try {
             const inventoryAccount =
@@ -172,7 +78,6 @@ export default function (server: Server, ctx: AppContext) {
             // Use the DID from inventory as the JID
             jid = inventoryAccount.did
             onboardingUrl = inventoryAccount.onboarding_url
-            qrCodeUrl = inventoryAccount.qr_code_url || ''
 
             req.log.info(
               {
