@@ -271,7 +271,7 @@ def show(ctx, identifier: str):
     client: PDSClient = ctx.obj["client"]
 
     # Fetch all invitations and filter
-    response = client.call("GET", "io.trustanchor.admin.listInvitations", params={"status": "all", "limit": 1000})
+    response = client.call("GET", "io.trustanchor.admin.listInvitations", params={"status": "all", "limit": 500})
 
     if not response.success:
         print_error(f"Failed to fetch invitations: {response.error}")
@@ -316,6 +316,13 @@ def show(ctx, identifier: str):
     else:
         onboarding_display = "N/A"
     console.print(f"[bold cyan]Onboarding URL:[/bold cyan] {onboarding_display}")
+
+    qr_code = invitation.get("qrCodeUrl", "N/A")
+    if qr_code and qr_code != "N/A":
+        qr_code_display = qr_code[:40] + "..."
+    else:
+        qr_code_display = "N/A"
+    console.print(f"[bold cyan]QR Code URL:[/bold cyan] {qr_code_display}")
 
     console.print(f"[bold cyan]Status:[/bold cyan] {invitation.get('status', 'N/A')}")
     console.print(f"[bold cyan]Created At:[/bold cyan] {invitation.get('createdAt', 'N/A')}")

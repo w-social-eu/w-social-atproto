@@ -51,6 +51,12 @@ export interface Invitation {
   id: number
   email: string
   preferredHandle?: string
+  /** W ID (DID) associated with this invitation */
+  jid?: string
+  /** Onboarding URL for the invitation */
+  onboardingUrl?: string
+  /** QR code URL for quick login */
+  qrCodeUrl?: string
   status: 'pending' | 'consumed' | 'expired' | 'revoked'
   invitationTimestamp?: number
   createdAt: string
@@ -58,6 +64,12 @@ export interface Invitation {
   consumedAt?: string
   consumingDid?: string
   consumingHandle?: string
+  /** Timestamp of last email attempt */
+  emailLastSentAt?: string
+  /** Number of email send attempts */
+  emailAttemptCount?: number
+  /** Last email send error message */
+  emailLastError?: string
 }
 
 const hashInvitation = 'invitation'

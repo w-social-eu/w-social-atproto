@@ -16182,6 +16182,18 @@ export const schemaDict = {
           preferredHandle: {
             type: 'string',
           },
+          jid: {
+            type: 'string',
+            description: 'W ID (DID) associated with this invitation',
+          },
+          onboardingUrl: {
+            type: 'string',
+            description: 'Onboarding URL for the invitation',
+          },
+          qrCodeUrl: {
+            type: 'string',
+            description: 'QR code URL for quick login',
+          },
           status: {
             type: 'string',
             enum: ['pending', 'consumed', 'expired', 'revoked'],
@@ -16206,6 +16218,19 @@ export const schemaDict = {
           },
           consumingHandle: {
             type: 'string',
+          },
+          emailLastSentAt: {
+            type: 'string',
+            format: 'datetime',
+            description: 'Timestamp of last email attempt',
+          },
+          emailAttemptCount: {
+            type: 'integer',
+            description: 'Number of email send attempts',
+          },
+          emailLastError: {
+            type: 'string',
+            description: 'Last email send error message',
           },
         },
       },

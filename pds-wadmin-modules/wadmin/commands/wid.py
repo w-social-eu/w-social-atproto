@@ -839,6 +839,45 @@ def status(ctx):
         console.print("✅ Inventory levels are healthy")
 
 
+@inventory.command(name="list")
+@click.option("--status", default="available", help="Filter by status (available, allocated, consumed, all)")
+@click.option("--limit", default=100, type=int, help="Maximum number of results")
+@click.pass_context
+def inventory_list(ctx, status: str, limit: int):
+    """List W ID accounts in inventory with optional status filter."""
+    config: Config = ctx.obj["config"]
+
+    # Build SQL query based on status filter
+    if status == "all":
+        where_clause = ""
+    elif status in ("available", "allocated", "consumed"):
+        where_clause = f"WHERE status = '{status}'"
+    else:
+        print_error(f"Invalid status: {status}. Must be one of: available, allocated, consumed, all")
+        raise click.Abort()
+
+    sql = f"""
+SELECT
+  did,
+  status,
+  created_at,
+  allocated_at,
+  allocated_to_email,
+  onboarding_url
+FROM wid_account_inventory
+{where_clause}
+ORDER BY created_at ASC
+LIMIT {limit};
+"""
+
+    console.print(f"WID Inventory ({status})")
+    console.print("=" * 80)
+    console.print()
+
+    output = exec_sqlite(config, sql)
+    console.print(output)
+
+
 @wid.command()
 @click.pass_context
 def schema(ctx):

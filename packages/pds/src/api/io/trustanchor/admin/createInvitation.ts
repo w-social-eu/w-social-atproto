@@ -130,6 +130,22 @@ export default function (server: Server, ctx: AppContext) {
         throw new InvalidRequestError('Failed to create or update invitation')
       }
 
+      const qrCodeUrl = invitation.jid
+        ? (await ctx.widInventoryManager.getAccountByDid(invitation.jid))
+            ?.qr_code_url ?? undefined
+        : undefined
+
+      // Log invitation details for debugging/tracking
+      req.log.info(
+        {
+          invitationId: invitation.id,
+          email: normalizedEmail.substring(0, 3) + '***',
+          onboardingUrl: invitation.onboarding_url?.substring(0, 40) + '...',
+          qrCodeUrl: qrCodeUrl?.substring(0, 40) + '...',
+        },
+        'Invitation ready for email',
+      )
+
       return {
         encoding: 'application/json',
         body: {
@@ -137,10 +153,7 @@ export default function (server: Server, ctx: AppContext) {
           email: invitation.email,
           preferredHandle: invitation.preferred_handle ?? undefined,
           onboardingUrl: invitation.onboarding_url ?? undefined,
-          qrCodeUrl: invitation.jid
-            ? (await ctx.widInventoryManager.getAccountByDid(invitation.jid))
-                ?.qr_code_url ?? undefined
-            : undefined,
+          qrCodeUrl: qrCodeUrl,
           expiresAt: invitation.expires_at,
           emailStatus: invitation.status,
           // JID is not returned for privacy (admin doesn't need it)
