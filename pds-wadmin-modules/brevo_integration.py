@@ -106,7 +106,7 @@ def send_invitation_email(
     # Prepare template parameters
     params = {
         "ONBOARDING_URL": onboarding_url,
-        "QR_CODE_IMAGE": qr_code_url,  # Hosted URL for email clients that prefer it
+        "QR_CODE_URL": qr_code_url,  # Hosted URL for email clients that prefer it
     }
 
     # Add inline QR code if fetch succeeded
