@@ -112,11 +112,26 @@ class PDSClient:
             # Check for HTTP errors
             response.raise_for_status()
 
-            # Parse JSON response
+            # Parse JSON response (handle empty responses)
+            if response.status_code == 204 or not response.content:
+                # No content response - treat as success
+                return APIResponse(
+                    success=True,
+                    data=None,
+                    status_code=response.status_code,
+                )
+
             try:
                 result = response.json()
             except ValueError:
-                # Not JSON response
+                # Not JSON response - but check if successful status code
+                if 200 <= response.status_code < 300:
+                    # Successful but non-JSON response (treat as void)
+                    return APIResponse(
+                        success=True,
+                        data=None,
+                        status_code=response.status_code,
+                    )
                 return APIResponse(
                     success=False,
                     error=f"Invalid JSON response from server",
