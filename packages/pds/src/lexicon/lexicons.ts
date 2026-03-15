@@ -15851,6 +15851,43 @@ export const schemaDict = {
       },
     },
   },
+  IoTrustanchorAdminClearInventory: {
+    lexicon: 1,
+    id: 'io.trustanchor.admin.clearInventory',
+    defs: {
+      main: {
+        type: 'procedure',
+        description: 'Clear available WID accounts from inventory. Admin only.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            properties: {
+              olderThanDays: {
+                type: 'integer',
+                minimum: 0,
+                description:
+                  'Only clear accounts older than this many days (optional)',
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['deleted'],
+            properties: {
+              deleted: {
+                type: 'integer',
+                description: 'Number of accounts deleted',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   IoTrustanchorAdminCreateInvitation: {
     lexicon: 1,
     id: 'io.trustanchor.admin.createInvitation',
@@ -16182,6 +16219,18 @@ export const schemaDict = {
           preferredHandle: {
             type: 'string',
           },
+          jid: {
+            type: 'string',
+            description: 'W ID (DID) associated with this invitation',
+          },
+          onboardingUrl: {
+            type: 'string',
+            description: 'Onboarding URL for the invitation',
+          },
+          qrCodeUrl: {
+            type: 'string',
+            description: 'QR code URL for quick login',
+          },
           status: {
             type: 'string',
             enum: ['pending', 'consumed', 'expired', 'revoked'],
@@ -16206,6 +16255,19 @@ export const schemaDict = {
           },
           consumingHandle: {
             type: 'string',
+          },
+          emailLastSentAt: {
+            type: 'string',
+            format: 'datetime',
+            description: 'Timestamp of last email attempt',
+          },
+          emailAttemptCount: {
+            type: 'integer',
+            description: 'Number of email send attempts',
+          },
+          emailLastError: {
+            type: 'string',
+            description: 'Last email send error message',
           },
         },
       },
@@ -22160,6 +22222,7 @@ export const ids = {
     'com.atproto.temp.requestPhoneVerification',
   ComAtprotoTempRevokeAccountCredentials:
     'com.atproto.temp.revokeAccountCredentials',
+  IoTrustanchorAdminClearInventory: 'io.trustanchor.admin.clearInventory',
   IoTrustanchorAdminCreateInvitation: 'io.trustanchor.admin.createInvitation',
   IoTrustanchorAdminCreateIosTestUser: 'io.trustanchor.admin.createIosTestUser',
   IoTrustanchorAdminDeleteInvitation: 'io.trustanchor.admin.deleteInvitation',

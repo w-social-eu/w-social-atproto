@@ -36,13 +36,30 @@ export default function (server: Server, ctx: AppContext) {
       const results = hasMore ? invitations.slice(0, limit) : invitations
       const nextCursor = hasMore ? String(offset + limit) : undefined
 
+      // Fetch qrCodeUrl for invitations that have a jid
+      const invitationsWithQr = await Promise.all(
+        results.map(async (inv) => {
+          let qrCodeUrl: string | undefined
+          if (inv.jid) {
+            const account = await ctx.widInventoryManager.getAccountByDid(
+              inv.jid,
+            )
+            qrCodeUrl = account?.qr_code_url ?? undefined
+          }
+          return { ...inv, qrCodeUrl }
+        }),
+      )
+
       return {
         encoding: 'application/json',
         body: {
-          invitations: results.map((inv) => ({
+          invitations: invitationsWithQr.map((inv) => ({
             id: inv.id,
             email: inv.email,
             preferredHandle: inv.preferred_handle ?? undefined,
+            jid: inv.jid ?? undefined,
+            onboardingUrl: inv.onboarding_url ?? undefined,
+            qrCodeUrl: inv.qrCodeUrl,
             status: inv.status as
               | 'pending'
               | 'consumed'
@@ -54,6 +71,9 @@ export default function (server: Server, ctx: AppContext) {
             consumedAt: inv.consumed_at ?? undefined,
             consumingDid: inv.consuming_did ?? undefined,
             consumingHandle: inv.consuming_handle ?? undefined,
+            emailLastSentAt: inv.email_last_sent_at ?? undefined,
+            emailAttemptCount: inv.email_attempt_count,
+            emailLastError: inv.email_last_error ?? undefined,
           })),
           cursor: nextCursor,
         },

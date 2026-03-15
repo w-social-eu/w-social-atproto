@@ -226,6 +226,7 @@ import * as ComAtprotoTempDereferenceScope from './types/com/atproto/temp/derefe
 import * as ComAtprotoTempFetchLabels from './types/com/atproto/temp/fetchLabels.js'
 import * as ComAtprotoTempRequestPhoneVerification from './types/com/atproto/temp/requestPhoneVerification.js'
 import * as ComAtprotoTempRevokeAccountCredentials from './types/com/atproto/temp/revokeAccountCredentials.js'
+import * as IoTrustanchorAdminClearInventory from './types/io/trustanchor/admin/clearInventory.js'
 import * as IoTrustanchorAdminCreateInvitation from './types/io/trustanchor/admin/createInvitation.js'
 import * as IoTrustanchorAdminCreateIosTestUser from './types/io/trustanchor/admin/createIosTestUser.js'
 import * as IoTrustanchorAdminDeleteInvitation from './types/io/trustanchor/admin/deleteInvitation.js'
@@ -3339,6 +3340,18 @@ export class IoTrustanchorAdminNS {
 
   constructor(server: Server) {
     this._server = server
+  }
+
+  clearInventory<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorAdminClearInventory.QueryParams,
+      IoTrustanchorAdminClearInventory.HandlerInput,
+      IoTrustanchorAdminClearInventory.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.admin.clearInventory' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
   }
 
   createInvitation<A extends Auth = void>(

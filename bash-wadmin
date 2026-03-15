@@ -1,0 +1,2923 @@
+#!/bin/bash
+#
+# W Social PDS Admin Tool
+# Unified W admin script for W ID, Account Transfer, and Invitation management
+#
+# Usage: pds-wadmin <category> <command> [args...]
+#        pds-wadmin-dev <category> <command> [args...]
+#        pds-wadmin-stage <category> <command> [args...]
+#        pds-wadmin-prod <category> <command> [args...]
+#
+# When called as 'pds-wadmin', requires environment variables:
+#   PDS_HOST - The PDS hostname (e.g., https://pds-stage.wsocial.dev)
+#   PDS_ADMIN_PASSWORD - Admin password for authentication
+#
+#   For Nomad operations (inventory load, logs, etc.), also requires:
+#   PDS_NOMAD_JOB_NAME - Nomad job name (e.g., pds-dev, pds-stage, pds-prod)
+#   NOMAD_ADDR - Nomad cluster address (e.g., https://nomad.wsocial.cloud)
+#   NOMAD_TOKEN - Nomad authentication token
+#
+# When called via symlinks (pds-wadmin-dev, pds-wadmin-stage, pds-wadmin-prod),
+# automatically fetches credentials from Vault based on the environment name.
+#
+
+set -euo pipefail
+
+# Check required environment variables
+check_env() {
+
+  # Extract the tail-end of the name of the script, e.g. "pds-wadmin-dev" -> "dev"
+  SCRIPT_NAME="$(basename "$0")"
+  ENV="${SCRIPT_NAME##*-}"
+
+  # If ENV equals SCRIPT_NAME, there's no suffix (called as 'pds-wadmin')
+  if [ "$ENV" = "wadmin" ]; then
+    ENV=""
+
+    if [ -z "${PDS_HOST:-}" ]; then
+      echo "ERROR: PDS_HOST environment variable is not set"
+      echo "Example: export PDS_HOST=https://pds-stage.wsocial.dev"
+      exit 1
+    fi
+
+    if [ -z "${PDS_ADMIN_PASSWORD:-}" ]; then
+      echo "ERROR: PDS_ADMIN_PASSWORD environment variable is not set"
+      echo "Example: export PDS_ADMIN_PASSWORD=your-admin-password"
+      exit 1
+    fi
+    echo "Using ${PDS_HOST}"
+  else
+    # Called via symlink (dev/stage/prod) - fetch from vault
+    PDS_ENV="pds/${ENV}"
+    echo "Using ${PDS_ENV}"
+
+    # Login to vault, if needed
+    export VAULT_ADDR=https://vault.wsocial.cloud
+    vault token lookup >/dev/null 2>&1 || vault login -method=github -path=github
+
+    # Set up env vars from vault
+    export PDS_ADMIN_PASSWORD="$(vault kv get -mount=secret -field ADMIN_PASSWORD $PDS_ENV)"
+    export PDS_HOST="https://$(vault kv get -mount=secret -field HOSTNAME $PDS_ENV)"
+    export PDS_BREVO_API_KEY="$(vault kv get -mount=secret -field BREVO_API_KEY $PDS_ENV)"
+    export PDS_BREVO_INVITATION_TEMPLATE_ID="$(vault kv get -mount=secret -field BREVO_INVITATION_TEMPLATE_ID $PDS_ENV)"
+  fi
+}
+
+# Check and ensure Nomad authentication
+check_nomad_auth() {
+  if [ -z "$ENV" ]; then
+    # Called as base 'pds-wadmin' - require explicit environment variables
+    local missing_vars=()
+
+    if [ -z "${PDS_NOMAD_JOB_NAME:-}" ]; then
+      missing_vars+=("PDS_NOMAD_JOB_NAME")
+    fi
+
+    if [ -z "${NOMAD_ADDR:-}" ]; then
+      missing_vars+=("NOMAD_ADDR")
+    fi
+
+    if [ -z "${NOMAD_TOKEN:-}" ]; then
+      missing_vars+=("NOMAD_TOKEN")
+    fi
+
+    if [ ${#missing_vars[@]} -gt 0 ]; then
+      echo "ERROR: Nomad operations require the following environment variables:"
+      for var in "${missing_vars[@]}"; do
+        echo "  - $var"
+      done
+      echo ""
+      echo "Examples:"
+      echo "  export PDS_NOMAD_JOB_NAME=pds-dev"
+      echo "  export NOMAD_ADDR=https://nomad.wsocial.cloud"
+      echo "  export NOMAD_TOKEN=your-nomad-token"
+      echo ""
+      echo "Or use environment-specific commands:"
+      echo "  pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod"
+      exit 1
+    fi
+
+    # Validate NOMAD_TOKEN works
+    if ! nomad status -token="${NOMAD_TOKEN}" >/dev/null 2>&1; then
+      echo "ERROR: NOMAD_TOKEN is invalid or expired"
+      echo "Please set a valid NOMAD_TOKEN or use pds-wadmin-dev/stage/prod"
+      exit 1
+    fi
+  else
+    # Called via symlink (dev/stage/prod) - use vault authentication
+    # Nomad cluster address — always the same regardless of PDS env
+    export NOMAD_ADDR="https://nomad.wsocial.cloud"
+
+    # Export nomad token from cache if it exists
+    local token_cache="$HOME/.nomad-token"
+    if [ -f "$token_cache" ]; then
+      export NOMAD_TOKEN="$(cat "$token_cache")"
+    fi
+
+    # Check if authentication works, login if needed
+    if ! nomad status -token="${NOMAD_TOKEN:-}" >/dev/null 2>&1; then
+      echo "Nomad authentication required..."
+      local login_output
+      login_output=$(nomad login -method=vault-oidc 2>&1)
+      echo "$login_output"
+
+      # Extract Secret ID from output
+      local secret_id
+      secret_id=$(echo "$login_output" | grep "^Secret ID" | awk '{print $4}')
+
+      if [ -z "$secret_id" ]; then
+        echo "ERROR: Failed to extract token from nomad login output"
+        exit 1
+      fi
+
+      # Set and cache the token
+      export NOMAD_TOKEN="$secret_id"
+      echo "$NOMAD_TOKEN" > "$token_cache"
+      chmod 600 "$token_cache"
+    fi
+  fi
+}
+
+# Get Nomad job name (helper for both ENV-based and direct env var modes)
+get_nomad_job_name() {
+  if [ -n "$ENV" ]; then
+    echo "pds-${ENV}"
+  else
+    echo "${PDS_NOMAD_JOB_NAME}"
+  fi
+}
+
+# Get secret value from environment variable
+# When using wrapper scripts (pds-wadmin-dev/stage/prod), values are already fetched from Vault
+# When using base script, values must be set in environment
+get_vault_secret() {
+  local var_name="$1"
+  local value="${!var_name:-}"
+
+  if [ -z "$value" ]; then
+    echo "ERROR: $var_name not set" >&2
+    return 1
+  fi
+
+  echo "$value"
+}
+
+# Check Brevo configuration for email sending
+check_brevo_config() {
+  local missing_vars=()
+
+  if [ -z "${PDS_BREVO_API_KEY:-}" ]; then
+    missing_vars+=("PDS_BREVO_API_KEY")
+  fi
+
+  if [ -z "${PDS_BREVO_INVITATION_TEMPLATE_ID:-}" ]; then
+    missing_vars+=("PDS_BREVO_INVITATION_TEMPLATE_ID")
+  fi
+
+  if [ ${#missing_vars[@]} -gt 0 ]; then
+    echo "WARNING: Brevo email sending is not configured. Invitation created but email not sent."
+    echo "Missing environment variables:"
+    for var in "${missing_vars[@]}"; do
+      echo "  - $var"
+    done
+    echo ""
+    echo "To enable email sending:"
+    echo "  export PDS_BREVO_API_KEY=xkeysib-..."
+    echo "  export PDS_BREVO_INVITATION_TEMPLATE_ID=21"
+    return 1
+  fi
+
+  return 0
+}
+
+# Get Python executable (prefer venv if available)
+get_python() {
+  if [ -f "pds-wadmin-modules/.venv/bin/python3" ]; then
+    echo "pds-wadmin-modules/.venv/bin/python3"
+  else
+    echo "python3"
+  fi
+}
+
+# Send invitation email via Brevo
+# Args: email, onboarding_url, qr_code_url, [preferred_handle]
+send_invitation_email() {
+  local email="$1"
+  local onboarding_url="$2"
+  local qr_code_url="$3"
+  local preferred_handle="${4:-}"
+
+  # Path to Python module
+  local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local python_module="$script_dir/pds-wadmin-modules/brevo_integration.py"
+
+  if [ ! -f "$python_module" ]; then
+    echo "ERROR: Brevo integration module not found: $python_module"
+    return 1
+  fi
+
+  # Build command
+  local python_exe
+  python_exe=$(get_python)
+  local cmd="\"$python_exe\" \"$python_module\""
+  cmd="$cmd --api-key=\"$PDS_BREVO_API_KEY\""
+  cmd="$cmd --template-id=$PDS_BREVO_INVITATION_TEMPLATE_ID"
+  cmd="$cmd --email=\"$email\""
+  cmd="$cmd --onboarding-url=\"$onboarding_url\""
+  cmd="$cmd --qr-code-url=\"$qr_code_url\""
+
+  if [ -n "$preferred_handle" ]; then
+    cmd="$cmd --preferred-handle=\"$preferred_handle\""
+  fi
+
+  # Add sender configuration if provided
+  if [ -n "${PDS_INVITATION_EMAIL_FROM:-}" ]; then
+    cmd="$cmd --from-email=\"$PDS_INVITATION_EMAIL_FROM\""
+  fi
+
+  if [ -n "${PDS_INVITATION_EMAIL_FROM_NAME:-}" ]; then
+    cmd="$cmd --from-name=\"$PDS_INVITATION_EMAIL_FROM_NAME\""
+  fi
+
+  # Execute and capture JSON output
+  local result
+  result=$(eval "$cmd" 2>&1)
+  local exit_code=$?
+
+  # Parse JSON result
+  if [ $exit_code -eq 0 ]; then
+    local message_id
+    message_id=$(echo "$result" | jq -r '.message_id // empty')
+    echo "$result"  # Return JSON for caller to parse
+    return 0
+  else
+    echo "$result"  # Return error JSON
+    return 1
+  fi
+}
+
+# Update invitation email status via PDS API
+# Args: email, status (email_sent|email_failed), [error], [message_id]
+update_invitation_email_status() {
+  local email="$1"
+  local status="$2"
+  local error="${3:-}"
+  local message_id="${4:-}"
+
+  local data
+  if [ -n "$error" ]; then
+    data=$(jq -n \
+      --arg email "$email" \
+      --arg status "$status" \
+      --arg error "$error" \
+      '{email: $email, status: $status, error: $error}')
+  else
+    data=$(jq -n \
+      --arg email "$email" \
+      --arg status "$status" \
+      --arg message_id "$message_id" \
+      '{email: $email, status: $status, messageId: $message_id}')
+  fi
+
+  local response
+  response=$(api_call "POST" "io.trustanchor.admin.updateInvitationEmailStatus" "$data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "WARNING: Failed to update email status in PDS"
+    echo "$response" | jq -r '.message // .error' >&2
+    return 1
+  fi
+
+  return 0
+}
+
+# Print usage information
+usage() {
+  cat <<EOF
+W Social PDS Admin Tool
+
+Unified admin interface for PDS management.
+
+Usage: $0 <category> <command> [args...]
+
+Categories:
+  account       Account management (delete)
+  admin         Admin operations (iOS test users)
+  wid           W ID (JID) management
+  transfer      Account transfers (rehoming within cluster, import/export)
+  invitation    Invitation management
+  nomad         Nomad job management and logs
+  goat          Goat admin tool (wrapper with auto-configured env vars)
+
+Account Commands:
+  account delete <did>               Delete account permanently (with confirmation)
+
+Admin Commands:
+  admin createIosTestUser <handle> [email]
+                                     Create iOS test user with app password (bypasses WID)
+
+WID Commands:
+  wid list                           List all accounts with W ID links
+  wid show <did>                     Show W ID details for account
+  wid update <did> <jid>             Update W ID (JID) for account
+  wid swap <did1> <did2>             Swap JIDs between two accounts (for testing)
+  wid handle <did> <new-handle>      Update account handle (admin override, bypasses user)
+  wid check-handle <handle>          Check handle resolution (DNS, well-known, PDS, AppView)
+  wid check-db <did>                 Check database consistency for account (actor, account, W ID link)
+  wid inventory load <json-file>     Load WID accounts from CreatedAccounts.json into inventory
+  wid inventory status               Show WID inventory status (available/allocated/consumed counts)
+  wid schema                         Show database schema for key tables (check migration status)
+  wid db [--query=SQL]               Query neuro_identity_link table directly via sqlite3
+                                     Default: show all rows with duplicates highlighted
+                                     Use --query=SQL to run a custom query
+
+Transfer Commands:
+  transfer rehome <did> <target-pds-url> [handle]
+                                     Rehome account to another PDS in cluster
+
+Invitation Commands:
+  invitation stock                   Show system status (WID inventory + invitation stats + Brevo lists)
+  invitation send-batch [OPTIONS]    Send invitations to multiple recipients
+                                       --from-list=ID --count=N     Pull N emails from Brevo list ID
+                                       --emails=a@x.com,b@x.com     Explicit comma-separated emails
+                                       --emails-file=FILE           Read emails from file (one per line)
+                                       --dry-run                    Preview without sending
+  invitation list-contacts --brevo-list=ID [--limit=N] [--offset=N]
+                                     View contacts in Brevo list
+  invitation move-contact <email> --from-list=ID --to-list=ID
+                                     Move contact between Brevo lists
+  invitation create <email> [--handle=HANDLE]
+                                     Create new invitation (unblock zombie accounts)
+  invitation list [--status=STATUS] [--before=TIMESTAMP] [--json]
+                                     List invitations
+  invitation stats [--since=TIMESTAMP] [--json]
+                                     Get invitation statistics
+  invitation show <email|id>         Show specific invitation
+  invitation revoke <email|id>       Revoke pending invitation
+  invitation purge --status=STATUS [--before=TIMESTAMP] [--no-sync]
+                                     Purge invitations by status (syncs to Brevo by default)
+
+Invitation Status Values:
+  pending, consumed, expired, revoked, all
+
+Nomad Commands:
+  nomad status                       Show Nomad job status
+  nomad logs [--tail=N] [--follow]   Show logs from running allocation
+
+Goat Commands:
+  goat <command> [args...]           Run goat admin tool with auto-configured credentials
+                                     (passes all arguments through to goat)
+
+Environment Variables (when called as 'pds-wadmin'):
+  PDS_HOST                  PDS hostname (e.g., https://pds-stage.wsocial.dev)
+  PDS_ADMIN_PASSWORD        Admin password
+
+  For Nomad operations (logs, etc.):
+    PDS_NOMAD_JOB_NAME        Nomad job name (e.g., pds-dev, pds-stage, pds-prod)
+    NOMAD_ADDR                Nomad cluster address (e.g., https://nomad.wsocial.cloud)
+    NOMAD_TOKEN               Nomad authentication token
+
+Examples:
+  # Account management
+  $0 account delete did:plc:abc123
+
+  # Admin operations
+  $0 admin createIosTestUser ios-test-alice alice@example.com
+
+  # WID management
+  $0 wid list
+  $0 wid show did:plc:abc123
+  $0 wid update did:plc:abc123 user@auth.wsocial.dev
+  $0 wid swap did:plc:abc123 did:plc:def456
+  $0 wid handle did:plc:abc123 ingmar.wsocial.eu
+  $0 wid check-handle ingmar.wsocial.eu
+  pds-wadmin-dev wid check-db did:plc:abc123
+
+  # WID inventory (via API - works locally and remotely)
+  $0 wid inventory status
+  $0 wid inventory load CreatedAccounts.json
+  pds-wadmin-dev wid inventory status
+
+  # Account transfer (rehoming)
+  $0 transfer rehome did:plc:abc123 https://pds2.wsocial.dev
+
+  # Invitation management
+  $0 invitation stock                                  # Show system status dashboard
+  $0 invitation send-batch --from-list=23 --count=100 --dry-run  # Preview batch send
+  $0 invitation send-batch --emails-file=emails.txt    # Send to emails from file
+  $0 invitation list-contacts --brevo-list=23 --limit=10  # View Brevo waitlist
+  $0 invitation create user@example.com
+  $0 invitation create user@example.com --handle=john_doe
+  $0 invitation list --status=pending
+  $0 invitation stats --since=2026-02-01T00:00:00Z
+  $0 invitation purge --status=consumed --before=2026-03-01T00:00:00Z  # Auto-syncs to Brevo
+  $0 invitation purge --status=consumed --no-sync      # Purge without Brevo sync
+  # Nomad management (requires env context: -dev, -stage, or -prod)
+  pds-wadmin-dev nomad status
+  pds-wadmin-dev nomad logs --tail=100
+  pds-wadmin-stage nomad logs --follow
+
+  # Goat admin tool (with auto-configured credentials)
+  pds-wadmin-dev goat account list
+  pds-wadmin-stage goat repo describe did:plc:abc123
+
+  $0 invitation show user@example.com
+  $0 invitation revoke user@example.com
+  $0 invitation purge --status=consumed --before=2026-01-01T00:00:00Z
+
+EOF
+  exit 1
+}
+
+# Make API call to PDS
+api_call() {
+  local method="$1"
+  local endpoint="$2"
+  local data="${3:-}"
+
+  local url="${PDS_HOST}/xrpc/${endpoint}"
+
+  if [ "$method" = "GET" ]; then
+    curl -s --user "admin:${PDS_ADMIN_PASSWORD}" \
+      "$url" 2>&1
+  else
+    curl -s --user "admin:${PDS_ADMIN_PASSWORD}" \
+      -X "$method" \
+      -H "Content-Type: application/json" \
+      -d "$data" \
+      "$url" 2>&1
+  fi
+}
+
+#
+# ACCOUNT COMMANDS
+#
+
+cmd_account_delete() {
+  local did="$1"
+
+  if [ -z "$did" ]; then
+    echo "ERROR: DID is required"
+    echo "Usage: $0 account delete <did>"
+    exit 1
+  fi
+
+  # Fetch account details first
+  echo "Fetching account details..."
+  echo ""
+
+  local account_info
+  account_info=$(api_call "GET" "com.atproto.admin.getNeuroLink?did=$did" 2>&1)
+
+  if echo "$account_info" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to fetch account details"
+    echo "$account_info" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  # Display account info
+  echo "Account to be deleted:"
+  echo "====================="
+  echo "$account_info" | jq -r '
+    "DID:     \(.did)",
+    "Handle:  \(.handle // "N/A")",
+    "Email:   \(.email // "N/A")"
+  '
+  echo ""
+
+  # Confirmation prompt
+  echo "⚠️  WARNING: This will PERMANENTLY delete the account and all associated data:"
+  echo "   - Account record"
+  echo "   - Actor record"
+  echo "   - Repository data"
+  echo "   - Email tokens"
+  echo "   - Refresh tokens"
+  echo "   - Neuro identity links (W ID)"
+  echo "   - All user data from sequencer"
+  echo ""
+  read -p "Type the handle to confirm deletion: " confirm_handle
+
+  local actual_handle
+  actual_handle=$(echo "$account_info" | jq -r '.handle // ""')
+
+  if [ "$confirm_handle" != "$actual_handle" ]; then
+    echo "ERROR: Handle mismatch. Deletion cancelled."
+    exit 1
+  fi
+
+  echo ""
+  echo "Deleting account..."
+
+  local data
+  data=$(jq -n --arg did "$did" '{did: $did}')
+
+  local response
+  response=$(api_call "POST" "com.atproto.admin.deleteAccount" "$data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to delete account"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  echo "✓ Account deleted successfully"
+  echo "  DID: $did"
+  echo "  Handle: $actual_handle"
+}
+
+#
+# ADMIN COMMANDS
+#
+
+cmd_admin_create_ios_test_user() {
+  local handle="$1"
+  local email="$2"
+
+  if [ -z "$handle" ]; then
+    echo "ERROR: Handle is required"
+    echo "Usage: $0 admin createIosTestUser <handle> [email]"
+    exit 1
+  fi
+
+  # Build request body
+  local body="{\"handle\":\"$handle\""
+  if [ -n "$email" ]; then
+    body="$body,\"email\":\"$email\""
+  fi
+  body="$body}"
+
+  # Call PDS admin endpoint
+  local response
+  response=$(api_call "POST" "io.trustanchor.admin.createIosTestUser" "$body")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to create iOS test user"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  # Parse and display results
+  local did=$(echo "$response" | jq -r '.did')
+  local handle=$(echo "$response" | jq -r '.handle')
+  local password=$(echo "$response" | jq -r '.appPassword')
+  local deepLink=$(echo "$response" | jq -r '.deepLink')
+
+  echo "✓ iOS Test User Created"
+  echo ""
+  echo "  Handle:   $handle"
+  echo "  DID:      $did"
+  echo "  Password: $password"
+  echo ""
+  echo "Deep Link (send to tester):"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "$deepLink"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
+#
+# WID COMMANDS
+#
+
+cmd_wid_list() {
+  if [ -n "$ENV" ]; then
+    # Nomad available — query DB directly for full accuracy
+    cmd_nomad_exec_sqlite "
+SELECT
+  a.did,
+  COALESCE(a.handle, '?')        AS handle,
+  COALESCE(ac.email, '-')        AS email,
+  COALESCE(
+    CASE WHEN nil.isTestUser = 1 THEN nil.testUserJid ELSE nil.userJid END,
+    '-'
+  ) AS jid,
+  nil.isTestUser,
+  nil.linkedAt,
+  CASE WHEN cnt.n > 1 THEN 'DUP(' || cnt.n || ')' ELSE '' END AS flags
+FROM actor a
+LEFT JOIN account ac ON ac.did = a.did
+LEFT JOIN neuro_identity_link nil ON nil.did = a.did
+LEFT JOIN (
+  SELECT did, COUNT(*) AS n FROM neuro_identity_link GROUP BY did
+) cnt ON cnt.did = a.did
+ORDER BY a.handle, nil.linkedAt;
+"
+  else
+    # No Nomad (plain pds-wadmin with env vars) — use API
+    local response
+    response=$(api_call "GET" "com.atproto.admin.listNeuroAccounts?limit=1000")
+    # Handle API response format (unified jid field)
+    echo "$response" | jq -r '
+      ["DID", "HANDLE", "EMAIL", "JID", "LINKED_AT", "FLAGS"],
+      (
+        .accounts[] |
+        . as $acct |
+        # Normalize: if neuroLinks array exists use it, else wrap flat scalars
+        (if (.neuroLinks | type) == "array" and (.neuroLinks | length) > 0
+         then .neuroLinks
+         else [{jid: .jid, isTestUser: (.isTestUser // 0), linkedAt: .linkedAt}]
+         end) as $links |
+        $links[] |
+        [
+          $acct.did,
+          ($acct.handle // "-"),
+          ($acct.email // "-"),
+          (.jid // "-"),
+          (.linkedAt // "-"),
+          ([(if .isTestUser == 1 then "TEST" else empty end),
+            (if ($acct.duplicateLinks // false) then "DUP" else empty end)] |
+           join(",") | if . == "" then "-" else . end)
+        ]
+      ) | @tsv
+    ' | column -t -s $'\t'
+  fi
+}
+
+cmd_wid_show() {
+  local did="$1"
+
+  if [ -z "$did" ]; then
+    echo "ERROR: DID is required"
+    echo "Usage: $0 wid show <did>"
+    exit 1
+  fi
+
+  local response
+  response=$(api_call "GET" "com.atproto.admin.getNeuroLink?did=$did")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to fetch account details"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  # Normalize: support both old API format (flat scalars) and new (neuroLinks array)
+  echo "$response" | jq '
+    # Build a normalized neuroLinks array regardless of API version
+    (if (.neuroLinks | type) == "array"
+     then .neuroLinks
+     else [{jid: .jid,
+             isTestUser: (.isTestUser // 0),
+             linkedAt: .linkedAt, lastLoginAt: .lastLoginAt}]
+     end) as $links |
+    {
+      "DID": .did,
+      "Handle": .handle,
+      "Email": (.email // "N/A"),
+      "Duplicate links": (.duplicateLinks // (($links | length) > 1)),
+      "Neuro links": [
+        $links[] |
+        {
+          "JID (W ID)": (.jid // "—"),
+          "Test user": .isTestUser,
+          "Linked at": (.linkedAt // "N/A"),
+          "Last login": (.lastLoginAt // "N/A")
+        }
+      ]
+    }
+  '
+}
+
+cmd_wid_update() {
+  local did="$1"
+  local new_jid="$2"
+
+  if [ -z "$did" ] || [ -z "$new_jid" ]; then
+    echo "ERROR: Both DID and new JID are required"
+    echo "Usage: $0 wid update <did> <jid>"
+    exit 1
+  fi
+
+  # Validate JID format (must contain @auth)
+  if [[ ! "$new_jid" =~ @auth ]]; then
+    echo "ERROR: Invalid JID format (must contain '@auth')"
+    exit 1
+  fi
+
+  local data
+  data=$(jq -n \
+    --arg did "$did" \
+    --arg newJid "$new_jid" \
+    '{did: $did, newJid: $newJid}')
+
+  local response
+  response=$(api_call "POST" "com.atproto.admin.updateNeuroLink" "$data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to update W ID"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  echo "✓ Success!"
+  echo "$response" | jq '
+    {
+      "DID": .did,
+      "Old W ID": (.oldJid // "None"),
+      "New W ID": .newJid,
+      "Updated At": .updatedAt
+    }
+  '
+}
+
+cmd_wid_swap() {
+  local did1="$1"
+  local did2="$2"
+
+  if [ -z "$did1" ] || [ -z "$did2" ]; then
+    echo "ERROR: Both DIDs are required"
+    echo "Usage: $0 wid swap <did1> <did2>"
+    exit 1
+  fi
+
+  if [ "$did1" = "$did2" ]; then
+    echo "ERROR: Cannot swap a DID with itself"
+    exit 1
+  fi
+
+  echo "Fetching current JIDs..."
+
+  # Get JID for did1
+  local response1
+  response1=$(api_call "GET" "com.atproto.admin.getNeuroLink?did=$did1")
+
+  if echo "$response1" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to fetch details for $did1"
+    echo "$response1" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  local jid1
+  jid1=$(echo "$response1" | jq -r '
+    if (.neuroLinks | type) == "array"
+    then .neuroLinks[0].jid // empty
+    else .jid // empty
+    end
+  ')
+
+  if [ -z "$jid1" ]; then
+    echo "ERROR: No JID found for $did1"
+    exit 1
+  fi
+
+  # Get JID for did2
+  local response2
+  response2=$(api_call "GET" "com.atproto.admin.getNeuroLink?did=$did2")
+
+  if echo "$response2" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to fetch details for $did2"
+    echo "$response2" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  local jid2
+  jid2=$(echo "$response2" | jq -r '
+    if (.neuroLinks | type) == "array"
+    then .neuroLinks[0].jid // empty
+    else .jid // empty
+    end
+  ')
+
+  if [ -z "$jid2" ]; then
+    echo "ERROR: No JID found for $did2"
+    exit 1
+  fi
+
+  echo "Current state:"
+  echo "  $did1 → $jid1"
+  echo "  $did2 → $jid2"
+  echo ""
+  echo "Swapping JIDs..."
+
+  # Generate temporary JID by appending timestamp
+  local temp_jid="${jid1}-temp-$(date +%s)@auth.wsocial.dev"
+
+  # Step 1: Move did1 to temp JID
+  echo "  [1/3] Parking $did1 at temporary JID..."
+  local data
+  data=$(jq -n --arg did "$did1" --arg newJid "$temp_jid" '{did: $did, newJid: $newJid}')
+  local response
+  response=$(api_call "POST" "com.atproto.admin.updateNeuroLink" "$data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to update $did1 to temporary JID"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  # Step 2: Move did2 to jid1
+  echo "  [2/3] Moving $did2 to $jid1..."
+  data=$(jq -n --arg did "$did2" --arg newJid "$jid1" '{did: $did, newJid: $newJid}')
+  response=$(api_call "POST" "com.atproto.admin.updateNeuroLink" "$data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to update $did2 to $jid1"
+    echo "$response" | jq -r '.message // .error'
+    echo ""
+    echo "WARNING: $did1 is still at temporary JID $temp_jid"
+    echo "To recover, run: $0 wid update $did1 $jid1"
+    exit 1
+  fi
+
+  # Step 3: Move did1 to jid2
+  echo "  [3/3] Moving $did1 to $jid2..."
+  data=$(jq -n --arg did "$did1" --arg newJid "$jid2" '{did: $did, newJid: $newJid}')
+  response=$(api_call "POST" "com.atproto.admin.updateNeuroLink" "$data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to update $did1 to $jid2"
+    echo "$response" | jq -r '.message // .error'
+    echo ""
+    echo "WARNING: Swap is incomplete!"
+    echo "  $did1 is at: $temp_jid"
+    echo "  $did2 is at: $jid1"
+    echo ""
+    echo "To recover, run:"
+    echo "  $0 wid update $did1 $jid2"
+    exit 1
+  fi
+
+  echo ""
+  echo "✓ Swap completed successfully!"
+  echo "New state:"
+  echo "  $did1 → $jid2"
+  echo "  $did2 → $jid1"
+}
+
+cmd_wid_handle() {
+  local did="$1"
+  local new_handle="$2"
+
+  if [ -z "$did" ] || [ -z "$new_handle" ]; then
+    echo "ERROR: Both DID and new handle are required"
+    echo "Usage: $0 wid handle <did> <new-handle>"
+    exit 1
+  fi
+
+  # Validate handle format (basic check)
+  if [[ ! "$new_handle" =~ \. ]]; then
+    echo "ERROR: Handle must contain at least one dot (e.g. ingmar.wsocial.eu)"
+    exit 1
+  fi
+
+  echo "Updating handle for $did"
+  echo "  New handle: $new_handle"
+  echo ""
+
+  local data
+  data=$(jq -n \
+    --arg did "$did" \
+    --arg handle "$new_handle" \
+    '{did: $did, handle: $handle}')
+
+  local response
+  response=$(api_call "POST" "com.atproto.admin.updateAccountHandle" "$data")
+
+  # updateAccountHandle returns 200 with empty body on success
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to update handle"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  echo "✓ Handle updated to: $new_handle"
+  echo ""
+  echo "Next steps:"
+  echo "  1. Verify DNS TXT:  dig TXT _atproto.$new_handle +short"
+  echo "  2. Verify well-known: curl https://$new_handle/.well-known/atproto-did"
+  echo "  3. Verify resolve:  curl '${PDS_HOST}/xrpc/com.atproto.identity.resolveHandle?handle=$new_handle'"
+}
+
+cmd_wid_check_handle() {
+  local handle="$1"
+
+  if [ -z "$handle" ]; then
+    echo "ERROR: Handle is required"
+    echo "Usage: $0 wid check-handle <handle>"
+    exit 1
+  fi
+
+  # Get AppView URL from Vault if we have an environment context
+  local appview_url=""
+  if [ -n "$ENV" ] && [ "$ENV" != "wadmin" ]; then
+    appview_url=$(vault kv get -mount=secret -field BSKY_APP_VIEW_URL "pds/${ENV}" 2>/dev/null || echo "")
+  fi
+
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "Handle Resolution Check: $handle"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo ""
+
+  # 1. DNS TXT Record Check
+  echo "1️⃣  DNS TXT Record (_atproto.$handle)"
+  echo "───────────────────────────────────────────────────────────────"
+  local dns_result
+  dns_result=$(dig TXT "_atproto.$handle" +short 2>&1)
+
+  if [ -n "$dns_result" ]; then
+    echo "✓ Found DNS TXT record:"
+    echo "$dns_result" | sed 's/^/  /'
+
+    # Extract DID from DNS result
+    local dns_did
+    dns_did=$(echo "$dns_result" | grep -o 'did:plc:[a-z0-9]*' | head -n1)
+    if [ -n "$dns_did" ]; then
+      echo "  Extracted DID: $dns_did"
+    fi
+  else
+    echo "✗ No DNS TXT record found"
+    dns_did=""
+  fi
+  echo ""
+
+  # 2. Well-Known HTTPS Check
+  echo "2️⃣  Well-Known HTTPS (https://$handle/.well-known/atproto-did)"
+  echo "───────────────────────────────────────────────────────────────"
+  local wellknown_result
+  local wellknown_status
+  local wellknown_body
+
+  # Disable exit-on-error for curl (handle failures gracefully)
+  set +e
+  wellknown_result=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" "https://$handle/.well-known/atproto-did" 2>&1)
+  local curl_exit=$?
+  set -e
+
+  if [ $curl_exit -ne 0 ]; then
+    echo "✗ Well-known endpoint not accessible (connection failed)"
+    echo "  Error: $(echo "$wellknown_result" | head -n 1)"
+    wellknown_did=""
+  else
+    wellknown_status=$(echo "$wellknown_result" | grep "HTTP_STATUS:" | cut -d: -f2)
+    wellknown_body=$(echo "$wellknown_result" | sed '/HTTP_STATUS:/d')
+
+    if [ "$wellknown_status" = "200" ]; then
+      echo "✓ Well-known endpoint accessible (HTTP $wellknown_status)"
+      echo "  Content: $wellknown_body"
+
+      # Validate it's a DID
+      if [[ "$wellknown_body" =~ ^did:plc:[a-z0-9]+$ ]]; then
+        echo "  Valid DID format: $wellknown_body"
+        wellknown_did="$wellknown_body"
+      else
+        echo "  ⚠️  Response is not a valid DID"
+        wellknown_did=""
+      fi
+    else
+      echo "✗ Well-known endpoint failed (HTTP ${wellknown_status:-ERROR})"
+      if [ -n "$wellknown_body" ]; then
+        echo "  Error: $wellknown_body" | head -n 3
+      fi
+      wellknown_did=""
+    fi
+  fi
+  echo ""
+
+  # 3. PDS resolveHandle Check
+  echo "3️⃣  PDS resolveHandle (${PDS_HOST}/xrpc/com.atproto.identity.resolveHandle)"
+  echo "───────────────────────────────────────────────────────────────"
+  local resolve_result
+  local resolved_did=""
+
+  # Disable exit-on-error for curl (handle failures gracefully)
+  set +e
+  resolve_result=$(curl -sS "${PDS_HOST}/xrpc/com.atproto.identity.resolveHandle?handle=$handle" 2>&1)
+  local curl_exit=$?
+  set -e
+
+  if [ $curl_exit -ne 0 ]; then
+    echo "✗ PDS resolution failed (connection error)"
+    echo "  Error: $(echo "$resolve_result" | head -n 1)"
+  elif echo "$resolve_result" | jq -e '.did' > /dev/null 2>&1; then
+    resolved_did=$(echo "$resolve_result" | jq -r '.did')
+    echo "✓ PDS resolved handle successfully"
+    echo "  Resolved DID: $resolved_did"
+  else
+    echo "✗ PDS resolution failed"
+    if echo "$resolve_result" | jq -e '.error' > /dev/null 2>&1; then
+      echo "  Error: $(echo "$resolve_result" | jq -r '.message // .error')"
+    else
+      echo "  Raw response: $resolve_result" | head -n 3
+    fi
+  fi
+  echo ""
+
+  # 4. AppView resolveHandle Check (only if AppView URL is configured)
+  local appview_did=""
+  if [ -n "$appview_url" ]; then
+    echo "4️⃣  AppView resolveHandle (${appview_url}/xrpc/com.atproto.identity.resolveHandle)"
+    echo "───────────────────────────────────────────────────────────────"
+    local appview_result
+
+    # Disable exit-on-error for curl (handle failures gracefully)
+    set +e
+    appview_result=$(curl -sS "${appview_url}/xrpc/com.atproto.identity.resolveHandle?handle=$handle" 2>&1)
+    local curl_exit=$?
+    set -e
+
+    if [ $curl_exit -ne 0 ]; then
+      echo "✗ AppView resolution failed (connection error)"
+      echo "  Error: $(echo "$appview_result" | head -n 1)"
+    elif echo "$appview_result" | jq -e '.did' > /dev/null 2>&1; then
+      appview_did=$(echo "$appview_result" | jq -r '.did')
+      echo "✓ AppView resolved handle successfully"
+      echo "  Resolved DID: $appview_did"
+    else
+      echo "✗ AppView resolution failed"
+      if echo "$appview_result" | jq -e '.error' > /dev/null 2>&1; then
+        echo "  Error: $(echo "$appview_result" | jq -r '.message // .error')"
+      else
+        echo "  Raw response: $appview_result" | head -n 3
+      fi
+    fi
+    echo ""
+  else
+    echo "4️⃣  AppView resolveHandle"
+    echo "───────────────────────────────────────────────────────────────"
+    echo "⊘ Skipped (BSKY_APP_VIEW_URL not configured in Vault)"
+    echo ""
+  fi
+
+  # 5. Summary
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "Summary"
+  echo "═══════════════════════════════════════════════════════════════"
+
+  # For handle verification, we need EITHER DNS TXT OR well-known (not both)
+  local handle_method_ok=false
+  local has_both=false
+
+  if [ -n "$dns_did" ] && [ -n "$wellknown_did" ]; then
+    has_both=true
+    handle_method_ok=true  # Works, but unusual
+  elif [ -n "$dns_did" ] || [ -n "$wellknown_did" ]; then
+    handle_method_ok=true
+  fi
+
+  # Check if all required checks passed
+  local all_required_passed=false
+  if [ "$handle_method_ok" = true ] && [ -n "$resolved_did" ]; then
+    all_required_passed=true
+  fi
+
+  # If AppView was checked, require it to pass too
+  local all_checks_passed=false
+  if [ "$all_required_passed" = true ]; then
+    if [ -n "$appview_url" ]; then
+      # AppView is configured, so require it to pass
+      if [ -n "$appview_did" ]; then
+        all_checks_passed=true
+      fi
+    else
+      # AppView not configured, so all required checks passing is sufficient
+      all_checks_passed=true
+    fi
+  fi
+
+  if [ "$all_checks_passed" = true ]; then
+    echo "Status: ✓ All checks passed"
+    echo ""
+
+    # Determine which DID to use as reference (prefer DNS, then well-known)
+    local reference_did="${dns_did:-$wellknown_did}"
+
+    # Check if all DIDs match (including AppView if checked)
+    local all_match=true
+    if [ -n "$dns_did" ] && [ "$dns_did" != "$reference_did" ]; then
+      all_match=false
+    fi
+    if [ -n "$wellknown_did" ] && [ "$wellknown_did" != "$reference_did" ]; then
+      all_match=false
+    fi
+    if [ "$resolved_did" != "$reference_did" ]; then
+      all_match=false
+    fi
+    if [ -n "$appview_did" ] && [ "$appview_did" != "$reference_did" ]; then
+      all_match=false
+    fi
+
+    if [ "$all_match" = true ]; then
+      echo "DID Consistency: ✓ All methods return same DID"
+      echo "  DID: $reference_did"
+
+      # Warn if both handle methods are present
+      if [ "$has_both" = true ]; then
+        echo ""
+        echo "⚠️  Note: Both DNS TXT and well-known are configured"
+        echo "    This is unusual - typically handles use one method or the other"
+      fi
+    else
+      echo "DID Consistency: ✗ MISMATCH DETECTED"
+      if [ -n "$dns_did" ]; then
+        echo "  DNS TXT:      $dns_did"
+      fi
+      if [ -n "$wellknown_did" ]; then
+        echo "  Well-Known:   $wellknown_did"
+      fi
+      echo "  PDS Resolve:  ${resolved_did:-N/A}"
+      if [ -n "$appview_url" ]; then
+        echo "  AppView:      ${appview_did:-N/A}"
+      fi
+    fi
+  else
+    echo "Status: ✗ Some checks failed"
+    echo ""
+    echo "Results:"
+    if [ -n "$dns_did" ]; then
+      echo "  DNS TXT:      ✓ $dns_did"
+    elif [ -n "$wellknown_did" ]; then
+      echo "  DNS TXT:      ⊘ Not used (well-known configured instead)"
+    else
+      echo "  DNS TXT:      ✗ Not found"
+    fi
+
+    if [ -n "$wellknown_did" ]; then
+      echo "  Well-Known:   ✓ $wellknown_did"
+    elif [ -n "$dns_did" ]; then
+      echo "  Well-Known:   ⊘ Not used (DNS TXT configured instead)"
+    else
+      echo "  Well-Known:   ✗ Not accessible"
+    fi
+
+    echo "  PDS Resolve:  $([ -n "$resolved_did" ] && echo "✓ $resolved_did" || echo "✗ Failed")"
+    if [ -n "$appview_url" ]; then
+      echo "  AppView:      $([ -n "$appview_did" ] && echo "✓ $appview_did" || echo "✗ Failed")"
+    else
+      echo "  AppView:      ⊘ Skipped (not configured)"
+    fi
+
+    # Warn if both handle methods are present
+    if [ "$has_both" = true ]; then
+      echo ""
+      echo "⚠️  Note: Both DNS TXT and well-known are configured"
+      echo "    This is unusual - typically handles use one method or the other"
+    fi
+
+    echo ""
+    echo "Troubleshooting:"
+    if [ "$handle_method_ok" = false ]; then
+      echo "  • No handle verification method found - need either:"
+      echo "    - DNS TXT record at _atproto.$handle, OR"
+      echo "    - HTTPS endpoint at https://$handle/.well-known/atproto-did"
+    fi
+    if [ -z "$resolved_did" ]; then
+      echo "  • PDS cannot resolve handle - may need to refresh identity cache"
+    fi
+    if [ -n "$appview_url" ] && [ -z "$appview_did" ]; then
+      echo "  • AppView cannot resolve handle - account may not be indexed yet"
+      echo "    (AppView syncs from PDS; check if account creation was recent)"
+    fi
+  fi
+  echo "═══════════════════════════════════════════════════════════════"
+}
+
+#
+# TRANSFER COMMANDS
+#
+
+cmd_transfer_rehome() {
+  local did="$1"
+  local target_pds="$2"
+  local target_handle="${3:-}"
+
+  if [ -z "$did" ] || [ -z "$target_pds" ]; then
+    echo "ERROR: DID and target PDS URL are required"
+    echo "Usage: $0 transfer rehome <did> <target-pds-url> [handle]"
+    exit 1
+  fi
+
+  echo "Rehoming account: $did"
+  echo "Target PDS: $target_pds"
+  [ -n "$target_handle" ] && echo "New handle: $target_handle"
+
+  local data
+  if [ -n "$target_handle" ]; then
+    data=$(jq -n \
+      --arg did "$did" \
+      --arg targetPdsUrl "$target_pds" \
+      --arg targetHandle "$target_handle" \
+      '{did: $did, targetPdsUrl: $targetPdsUrl, targetHandle: $targetHandle}')
+  else
+    data=$(jq -n \
+      --arg did "$did" \
+      --arg targetPdsUrl "$target_pds" \
+      '{did: $did, targetPdsUrl: $targetPdsUrl}')
+  fi
+
+  local response
+  response=$(api_call "POST" "com.atproto.admin.migrateAccount" "$data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Rehome failed"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  echo "✓ Rehome completed!"
+  echo "$response" | jq '{
+    DID: .did,
+    "Source PDS": .sourcePds,
+    "Target PDS": .targetPds,
+    Status: .status,
+    "Rehomed At": .migratedAt
+  }'
+}
+
+#
+# INVITATION COMMANDS
+#
+
+cmd_invitation_list() {
+  local status="pending"
+  local before=""
+  local json_output=false
+  local limit=50
+  local cursor=""
+
+  # Parse flags
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --status=*)
+        status="${1#*=}"
+        shift
+        ;;
+      --before=*)
+        before="${1#*=}"
+        shift
+        ;;
+      --json)
+        json_output=true
+        shift
+        ;;
+      --limit=*)
+        limit="${1#*=}"
+        shift
+        ;;
+      *)
+        echo "ERROR: Unknown option: $1"
+        exit 1
+        ;;
+    esac
+  done
+
+  local url="io.trustanchor.admin.listInvitations?status=$status&limit=$limit"
+  [ -n "$before" ] && url="$url&before=$before"
+  [ -n "$cursor" ] && url="$url&cursor=$cursor"
+
+  local response
+  response=$(api_call "GET" "$url")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to list invitations"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  if [ "$json_output" = true ]; then
+    echo "$response"
+  else
+    echo "$response" | jq -r '
+      ["ID", "EMAIL", "HANDLE", "JID", "STATUS", "EMAIL_STATUS", "CREATED", "CONSUMED"],
+      (
+        .invitations[] | [
+          .id,
+          .email,
+          (.preferredHandle // "-"),
+          (if .jid then (.jid[0:8] + "...") else "-" end),
+          .status,
+          (if .emailLastSentAt then "sent" elif .emailLastError then "failed" else "pending" end),
+          .createdAt,
+          (.consumedAt // "-")
+        ]
+      ) | @tsv
+    ' | column -t -s $'\t'
+  fi
+}
+
+cmd_invitation_stats() {
+  local since=""
+  local json_output=false
+
+  # Parse flags
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --since=*)
+        since="${1#*=}"
+        shift
+        ;;
+      --json)
+        json_output=true
+        shift
+        ;;
+      *)
+        echo "ERROR: Unknown option: $1"
+        exit 1
+        ;;
+    esac
+  done
+
+  local url="io.trustanchor.admin.getInvitationStats"
+  [ -n "$since" ] && url="$url?since=$since"
+
+  local response
+  response=$(api_call "GET" "$url")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to get stats"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  if [ "$json_output" = true ]; then
+    echo "$response"
+  else
+    echo "Invitation Statistics:"
+    echo "===================="
+    echo "$response" | jq -r '
+      "Pending:      \(.pending)",
+      "Consumed:     \(.consumed)",
+      "Expired:      \(.expired)",
+      "Revoked:      \(.revoked)",
+      (if .consumedSince then "Consumed Since: \(.consumedSince)" else empty end),
+      (if .conversionRate then "Conversion Rate: \((.conversionRate * 100 | floor))%" else empty end)
+    '
+  fi
+}
+
+cmd_invitation_show() {
+  local identifier="$1"
+
+  if [ -z "$identifier" ]; then
+    echo "ERROR: Email or ID is required"
+    echo "Usage: $0 invitation show <email|id>"
+    exit 1
+  fi
+
+  # Determine if identifier is numeric (ID) or email
+  if [[ "$identifier" =~ ^[0-9]+$ ]]; then
+    # It's an ID - fetch by list and filter
+    local response
+    response=$(api_call "GET" "io.trustanchor.admin.listInvitations?status=all&limit=1000")
+
+    echo "$response" | jq --arg id "$identifier" '
+      .invitations[] | select(.id == ($id | tonumber)) | {
+        "ID": .id,
+        "Email": .email,
+        "Preferred Handle": (.preferredHandle // "N/A"),
+        "JID": (if .jid then (.jid[0:12] + "...") else "N/A" end),
+        "Onboarding URL": (if .onboardingUrl then (.onboardingUrl[0:40] + "...") else "N/A" end),
+        "Status": .status,
+        "Created At": .createdAt,
+        "Expires At": .expiresAt,
+        "Consumed At": (.consumedAt // "N/A"),
+        "Consuming DID": (.consumingDid // "N/A"),
+        "Consuming Handle": (.consumingHandle // "N/A"),
+        "Email Last Sent": (.emailLastSentAt // "N/A"),
+        "Email Attempts": (.emailAttemptCount // 0),
+        "Email Last Error": (.emailLastError // "N/A")
+      }
+    '
+  else
+    # It's an email - fetch and filter
+    local response
+    response=$(api_call "GET" "io.trustanchor.admin.listInvitations?status=all&limit=1000")
+
+    echo "$response" | jq --arg email "$identifier" '
+      .invitations[] | select(.email == $email) | {
+        "ID": .id,
+        "Email": .email,
+        "Preferred Handle": (.preferredHandle // "N/A"),
+        "JID": (if .jid then (.jid[0:12] + "...") else "N/A" end),
+        "Onboarding URL": (if .onboardingUrl then (.onboardingUrl[0:40] + "...") else "N/A" end),
+        "Status": .status,
+        "Created At": .createdAt,
+        "Expires At": .expiresAt,
+        "Consumed At": (.consumedAt // "N/A"),
+        "Consuming DID": (.consumingDid // "N/A"),
+        "Consuming Handle": (.consumingHandle // "N/A"),
+        "Email Last Sent": (.emailLastSentAt // "N/A"),
+        "Email Attempts": (.emailAttemptCount // 0),
+        "Email Last Error": (.emailLastError // "N/A")
+      }
+    '
+  fi
+}
+
+cmd_invitation_create() {
+  local email="${1:-}"
+  local handle=""
+
+  if [ -z "$email" ]; then
+    echo "ERROR: Email is required"
+    echo "Usage: $0 invitation create <email> [--handle=HANDLE]"
+    exit 1
+  fi
+
+  # Parse optional --handle flag
+  shift || true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --handle=*)
+        handle="${1#*=}"
+        ;;
+      *)
+        echo "ERROR: Unknown option: $1"
+        exit 1
+        ;;
+    esac
+    shift || true
+  done
+
+  # Build createInvitation request
+  local event_data
+  local timestamp=$(date +%s)
+
+  if [ -n "$handle" ]; then
+    event_data=$(jq -n \
+      --arg email "$email" \
+      --arg handle "$handle" \
+      --arg timestamp "$timestamp" \
+      '{
+        email: $email,
+        preferredHandle: $handle,
+        invitationTimestamp: ($timestamp | tonumber)
+      }')
+  else
+    event_data=$(jq -n \
+      --arg email "$email" \
+      --arg timestamp "$timestamp" \
+      '{
+        email: $email,
+        invitationTimestamp: ($timestamp | tonumber)
+      }')
+  fi
+
+  # Use admin xrpc endpoint for invitation creation
+  local response
+  response=$(api_call "POST" "io.trustanchor.admin.createInvitation" "$event_data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to create invitation"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  echo "✓ Invitation created successfully"
+  echo "Email: $email"
+  [ -n "$handle" ] && echo "Suggested handle: $handle"
+  if echo "$response" | jq -e '.expiresAt' > /dev/null 2>&1; then
+    echo "Expires: $(echo "$response" | jq -r '.expiresAt')"
+  fi
+
+  # Extract onboarding URL and QR code URL from response
+  local onboarding_url
+  local qr_code_url
+  onboarding_url=$(echo "$response" | jq -r '.onboardingUrl // empty')
+  qr_code_url=$(echo "$response" | jq -r '.qrCodeUrl // empty')
+
+  # Send email via Brevo if configured
+  if check_brevo_config; then
+    if [ -n "$onboarding_url" ] && [ -n "$qr_code_url" ]; then
+      echo ""
+      echo "Sending invitation email via Brevo..."
+
+      local email_result
+      if email_result=$(send_invitation_email "$email" "$onboarding_url" "$qr_code_url" "$handle"); then
+        local message_id from_email from_name
+        message_id=$(echo "$email_result" | jq -r '.message_id // empty')
+        from_email=$(echo "$email_result" | jq -r '.from_email // empty')
+        from_name=$(echo "$email_result" | jq -r '.from_name // empty')
+        echo "✓ Email sent successfully"
+        if [ -n "$from_name" ] && [ -n "$from_email" ]; then
+          echo "  From: $from_name <$from_email>"
+        elif [ -n "$from_email" ]; then
+          echo "  From: $from_email"
+        fi
+        [ -n "$message_id" ] && echo "  Message ID: $message_id"
+
+        # Update PDS invitation status
+        update_invitation_email_status "$email" "email_sent" "" "$message_id" || true
+      else
+        local error_msg
+        error_msg=$(echo "$email_result" | jq -r '.error // "Unknown error"')
+        echo "✗ Email sending failed: $error_msg"
+
+        # Update PDS invitation status
+        update_invitation_email_status "$email" "email_failed" "$error_msg" || true
+      fi
+    else
+      echo ""
+      echo "WARNING: Cannot send email - missing onboardingUrl or qrCodeUrl in response"
+    fi
+  fi
+}
+
+cmd_invitation_revoke() {
+  local identifier="$1"
+
+  if [ -z "$identifier" ]; then
+    echo "ERROR: Email or ID is required"
+    echo "Usage: $0 invitation revoke <email|id>"
+    exit 1
+  fi
+
+  local data
+  if [[ "$identifier" =~ ^[0-9]+$ ]]; then
+    data=$(jq -n --argjson id "$identifier" '{id: $id}')
+  else
+    data=$(jq -n --arg email "$identifier" '{email: $email}')
+  fi
+
+  local response
+  response=$(api_call "POST" "io.trustanchor.admin.deleteInvitation" "$data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to revoke invitation"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  echo "✓ Success!"
+  if echo "$response" | jq -e '.revoked' > /dev/null 2>&1; then
+    echo "Invitation revoked (soft delete)"
+  else
+    echo "Invitation deleted (hard delete - was not pending)"
+  fi
+}
+
+cmd_invitation_stock() {
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "W Social Invitation System Status"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo ""
+
+  # 1. WID Account Inventory
+  echo "📦 WID Account Inventory"
+  echo "───────────────────────────────────────────────────────────────"
+
+  local inv_response
+  inv_response=$(api_call "GET" "io.trustanchor.admin.getInventoryStatus" "")
+
+  if echo "$inv_response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "❌ ERROR: Failed to get inventory status"
+  else
+    local available allocated consumed total
+    available=$(echo "$inv_response" | jq -r '.available')
+    allocated=$(echo "$inv_response" | jq -r '.allocated')
+    consumed=$(echo "$inv_response" | jq -r '.consumed')
+    total=$(echo "$inv_response" | jq -r '.total')
+
+    echo "   Total:      $total"
+    echo "   Available:  $available"
+    echo "   Allocated:  $allocated"
+    echo "   Consumed:   $consumed"
+    echo ""
+
+    # Inventory warnings
+    if [ "$available" -lt 100 ]; then
+      echo "   🚨 ERROR: Inventory critically low (< 100 available)"
+      echo "      Action needed: Load more WID accounts immediately"
+      echo "      Run: $0 wid inventory load <batch-file>"
+    elif [ "$available" -lt 500 ]; then
+      echo "   ⚠️  WARNING: Inventory below recommended threshold (< 500)"
+      echo "      Consider loading more accounts soon"
+    else
+      echo "   ✅ Inventory healthy"
+    fi
+  fi
+
+  echo ""
+
+  # 2. Pending Invitations
+  echo "📧 Pending Invitations"
+  echo "───────────────────────────────────────────────────────────────"
+
+  local stats_response
+  stats_response=$(api_call "GET" "io.trustanchor.admin.getInvitationStats" "")
+
+  if echo "$stats_response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "❌ ERROR: Failed to get invitation stats"
+  else
+    echo "$stats_response" | jq -r '
+      "   email_pending:  \(.email_pending // 0)",
+      "   email_sent:     \(.email_sent // 0)",
+      "   email_failed:   \(.email_failed // 0)",
+      "   consumed:       \(.consumed // 0)",
+      "",
+      (if .conversionRate then "   Conversion Rate: \((.conversionRate | tonumber * 100 | floor))%" else "   Conversion Rate: N/A" end)
+    '
+  fi
+
+  echo ""
+
+  # 3. Brevo Lists (if configured)
+  if command -v python3 &> /dev/null && [ -f "pds-wadmin-modules/brevo_integration.py" ]; then
+    local brevo_key
+    brevo_key=$(get_vault_secret "PDS_BREVO_API_KEY" 2>/dev/null)
+
+    if [ -n "$brevo_key" ]; then
+      echo "📊 Brevo Lists"
+      echo "───────────────────────────────────────────────────────────────"
+
+      # Get counts for each list (IDs from brevo_integration.py constants)
+      local waitlist_count invited_count onboarded_count
+
+      local python_exe
+      python_exe=$(get_python)
+      waitlist_result=$(cd pds-wadmin-modules && "$python_exe" -m brevo_integration list-count --api-key="$brevo_key" --list-id=23 2>/dev/null)
+      invited_result=$(cd pds-wadmin-modules && "$python_exe" -m brevo_integration list-count --api-key="$brevo_key" --list-id=24 2>/dev/null)
+      onboarded_result=$(cd pds-wadmin-modules && "$python_exe" -m brevo_integration list-count --api-key="$brevo_key" --list-id=27 2>/dev/null)
+
+      if echo "$waitlist_result" | jq -e '.success' > /dev/null 2>&1; then
+        waitlist_count=$(echo "$waitlist_result" | jq -r '.count')
+        echo "   Waitlist (23):  $waitlist_count contacts"
+      fi
+
+      if echo "$invited_result" | jq -e '.success' > /dev/null 2>&1; then
+        invited_count=$(echo "$invited_result" | jq -r '.count')
+        echo "   Invited (24):   $invited_count contacts"
+      fi
+
+      if echo "$onboarded_result" | jq -e '.success' > /dev/null 2>&1; then
+        onboarded_count=$(echo "$onboarded_result" | jq -r '.count')
+        echo "   Onboarded (27): $onboarded_count contacts"
+      fi
+
+      echo ""
+    fi
+  fi
+
+  echo "═══════════════════════════════════════════════════════════════"
+}
+
+cmd_invitation_list_contacts() {
+  local list_id=""
+  local limit=100
+
+  # Parse flags
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --brevo-list=*|--list=*)
+        list_id="${1#*=}"
+        shift
+        ;;
+      --limit=*)
+        limit="${1#*=}"
+        shift
+        ;;
+      *)
+        echo "ERROR: Unknown option: $1"
+        echo "Usage: $0 invitation list-contacts --brevo-list=ID [--limit=N]"
+        exit 1
+        ;;
+    esac
+  done
+
+  if [ -z "$list_id" ]; then
+    echo "ERROR: --brevo-list required"
+    echo "Usage: $0 invitation list-contacts --brevo-list=ID [--limit=N]"
+    echo ""
+    echo "Common Brevo Lists:"
+    echo "  23 - Waitlist"
+    echo "  24 - Invited"
+    echo "  27 - Onboarded"
+    exit 1
+  fi
+
+  # Check if Brevo API key is configured
+  if [ -z "${PDS_BREVO_API_KEY:-}" ]; then
+    echo "ERROR: PDS_BREVO_API_KEY not set"
+    echo "Set it with: export PDS_BREVO_API_KEY=xkeysib-..."
+    exit 1
+  fi
+
+  echo "Fetching contacts from Brevo list $list_id..."
+  echo ""
+
+  local brevo_key
+  brevo_key=$(get_vault_secret "PDS_BREVO_API_KEY")
+
+  local python_exe
+  python_exe=$(get_python)
+  local result
+  result=$(cd pds-wadmin-modules && "$python_exe" -m brevo_integration list-contacts \
+    --api-key="$brevo_key" \
+    --list-id="$list_id" \
+    --limit="$limit" 2>&1)
+
+  if echo "$result" | jq -e '.success' > /dev/null 2>&1; then
+    local count
+    count=$(echo "$result" | jq -r '.count')
+    echo "Total contacts in list: $count"
+    echo ""
+    echo "$result" | jq -r '.contacts[] | .email'
+  else
+    echo "❌ ERROR: Failed to fetch contacts"
+    if echo "$result" | jq -e '.error' > /dev/null 2>&1; then
+      echo "$result" | jq -r '.error'
+    else
+      echo "$result"
+    fi
+    exit 1
+  fi
+}
+
+cmd_invitation_move_contact() {
+  if [ $# -lt 3 ]; then
+    echo "Usage: $0 invitation move-contact <email> --from-list=ID --to-list=ID"
+    echo ""
+    echo "Common Brevo Lists:"
+    echo "  23 - Waitlist"
+    echo "  24 - Invited"
+    echo "  27 - Onboarded"
+    exit 1
+  fi
+
+  local email="$1"
+  shift
+
+  local from_list=""
+  local to_list=""
+
+  # Parse flags
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --from-list=*)
+        from_list="${1#*=}"
+        shift
+        ;;
+      --to-list=*)
+        to_list="${1#*=}"
+        shift
+        ;;
+      *)
+        echo "ERROR: Unknown option: $1"
+        exit 1
+        ;;
+    esac
+  done
+
+  if [ -z "$from_list" ] || [ -z "$to_list" ]; then
+    echo "ERROR: Both --from-list and --to-list required"
+    exit 1
+  fi
+
+  # Check if Brevo API key is configured
+  if [ -z "${PDS_BREVO_API_KEY:-}" ]; then
+    echo "ERROR: PDS_BREVO_API_KEY not set"
+    echo "Set it with: export PDS_BREVO_API_KEY=xkeysib-..."
+    exit 1
+  fi
+
+  echo "Moving $email from list $from_list → $to_list..."
+
+  local brevo_key
+  brevo_key=$(get_vault_secret "PDS_BREVO_API_KEY")
+
+  local python_exe
+  python_exe=$(get_python)
+  local result
+  result=$(cd pds-wadmin-modules && "$python_exe" -m brevo_integration move-contact \
+    --api-key="$brevo_key" \
+    --email="$email" \
+    --from-list="$from_list" \
+    --to-list="$to_list" 2>&1)
+
+  if echo "$result" | jq -e '.success' > /dev/null 2>&1; then
+    echo "✓ Contact moved successfully"
+  else
+    echo "❌ ERROR: Failed to move contact"
+    if echo "$result" | jq -e '.error' > /dev/null 2>&1; then
+      echo "$result" | jq -r '.error'
+    else
+      echo "$result"
+    fi
+    exit 1
+  fi
+}
+
+cmd_invitation_send_batch() {
+  local from_list=""
+  local emails_arg=""
+  local emails_file=""
+  local count=0
+  local dry_run=false
+
+  # Parse flags
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --from-list=*)
+        from_list="${1#*=}"
+        shift
+        ;;
+      --emails=*)
+        emails_arg="${1#*=}"
+        shift
+        ;;
+      --emails-file=*)
+        emails_file="${1#*=}"
+        shift
+        ;;
+      --count=*)
+        count="${1#*=}"
+        shift
+        ;;
+      --dry-run)
+        dry_run=true
+        shift
+        ;;
+      *)
+        echo "ERROR: Unknown option: $1"
+        echo "Usage: $0 invitation send-batch [options]"
+        echo ""
+        echo "Options:"
+        echo "  --from-list=ID         Fetch contacts from Brevo list"
+        echo "  --count=N              Number of contacts to fetch from list"
+        echo "  --emails=a@x.com,b@x.com  Explicit email list"
+        echo "  --emails-file=FILE     Read emails from file (one per line)"
+        echo "  --dry-run              Show what would happen without sending"
+        exit 1
+        ;;
+    esac
+  done
+
+  # Determine email source
+  local emails=()
+
+  if [ -n "$from_list" ]; then
+    if [ "$count" -le 0 ]; then
+      echo "ERROR: --count required with --from-list"
+      exit 1
+    fi
+
+    # Check if Brevo API key is configured
+    if [ -z "${PDS_BREVO_API_KEY:-}" ]; then
+      echo "ERROR: PDS_BREVO_API_KEY not set"
+      echo ""
+      echo "Batch sending from Brevo lists requires Brevo API key."
+      echo "Set it with: export PDS_BREVO_API_KEY=xkeysib-..."
+      echo ""
+      echo "Or use email file/list instead:"
+      echo "  $0 invitation send-batch --emails=user1@x.com,user2@x.com"
+      echo "  $0 invitation send-batch --emails-file=emails.txt"
+      exit 1
+    fi
+
+    echo "Fetching $count contacts from Brevo list $from_list..."
+
+    local brevo_key
+    brevo_key=$(get_vault_secret "PDS_BREVO_API_KEY")
+
+    local python_exe
+    python_exe=$(get_python)
+    local result
+    result=$(cd pds-wadmin-modules && "$python_exe" -m brevo_integration list-contacts \
+      --api-key="$brevo_key" \
+      --list-id="$from_list" \
+      --limit="$count" 2>&1)
+
+    if ! echo "$result" | jq -e '.success' > /dev/null 2>&1; then
+      echo "❌ ERROR: Failed to fetch contacts from Brevo"
+      if echo "$result" | jq -e '.error' > /dev/null 2>&1; then
+        echo "$result" | jq -r '.error'
+      else
+        # Not valid JSON, show raw output
+        echo "$result"
+      fi
+      exit 1
+    fi
+
+    mapfile -t emails < <(echo "$result" | jq -r '.contacts[] | .email')
+
+  elif [ -n "$emails_arg" ]; then
+    IFS=',' read -ra emails <<< "$emails_arg"
+
+  elif [ -n "$emails_file" ]; then
+    if [ ! -f "$emails_file" ]; then
+      echo "ERROR: File not found: $emails_file"
+      exit 1
+    fi
+    mapfile -t emails < "$emails_file"
+
+  else
+    echo "ERROR: Must specify --from-list, --emails, or --emails-file"
+    exit 1
+  fi
+
+  local batch_size=${#emails[@]}
+
+  if [ "$batch_size" -eq 0 ]; then
+    echo "ERROR: No emails to send to"
+    exit 1
+  fi
+
+  if [ "$batch_size" -gt 500 ]; then
+    echo "ERROR: Batch size too large ($batch_size). Maximum is 500 emails per batch."
+    exit 1
+  fi
+
+  echo ""
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "Batch Invitation Send"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "Emails to send: $batch_size"
+  echo ""
+
+  # Pre-flight: Check WID inventory
+  echo "Checking WID inventory..."
+  local inv_response
+  inv_response=$(api_call "GET" "io.trustanchor.admin.getInventoryStatus" "")
+
+  if echo "$inv_response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "❌ ERROR: Failed to check inventory"
+    exit 1
+  fi
+
+  local available
+  available=$(echo "$inv_response" | jq -r '.available')
+
+  if [ "$available" -lt "$batch_size" ]; then
+    echo "❌ ERROR: Insufficient WID inventory"
+    echo "   Available: $available"
+    echo "   Required:  $batch_size"
+    echo "   Load more accounts with: $0 wid inventory load <batch-file>"
+    exit 1
+  fi
+
+  echo "✓ WID inventory sufficient ($available available)"
+  echo ""
+
+  # Dry run mode
+  if [ "$dry_run" = true ]; then
+    echo "🔍 DRY RUN MODE - No invitations will be created or emails sent"
+    echo ""
+    echo "Would send invitations to:"
+    printf '%s\n' "${emails[@]}"
+    echo ""
+    echo "To proceed, re-run without --dry-run flag"
+    exit 0
+  fi
+
+  # Confirmation prompt
+  read -p "Send $batch_size invitations? [y/N] " -n 1 -r
+  echo
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Cancelled"
+    exit 0
+  fi
+
+  echo ""
+  echo "Sending invitations..."
+  echo ""
+
+  local success_count=0
+  local fail_count=0
+  local errors=()
+
+  for email in "${emails[@]}"; do
+    # Trim whitespace
+    email=$(echo "$email" | xargs)
+    [ -z "$email" ] && continue
+
+    echo -n "  $email ... "
+
+    # Create invitation (which allocates WID and sends email)
+    local result
+    result=$(cmd_invitation_create "$email" 2>&1)
+
+    if echo "$result" | grep -q "✓ Invitation created successfully"; then
+      echo "✓"
+      ((success_count++))
+
+      # If from Brevo list, move to invited list
+      if [ -n "$from_list" ]; then
+        local brevo_key
+        brevo_key=$(get_vault_secret "PDS_BREVO_API_KEY" 2>/dev/null)
+        if [ -n "$brevo_key" ]; then
+          cd pds-wadmin-modules && python3 -m brevo_integration move-contact \
+            --api-key="$brevo_key" \
+            --email="$email" \
+            --from-list="$from_list" \
+            --to-list=24 2>/dev/null || true
+        fi
+      fi
+    else
+      echo "✗"
+      ((fail_count++))
+      errors+=("$email: $(echo "$result" | tail -1)")
+    fi
+  done
+
+  echo ""
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "Batch Send Complete"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "✓ Sent:   $success_count"
+  echo "✗ Failed: $fail_count"
+
+  if [ "$fail_count" -gt 0 ]; then
+    echo ""
+    echo "Failures:"
+    printf '%s\n' "${errors[@]}"
+  fi
+}
+
+cmd_invitation_purge() {
+  local status=""
+  local before=""
+  local no_sync=false
+
+  # Parse flags
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --status=*)
+        status="${1#*=}"
+        shift
+        ;;
+      --before=*)
+        before="${1#*=}"
+        shift
+        ;;
+      --no-sync)
+        no_sync=true
+        shift
+        ;;
+      *)
+        echo "ERROR: Unknown option: $1"
+        exit 1
+        ;;
+    esac
+  done
+
+  if [ -z "$status" ]; then
+    echo "ERROR: --status is required"
+    echo "Usage: $0 invitation purge --status=STATUS [--before=TIMESTAMP] [--no-sync]"
+    echo "Status must be: consumed, expired, or revoked"
+    exit 1
+  fi
+
+  if [[ ! "$status" =~ ^(consumed|expired|revoked)$ ]]; then
+    echo "ERROR: Invalid status. Must be: consumed, expired, or revoked"
+    exit 1
+  fi
+
+  # For consumed invitations, fetch emails before purge for Brevo sync (unless --no-sync)
+  local emails_to_sync=()
+  if [ "$status" = "consumed" ] && [ "$no_sync" = false ]; then
+    echo "Fetching consumed invitations for Brevo sync..."
+
+    # Build query params
+    local query_params="status=consumed"
+    [ -n "$before" ] && query_params="$query_params&before=$before"
+
+    local list_response
+    list_response=$(api_call "GET" "io.trustanchor.admin.listInvitations?$query_params")
+
+    if ! echo "$list_response" | jq -e '.error' > /dev/null 2>&1; then
+      # Extract emails from consumed invitations
+      mapfile -t emails_to_sync < <(echo "$list_response" | jq -r '.invitations[]? | select(.email != null) | .email')
+
+      if [ ${#emails_to_sync[@]} -gt 0 ]; then
+        echo "Found ${#emails_to_sync[@]} consumed invitations to sync to Brevo onboarded list"
+      fi
+    fi
+  fi
+
+  # Purge invitations from PDS
+  local data
+  if [ -n "$before" ]; then
+    data=$(jq -n \
+      --arg status "$status" \
+      --arg before "$before" \
+      '{status: $status, before: $before}')
+  else
+    data=$(jq -n \
+      --arg status "$status" \
+      '{status: $status}')
+  fi
+
+  echo "Purging $status invitations from PDS..."
+  [ -n "$before" ] && echo "Before: $before"
+
+  local response
+  response=$(api_call "POST" "io.trustanchor.admin.purgeInvitations" "$data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "ERROR: Failed to purge invitations"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  local deleted_count
+  deleted_count=$(echo "$response" | jq -r '.deletedCount')
+  echo "✓ Deleted $deleted_count invitations from PDS"
+
+  # Sync to Brevo onboarded list (if we have emails and not --no-sync)
+  if [ ${#emails_to_sync[@]} -gt 0 ] && [ "$no_sync" = false ]; then
+    echo ""
+    echo "Syncing to Brevo onboarded list (24 → 27)..."
+
+    local brevo_key
+    brevo_key=$(get_vault_secret "PDS_BREVO_API_KEY" 2>/dev/null)
+
+    if [ -n "$brevo_key" ]; then
+      local sync_count=0
+      local sync_errors=0
+
+      local python_exe
+      python_exe=$(get_python)
+      for email in "${emails_to_sync[@]}"; do
+        local result
+        result=$(cd pds-wadmin-modules && "$python_exe" -m brevo_integration move-contact \
+          --api-key="$brevo_key" \
+          --email="$email" \
+          --from-list=24 \
+          --to-list=27 2>&1)
+
+        if echo "$result" | jq -e '.success' > /dev/null 2>&1; then
+          ((sync_count++))
+        else
+          ((sync_errors++))
+        fi
+      done
+
+      echo "✓ Synced $sync_count contacts to Brevo onboarded list"
+      [ "$sync_errors" -gt 0 ] && echo "⚠️  $sync_errors contacts failed to sync (may not exist in invited list)"
+    else
+      echo "⚠️  Skipping Brevo sync (API key not configured)"
+    fi
+  fi
+
+  echo ""
+  echo "✓ Purge complete"
+}
+
+#
+# NOMAD COMMANDS
+#
+
+cmd_nomad_exec_sqlite() {
+  # Internal helper: run a SQL query inside the running Nomad allocation.
+  # Uses node + better-sqlite3 (always available in the PDS container).
+  # Usage: cmd_nomad_exec_sqlite <sql>
+  local sql="$1"
+
+  check_nomad_auth
+
+  local job_name
+  job_name="$(get_nomad_job_name)"
+  local alloc_id
+  alloc_id=$(nomad status -token="${NOMAD_TOKEN}" "$job_name" 2>/dev/null \
+    | grep -E "^[a-f0-9]{8}\s+" | grep "running" | head -n1 | awk '{print $1}')
+
+  if [ -z "$alloc_id" ]; then
+    echo "ERROR: No running allocation found for job $job_name"
+    exit 1
+  fi
+
+  # Build a Node.js script that queries the DB via better-sqlite3
+  # (sqlite3 CLI is not installed in the PDS container; Node + better-sqlite3 always are).
+  # The SQL is written to the script via a temporary env var so no quoting escapes are needed.
+  #
+  # nomad alloc exec passes the command + args directly — we use "sh -c" so the container
+  # shell handles the single exec, and we JSON-encode the SQL into the node script body to
+  # avoid any quoting issues crossing the nomad exec boundary.
+  local sql_json
+  sql_json=$(printf '%s' "$sql" | node -e "
+    let s=''; process.stdin.on('data',c=>s+=c); process.stdin.on('end',()=>console.log(JSON.stringify(s)));
+  ")
+
+  local node_script
+  node_script="
+const path=require('path'),fs=require('fs');
+const sql=${sql_json};
+const appRoot='/app';
+
+// Resolve better-sqlite3: handles both npm flat layout and pnpm virtual store
+let DB;
+const directPath=path.join(appRoot,'node_modules','better-sqlite3');
+if(fs.existsSync(path.join(directPath,'package.json'))){
+  DB=require(directPath);
+} else {
+  // pnpm virtual store: /app/node_modules/.pnpm/better-sqlite3-X.Y.Z.../node_modules/better-sqlite3
+  try {
+    const pnpmStore=path.join(appRoot,'node_modules','.pnpm');
+    const ent=fs.readdirSync(pnpmStore).find(e=>e.startsWith('better-sqlite3'));
+    if(ent) DB=require(path.join(pnpmStore,ent,'node_modules','better-sqlite3'));
+  } catch(e) {}
+}
+if(!DB){
+  // Last resort: require.resolve with search paths
+  for(const base of [appRoot, process.cwd()]){
+    try { DB=require(require.resolve('better-sqlite3',{paths:[base]})); break; } catch(e) {}
+  }
+}
+if(!DB){ console.error('ERROR: better-sqlite3 not found in container'); process.exit(1); }
+
+let dbPath;
+const d=process.env.PDS_DATA_DIRECTORY;
+if(d){dbPath=path.join(d,'account.sqlite');}
+else{for(const p of['/data/account.sqlite','/var/run/account.sqlite','/var/run/pds/account.sqlite']){if(fs.existsSync(p)){dbPath=p;break;}}}
+if(!dbPath||!fs.existsSync(dbPath)){console.error('ERROR: account.sqlite not found');process.exit(1);}
+const isWrite=/^\s*(update|insert|delete|replace|create|drop|alter)\b/i.test(sql);
+const db=new DB(dbPath,{readonly:!isWrite});
+if(isWrite){
+  const info=db.prepare(sql).run();
+  db.close();
+  console.log('Changes: '+info.changes);
+} else {
+  const rows=db.prepare(sql).all();
+  db.close();
+  if(rows.length===0){console.log('(no rows)');process.exit(0);}
+  const cols=Object.keys(rows[0]);
+  const widths=cols.map(c=>Math.max(c.length,...rows.map(r=>String(r[c]??'').length)));
+  const fmt=r=>cols.map((c,i)=>String(r[c]??'').padEnd(widths[i])).join('  ');
+  console.log(cols.map((c,i)=>c.padEnd(widths[i])).join('  '));
+  console.log(widths.map(w=>'-'.repeat(w)).join('  '));
+  rows.forEach(r=>console.log(fmt(r)));
+}
+"
+
+  # Pass the script as argv[1] of node -e  ("-e SCRIPT" is a single nomad-exec argument,
+  # no shell involved, so no further quoting needed on the nomad side)
+  nomad alloc exec -token="${NOMAD_TOKEN}" -task pds "$alloc_id" \
+    node -e "$node_script"
+}
+
+cmd_wid_schema() {
+  if [ -z "$ENV" ] || [ "$ENV" = "wadmin" ]; then
+    echo "ERROR: wid schema requires environment context (use pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod)"
+    exit 1
+  fi
+
+  echo "Database Schema for pds/${ENV}"
+  echo "=================================="
+  echo ""
+
+  # Show neuro_identity_link schema
+  echo "Table: neuro_identity_link"
+  echo "----------------------------"
+  cmd_nomad_exec_sqlite "PRAGMA table_info(neuro_identity_link);" | \
+    awk 'NR==1 || NR>2 {print}' | column -t
+  echo ""
+
+  # Show actor schema
+  echo "Table: actor"
+  echo "-------------"
+  cmd_nomad_exec_sqlite "PRAGMA table_info(actor);" | \
+    awk 'NR==1 || NR>2 {print}' | column -t
+  echo ""
+
+  # Show account schema
+  echo "Table: account"
+  echo "---------------"
+  cmd_nomad_exec_sqlite "PRAGMA table_info(account);" | \
+    awk 'NR==1 || NR>2 {print}' | column -t
+  echo ""
+
+  # Show pending_invitations schema
+  echo "Table: pending_invitations"
+  echo "---------------------------"
+  cmd_nomad_exec_sqlite "PRAGMA table_info(pending_invitations);" | \
+    awk 'NR==1 || NR>2 {print}' | column -t
+  echo ""
+
+  # Migration status check
+  echo "Migration Status Indicators:"
+  echo "----------------------------"
+}
+
+cmd_wid_db() {
+  local custom_query=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --query=*)
+        custom_query="${1#*=}"
+        shift
+        ;;
+      *)
+        echo "ERROR: Unknown option: $1"
+        exit 1
+        ;;
+    esac
+  done
+
+  if [ -z "$ENV" ] || [ "$ENV" = "wadmin" ]; then
+    echo "ERROR: wid db requires environment context (use pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod)"
+    exit 1
+  fi
+
+  if [ -n "$custom_query" ]; then
+    cmd_nomad_exec_sqlite "$custom_query"
+    return
+  fi
+
+  # Default: full neuro_identity_link dump with duplicate annotation.
+  cmd_nomad_exec_sqlite "
+SELECT
+  nil.did,
+  COALESCE(a.handle, '?') AS handle,
+  CASE WHEN nil.isTestUser = 1 THEN nil.testUserJid ELSE nil.userJid END AS jid,
+  nil.isTestUser,
+  nil.linkedAt,
+  nil.lastLoginAt,
+  CASE WHEN cnt.n > 1 THEN '*** DUP (' || cnt.n || ')' ELSE '' END AS dup_flag
+FROM neuro_identity_link nil
+LEFT JOIN actor a ON a.did = nil.did
+JOIN (
+  SELECT did, COUNT(*) AS n FROM neuro_identity_link GROUP BY did
+) cnt ON cnt.did = nil.did
+ORDER BY nil.did, nil.linkedAt;
+"
+}
+
+cmd_wid_check_db() {
+  local did="$1"
+
+  if [ -z "$did" ]; then
+    echo "ERROR: DID is required"
+    echo "Usage: $0 wid check-db <did>"
+    exit 1
+  fi
+
+  # This command requires direct database access via Nomad
+  if [ -z "$ENV" ] || [ "$ENV" = "wadmin" ]; then
+    echo "ERROR: wid check-db requires environment context (use pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod)"
+    exit 1
+  fi
+
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "Database Consistency Check: $did"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo ""
+
+  local issues_found=0
+
+  # 1. Check actor table
+  echo "1️⃣  Actor Table"
+  echo "───────────────────────────────────────────────────────────────"
+  local actor_result
+  actor_result=$(cmd_nomad_exec_sqlite "SELECT did, handle, createdAt FROM actor WHERE did='$did';" 2>&1)
+
+  if echo "$actor_result" | grep -q "$did"; then
+    local handle
+    local created
+    handle=$(echo "$actor_result" | grep "$did" | awk '{print $2}')
+    created=$(echo "$actor_result" | grep "$did" | awk '{print $3}')
+    echo "✓ Actor record found"
+    echo "  Handle: ${handle:--}"
+    echo "  Created: ${created:--}"
+  else
+    echo "✗ Actor record NOT FOUND"
+    ((issues_found++))
+  fi
+  echo ""
+
+  # 2. Check account table
+  echo "2️⃣  Account Table"
+  echo "───────────────────────────────────────────────────────────────"
+  local account_result
+  account_result=$(cmd_nomad_exec_sqlite "SELECT did, email, emailConfirmedAt FROM account WHERE did='$did';" 2>&1)
+
+  if echo "$account_result" | grep -q "$did"; then
+    echo "✓ Account record found"
+    local email
+    local confirmed
+    email=$(echo "$account_result" | grep "$did" | awk '{print $2}')
+    confirmed=$(echo "$account_result" | grep "$did" | awk '{print $3}')
+    echo "  Email: ${email:--}"
+    echo "  Email Confirmed: ${confirmed:-No}"
+  else
+    echo "✗ Account record NOT FOUND"
+    ((issues_found++))
+  fi
+  echo ""
+
+  # 3. Check neuro_identity_link table
+  echo "3️⃣  Neuro Identity Link Table"
+  echo "───────────────────────────────────────────────────────────────"
+
+  local nil_result
+  nil_result=$(cmd_nomad_exec_sqlite "SELECT did, CASE WHEN isTestUser = 1 THEN testUserJid ELSE userJid END AS jid, isTestUser, linkedAt, lastLoginAt FROM neuro_identity_link WHERE did='$did';" 2>&1)
+
+  if echo "$nil_result" | grep -q "$did"; then
+    # Count how many records
+    local count
+    count=$(echo "$nil_result" | grep -c "$did" || echo "0")
+
+    if [ "$count" -eq 1 ]; then
+      echo "✓ One W ID link found (correct)"
+      local jid
+      local is_test
+      local linked
+      local last_login
+      jid=$(echo "$nil_result" | grep "$did" | awk '{print $2}')
+      is_test=$(echo "$nil_result" | grep "$did" | awk '{print $3}')
+      linked=$(echo "$nil_result" | grep "$did" | awk '{print $4}')
+      last_login=$(echo "$nil_result" | grep "$did" | awk '{print $5}')
+      echo "  JID: ${jid:--}"
+      echo "  Test User: ${is_test:-0}"
+      echo "  Linked At: ${linked:--}"
+      echo "  Last Login: ${last_login:--}"
+    else
+      echo "✗ DUPLICATE W ID links found: $count records"
+      ((issues_found++))
+      echo ""
+      echo "Records:"
+      echo "$nil_result" | grep "$did" | while read -r line; do
+        local jid
+        local linked
+        jid=$(echo "$line" | awk '{print $2}')
+        linked=$(echo "$line" | awk '{print $4}')
+        echo "  - JID: ${jid:-N/A}, Linked: ${linked:-N/A}"
+      done
+    fi
+  else
+    echo "✗ W ID link NOT FOUND"
+    echo "  This account exists but has no W ID mapping"
+    ((issues_found++))
+  fi
+  echo ""
+
+  # 4. Check for orphaned records
+  echo "4️⃣  Orphan Check"
+  echo "───────────────────────────────────────────────────────────────"
+
+  # Check if actor exists but account doesn't
+  local has_actor
+  local has_account
+  has_actor=0
+  has_account=0
+
+  if echo "$actor_result" | grep -q "$did"; then
+    has_actor=1
+  fi
+  if echo "$account_result" | grep -q "$did"; then
+    has_account=1
+  fi
+
+  if [ "$has_actor" -eq 1 ] && [ "$has_account" -eq 0 ]; then
+    echo "✗ ORPHANED: Actor exists without Account record"
+    ((issues_found++))
+  elif [ "$has_actor" -eq 0 ] && [ "$has_account" -eq 1 ]; then
+    echo "✗ ORPHANED: Account exists without Actor record"
+    ((issues_found++))
+  else
+    echo "✓ No orphaned records detected"
+  fi
+  echo ""
+
+  # 5. Summary
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "Summary"
+  echo "═══════════════════════════════════════════════════════════════"
+
+  if [ $issues_found -eq 0 ]; then
+    echo "Status: ✓ Database consistency check passed"
+    echo "  All required records present and correctly linked"
+  else
+    echo "Status: ✗ Found $issues_found issue(s)"
+    echo ""
+    echo "Recommended Actions:"
+    if [ "$has_actor" -eq 0 ]; then
+      echo "  • Missing actor record - account may be corrupted"
+    fi
+    if [ "$has_account" -eq 0 ]; then
+      echo "  • Missing account record - account may be corrupted"
+    fi
+    if ! echo "$nil_result" | grep -q "$did"; then
+      echo "  • Missing W ID link - user cannot authenticate via W ID"
+      echo "    Use: ./pds-wadmin wid update $did <jid>"
+    fi
+    local nil_count
+    nil_count=$(echo "$nil_result" | grep -c "$did" || echo "0")
+    if [ "$nil_count" -gt 1 ]; then
+      echo "  • Duplicate W ID links - may cause authentication issues"
+      echo "    Review with: ./pds-wadmin wid db --query=\"SELECT * FROM neuro_identity_link WHERE did='$did'\""
+    fi
+  fi
+  echo "═══════════════════════════════════════════════════════════════"
+}
+
+cmd_wid_inventory() {
+  local subcmd="$1"
+  shift
+
+  case "$subcmd" in
+    load)
+      cmd_wid_inventory_load "$@"
+      ;;
+    status)
+      cmd_wid_inventory_status "$@"
+      ;;
+    *)
+      echo "ERROR: Unknown inventory subcommand: $subcmd"
+      echo "Usage: $0 wid inventory <load|status>"
+      exit 1
+      ;;
+  esac
+}
+
+cmd_wid_inventory_load() {
+  local json_file="$1"
+
+  if [ -z "$json_file" ]; then
+    echo "ERROR: JSON file required"
+    echo "Usage: $0 wid inventory load <path-to-CreatedAccounts.json>"
+    exit 1
+  fi
+
+  if [ ! -f "$json_file" ]; then
+    echo "ERROR: File not found: $json_file"
+    exit 1
+  fi
+
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "Loading WID Account Inventory"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo ""
+  echo "📄 Reading: $json_file"
+
+  # Parse the CreatedAccounts.json format and transform to API format
+  # Expected input format:
+  # {
+  #   "NrAccounts": 100,
+  #   "Created": 1773236086,
+  #   "Records": [
+  #     {
+  #       "AccountNr": 1,
+  #       "UserName": "c368377a-0c6a-4efc-b4e1-002436730907",
+  #       "OnboardingUrl": "obinfo:id.tagroot.io:...",
+  #       "QrCodeUrl": "https://auth-dev.widentity.dev/QR/...",
+  #       "QrCode": "C:\\ProgramData\\IoT Gateway\\Batch\\000000001.png"
+  #     }
+  #   ]
+  # }
+
+  # Transform to API format using jq
+  local request_data
+  request_data=$(jq '{
+    accounts: [
+      .Records[] | {
+        did: .UserName,
+        onboardingUrl: .OnboardingUrl,
+        qrCodeUrl: .QrCodeUrl
+      } + (if .PreferredHandle then {preferredHandle: .PreferredHandle} else {} end)
+    ],
+    batchName: ("batch-" + (.Created | tostring))
+  }' "$json_file")
+
+  local account_count
+  account_count=$(echo "$request_data" | jq '.accounts | length')
+
+  echo "📊 Accounts to load: $account_count"
+  echo ""
+  echo "Uploading to PDS..."
+
+  # Call the API endpoint
+  local response
+  response=$(api_call "POST" "io.trustanchor.admin.loadInventory" "$request_data")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "❌ ERROR: Failed to load inventory"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  local loaded
+  local skipped
+  local total
+
+  loaded=$(echo "$response" | jq -r '.loaded')
+  skipped=$(echo "$response" | jq -r '.skipped')
+  total=$(echo "$response" | jq -r '.total')
+
+  echo ""
+  echo "✅ Import complete!"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "   Loaded:  $loaded"
+  echo "   Skipped: $skipped (duplicates)"
+  echo "   Total:   $total"
+}
+
+cmd_wid_inventory_status() {
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "WID Account Inventory Status"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo ""
+  echo "Querying PDS..."
+
+  # Call the API endpoint
+  local response
+  response=$(api_call "GET" "io.trustanchor.admin.getInventoryStatus" "")
+
+  if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+    echo "❌ ERROR: Failed to get inventory status"
+    echo "$response" | jq -r '.message // .error'
+    exit 1
+  fi
+
+  local available
+  local allocated
+  local consumed
+  local total
+
+  available=$(echo "$response" | jq -r '.available')
+  allocated=$(echo "$response" | jq -r '.allocated')
+  consumed=$(echo "$response" | jq -r '.consumed')
+  total=$(echo "$response" | jq -r '.total')
+
+  echo "📦 Available:  $available  (ready to allocate)"
+  echo "🔒 Allocated:  $allocated  (assigned to invitations)"
+  echo "✓ Consumed:   $consumed  (activated accounts)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📊 Total:      $total"
+  echo ""
+
+  # Show warning if inventory is low
+  if [ "$available" -lt 100 ]; then
+    echo "⚠️  WARNING: Inventory is low (< 100 available)"
+    echo "   Consider loading more accounts"
+  elif [ "$available" -lt 500 ]; then
+    echo "ℹ️  NOTICE: Inventory is below recommended threshold (< 500)"
+  else
+    echo "✅ Inventory levels are healthy"
+  fi
+}
+
+cmd_nomad_status() {
+  check_nomad_auth
+
+  local job_name
+  job_name="$(get_nomad_job_name)"
+  echo "Checking status for job: $job_name"
+  echo ""
+
+  nomad status -token="${NOMAD_TOKEN}" "$job_name"
+}
+
+cmd_nomad_logs() {
+  local tail_lines=""
+  local follow=false
+
+  # Parse flags
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --tail=*)
+        tail_lines="${1#*=}"
+        shift
+        ;;
+      --follow|-f)
+        follow=true
+        shift
+        ;;
+      *)
+        echo "ERROR: Unknown option: $1"
+        exit 1
+        ;;
+    esac
+  done
+
+  export NOMAD_ADDR="https://nomad.wsocial.cloud"
+  check_nomad_auth
+
+  local job_name
+  job_name="$(get_nomad_job_name)"
+  echo "Fetching logs for job: $job_name"
+
+  # Get the running allocation ID
+  local alloc_id
+  alloc_id=$(nomad status -token="${NOMAD_TOKEN}" "$job_name" | grep -E "^[a-f0-9]{8}\s+" | grep "running" | head -n1 | awk '{print $1}')
+
+  if [ -z "$alloc_id" ]; then
+    echo "ERROR: No running allocation found for job $job_name"
+    exit 1
+  fi
+
+  echo "Using allocation: $alloc_id"
+  echo ""
+
+  # Build log command
+  local log_cmd="nomad alloc logs -token=\"${NOMAD_TOKEN}\""
+  [ -n "$tail_lines" ] && log_cmd="$log_cmd -tail -n $tail_lines"
+  [ "$follow" = true ] && log_cmd="$log_cmd -f"
+  log_cmd="$log_cmd $alloc_id pds"
+
+  # Execute
+  eval "$log_cmd"
+}
+
+#
+# GOAT COMMANDS
+#
+
+cmd_goat() {
+  # Check if goat is available
+  if ! command -v goat >/dev/null 2>&1; then
+    echo "ERROR: 'goat' command not found in PATH"
+    echo "Please install goat or ensure it is in your PATH"
+    exit 1
+  fi
+
+  # Pass all arguments to goat
+  # PDS_HOST and PDS_ADMIN_PASSWORD are already set by check_env()
+  exec goat "$@"
+}
+
+#
+# MAIN
+#
+
+main() {
+  if [ $# -eq 0 ]; then
+    usage
+  fi
+
+  check_env
+
+  local category="$1"
+  shift
+
+  case "$category" in
+    account)
+      if [ $# -eq 0 ]; then
+        echo "ERROR: Account command required"
+        usage
+      fi
+      local cmd="$1"
+      shift
+      case "$cmd" in
+        delete)
+          cmd_account_delete "$@"
+          ;;
+        *)
+          echo "ERROR: Unknown account command: $cmd"
+          usage
+          ;;
+      esac
+      ;;
+
+    admin)
+      if [ $# -eq 0 ]; then
+        echo "ERROR: Admin command required"
+        usage
+      fi
+      local cmd="$1"
+      shift
+      case "$cmd" in
+        createIosTestUser|create-ios-test-user)
+          cmd_admin_create_ios_test_user "$@"
+          ;;
+        *)
+          echo "ERROR: Unknown admin command: $cmd"
+          usage
+          ;;
+      esac
+      ;;
+
+    wid)
+      if [ $# -eq 0 ]; then
+        echo "ERROR: WID command required"
+        usage
+      fi
+      local cmd="$1"
+      shift
+      case "$cmd" in
+        list)
+          cmd_wid_list
+          ;;
+        show)
+          cmd_wid_show "$@"
+          ;;
+        update)
+          cmd_wid_update "$@"
+          ;;
+        swap)
+          cmd_wid_swap "$@"
+          ;;
+        handle)
+          cmd_wid_handle "$@"
+          ;;
+        check-handle)
+          cmd_wid_check_handle "$@"
+          ;;
+        check-db)
+          cmd_wid_check_db "$@"
+          ;;
+        inventory)
+          cmd_wid_inventory "$@"
+          ;;
+        schema)
+          cmd_wid_schema "$@"
+          ;;
+        db)
+          cmd_wid_db "$@"
+          ;;
+        *)
+          echo "ERROR: Unknown wid command: $cmd"
+          usage
+          ;;
+      esac
+      ;;
+
+    transfer)
+      if [ $# -eq 0 ]; then
+        echo "ERROR: Transfer command required"
+        usage
+      fi
+      local cmd="$1"
+      shift
+      case "$cmd" in
+        rehome)
+          cmd_transfer_rehome "$@"
+          ;;
+        *)
+          echo "ERROR: Unknown transfer command: $cmd"
+          usage
+          ;;
+      esac
+      ;;
+
+    invitation)
+      if [ $# -eq 0 ]; then
+        echo "ERROR: Invitation command required"
+        usage
+      fi
+      local cmd="$1"
+      shift
+      case "$cmd" in
+        stock)
+          cmd_invitation_stock "$@"
+          ;;
+        send-batch)
+          cmd_invitation_send_batch "$@"
+          ;;
+        list-contacts)
+          cmd_invitation_list_contacts "$@"
+          ;;
+        move-contact)
+          cmd_invitation_move_contact "$@"
+          ;;
+        create)
+          cmd_invitation_create "$@"
+          ;;
+        list)
+          cmd_invitation_list "$@"
+          ;;
+        stats)
+          cmd_invitation_stats "$@"
+          ;;
+        show)
+          cmd_invitation_show "$@"
+          ;;
+        revoke)
+          cmd_invitation_revoke "$@"
+          ;;
+        purge)
+          cmd_invitation_purge "$@"
+          ;;
+        *)
+          echo "ERROR: Unknown invitation command: $cmd"
+          usage
+          ;;
+      esac
+      ;;
+
+    nomad)
+      if [ $# -eq 0 ]; then
+        echo "ERROR: Nomad command required"
+        usage
+      fi
+      local cmd="$1"
+      shift
+      case "$cmd" in
+        status)
+          cmd_nomad_status "$@"
+          ;;
+        logs)
+          cmd_nomad_logs "$@"
+          ;;
+        *)
+          echo "ERROR: Unknown nomad command: $cmd"
+          usage
+          ;;
+      esac
+      ;;
+
+    goat)
+      # Pass all remaining arguments to goat
+      cmd_goat "$@"
+      ;;
+
+    help|--help|-h)
+      usage
+      ;;
+
+    *)
+      echo "ERROR: Unknown category: $category"
+      usage
+      ;;
+  esac
+}
+
+main "$@"

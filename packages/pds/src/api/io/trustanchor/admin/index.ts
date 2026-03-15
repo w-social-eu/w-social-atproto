@@ -8,6 +8,7 @@ import createInvitation from './createInvitation'
 import createIosTestUser from './createIosTestUser'
 import getInventoryStatus from './getInventoryStatus'
 import loadInventory from './loadInventory'
+import clearInventory from './clearInventory'
 import updateInvitationEmailStatus from './updateInvitationEmailStatus'
 
 export default function (server: Server, ctx: AppContext) {
@@ -19,5 +20,6 @@ export default function (server: Server, ctx: AppContext) {
   createIosTestUser(server, ctx)
   getInventoryStatus(server, ctx)
   loadInventory(server, ctx)
+  clearInventory(server, ctx)
   updateInvitationEmailStatus(server, ctx)
 }

@@ -23,3 +23,13 @@ old/
 coverage
 packages/lex/lex-password-agent
 packages/pds/src/version.ts
+
+# Python
+*.pyc
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
