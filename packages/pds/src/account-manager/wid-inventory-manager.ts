@@ -247,4 +247,38 @@ export class WidInventoryManager {
       total: accounts.length,
     }
   }
+
+  /**
+   * Clear available WID accounts from inventory
+   * Optionally filter by age (olderThanDays)
+   */
+  async clearAvailableAccounts(
+    olderThanDays?: number,
+  ): Promise<{ deleted: number }> {
+    let query = this.db.db
+      .deleteFrom('wid_account_inventory')
+      .where('status', '=', 'available')
+
+    // Apply age filter if specified
+    if (olderThanDays !== undefined && olderThanDays > 0) {
+      const cutoffDate = new Date()
+      cutoffDate.setDate(cutoffDate.getDate() - olderThanDays)
+      const cutoffIso = cutoffDate.toISOString()
+      query = query.where('created_at', '<', cutoffIso)
+    }
+
+    const result = await query.executeTakeFirst()
+
+    const deleted = Number(result.numDeletedRows ?? 0)
+
+    dbLogger.info(
+      {
+        deleted,
+        olderThanDays: olderThanDays ?? 'all',
+      },
+      'Cleared available WID accounts from inventory',
+    )
+
+    return { deleted }
+  }
 }

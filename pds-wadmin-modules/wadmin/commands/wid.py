@@ -878,6 +878,86 @@ LIMIT {limit};
     console.print(output)
 
 
+@inventory.command()
+@click.option("--older-than-days", type=int, default=None, help="Only clear accounts older than N days")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+@click.pass_context
+def clear(ctx, older_than_days: Optional[int], yes: bool):
+    """Clear available (unused) WID accounts from inventory."""
+    client: PDSClient = ctx.obj["client"]
+    config: Config = ctx.obj["config"]
+
+    console.print("═" * 63)
+    console.print("Clear WID Inventory")
+    console.print("═" * 63)
+    console.print()
+
+    # First, get preview of what will be deleted
+    if older_than_days:
+        where_clause = f"WHERE status = 'available' AND created_at < datetime('now', '-{older_than_days} days')"
+        age_desc = f"older than {older_than_days} days"
+    else:
+        where_clause = "WHERE status = 'available'"
+        age_desc = "all ages"
+
+    # Count how many will be deleted
+    count_sql = f"SELECT COUNT(*) as count FROM wid_account_inventory {where_clause};"
+    count_result = exec_sqlite(config, count_sql)
+
+    # Parse count from result
+    try:
+        count_line = [line for line in count_result.split('\n') if line.strip() and not line.startswith('count') and not line.startswith('-')][0]
+        count = int(count_line.strip())
+    except (IndexError, ValueError):
+        count = 0
+
+    if count == 0:
+        console.print(f"No available accounts found ({age_desc}).")
+        return
+
+    # Get sample accounts for preview
+    sample_sql = f"SELECT did, created_at FROM wid_account_inventory {where_clause} ORDER BY created_at ASC LIMIT 3;"
+    sample_result = exec_sqlite(config, sample_sql)
+
+    console.print(f"Found {count} available account(s) to delete ({age_desc}):")
+    console.print()
+    console.print("Sample W IDs:")
+    console.print(sample_result)
+    console.print()
+
+    if not yes:
+        console.print(f"⚠️  This will permanently delete {count} available WID account(s).")
+        console.print("   Allocated and consumed accounts will NOT be touched.")
+        console.print()
+
+        confirm = click.prompt("Continue? [y/N]", type=str, default="N")
+        if confirm.lower() not in ("y", "yes"):
+            console.print("Cancelled.")
+            raise click.Abort()
+
+    # Call API to clear inventory
+    data = {}
+    if older_than_days:
+        data["olderThanDays"] = older_than_days
+
+    console.print()
+    console.print("Deleting accounts...")
+
+    response = client.call("POST", "io.trustanchor.admin.clearInventory", data=data)
+
+    if not response.success:
+        print_error(f"Failed to clear inventory: {response.error}")
+        raise click.Abort()
+
+    if response.data is None:
+        print_error("No data returned from API")
+        raise click.Abort()
+
+    deleted = response.data.get("deleted", 0)
+
+    print_success(f"Successfully cleared {deleted} available account(s) from inventory.")
+
+
 @wid.command()
 @click.pass_context
 def schema(ctx):
