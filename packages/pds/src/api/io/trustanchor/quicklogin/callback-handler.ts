@@ -450,6 +450,8 @@ export async function handleQuickLoginCallback(
  * Handle a QuickLogin callback for a non-login approval session
  * (delete_account, plc_operation). Creates an internal email-style token
  * and stores it in the session for the client to retrieve via status polling.
+ *
+ * SECURITY: Verifies that the JID scanning the QR code matches the account owner's JID.
  */
 async function handleApprovalCallback(
   session: QuickLoginSession,
@@ -472,8 +474,77 @@ async function handleApprovalCallback(
   }
 
   log.info(
-    { purpose, did: approvalDid, jid },
-    'WID approval QR scanned — creating token',
+    { purpose, did: approvalDid, jid: jid.substring(0, 8) + '...' },
+    'WID approval QR scanned — verifying ownership',
+  )
+
+  // SECURITY FIX: Verify the JID scanning the QR code owns the account being approved
+  // This prevents cross-account deletion/modification attacks
+  const accountLink = await ctx.accountManager.db.db
+    .selectFrom('neuro_identity_link')
+    .select(['userJid', 'testUserJid', 'isTestUser'])
+    .where('did', '=', approvalDid)
+    .executeTakeFirst()
+
+  if (!accountLink) {
+    log.error(
+      { sessionId: session.sessionId, did: approvalDid },
+      'Account has no linked WID identity - cannot approve',
+    )
+    ctx.quickloginStore.updateSession(session.sessionId, {
+      status: 'failed',
+      error: 'Account has no linked WID identity',
+    })
+    throw new Error('Account has no linked WID identity')
+  }
+
+  const accountJid =
+    accountLink.isTestUser === 1 ? accountLink.testUserJid : accountLink.userJid
+
+  if (!accountJid) {
+    log.error(
+      { sessionId: session.sessionId, did: approvalDid },
+      'Account link missing JID field',
+    )
+    ctx.quickloginStore.updateSession(session.sessionId, {
+      status: 'failed',
+      error: 'Account link missing JID',
+    })
+    throw new Error('Account link missing JID field')
+  }
+
+  // Normalize both JIDs for comparison (strip resource identifiers)
+  const normalizedAccountJid = normalizeJid(accountJid)
+  const normalizedScannedJid = normalizeJid(jid)
+
+  // CRITICAL SECURITY CHECK: JIDs must match
+  if (normalizedAccountJid !== normalizedScannedJid) {
+    log.warn(
+      {
+        sessionId: session.sessionId,
+        purpose,
+        approvalDid,
+        expectedJid: normalizedAccountJid.substring(0, 8) + '...',
+        receivedJid: normalizedScannedJid.substring(0, 8) + '...',
+      },
+      'JID mismatch: QR code must be scanned by account owner',
+    )
+
+    ctx.quickloginStore.updateSession(session.sessionId, {
+      status: 'failed',
+      error: 'JID mismatch: QR code must be scanned by account owner',
+    })
+
+    throw new Error('This QR code must be scanned by the account owner')
+  }
+
+  log.info(
+    {
+      purpose,
+      did: approvalDid,
+      jid: normalizedScannedJid.substring(0, 8) + '...',
+    },
+    'JID ownership verified — creating approval token',
   )
 
   try {
