@@ -625,7 +625,46 @@ def check_handle(ctx, handle: str):
         console.print("⊘ Skipped (BSKY_APP_VIEW_URL not configured)")
         console.print()
 
-    # 5. Summary
+    # 5. PLC Directory DID Document Check
+    console.print("5️⃣  PLC Directory DID Document (https://plc.directory/{did})")
+    console.print("─" * 63)
+
+    plc_handle = None
+    plc_did = dns_did or wellknown_did or resolved_did or appview_did
+
+    if plc_did:
+        try:
+            response = requests.get(f"https://plc.directory/{plc_did}", timeout=10)
+
+            if response.status_code == 200:
+                did_doc = response.json()
+                console.print(f"✓ PLC DID document retrieved for {plc_did}")
+
+                # Check alsoKnownAs for handle
+                also_known_as = did_doc.get("alsoKnownAs", [])
+                if also_known_as:
+                    console.print(f"  alsoKnownAs: {also_known_as}")
+
+                    # Check if our handle is in the alsoKnownAs list
+                    handle_uri = f"at://{handle}"
+                    if handle_uri in also_known_as:
+                        plc_handle = handle
+                        console.print(f"  ✓ Handle '{handle}' is claimed in DID document")
+                    else:
+                        console.print(f"  ✗ Handle '{handle}' NOT found in alsoKnownAs")
+                        console.print(f"     Expected: {handle_uri}")
+                else:
+                    console.print("  ⚠️  No alsoKnownAs field in DID document")
+            else:
+                console.print(f"✗ PLC DID document fetch failed (HTTP {response.status_code})")
+        except Exception as e:
+            console.print(f"✗ PLC DID document fetch failed: {str(e)}")
+    else:
+        console.print("⊘ Skipped (no DID available from previous checks)")
+
+    console.print()
+
+    # 6. Summary
     console.print("═" * 63)
     console.print("Summary")
     console.print("═" * 63)
@@ -634,8 +673,8 @@ def check_handle(ctx, handle: str):
     handle_method_ok = bool(dns_did or wellknown_did)
     has_both = bool(dns_did and wellknown_did)
 
-    # Check if all required checks passed
-    all_required_passed = handle_method_ok and resolved_did
+    # Check if all required checks passed (now including PLC)
+    all_required_passed = handle_method_ok and resolved_did and plc_handle
 
     # If AppView was checked, require it too
     all_checks_passed = all_required_passed
@@ -663,6 +702,8 @@ def check_handle(ctx, handle: str):
         if all_match:
             console.print("DID Consistency: ✓ All methods return same DID")
             console.print(f"  DID: {reference_did}")
+            if plc_handle:
+                console.print(f"  PLC Handle Claim: ✓ {handle}")
 
             if has_both:
                 console.print()
@@ -677,6 +718,9 @@ def check_handle(ctx, handle: str):
             console.print(f"  PDS Resolve:  {resolved_did or 'N/A'}")
             if appview_url:
                 console.print(f"  AppView:      {appview_did or 'N/A'}")
+            if plc_did:
+                console.print(f"  PLC DID:      {plc_did}")
+                console.print(f"  PLC Handle:   {'✗ NOT CLAIMED' if not plc_handle else '✓ Claimed'}")
     else:
         console.print("Status: ✗ Some checks failed")
         console.print()
@@ -703,6 +747,8 @@ def check_handle(ctx, handle: str):
         else:
             console.print("  AppView:      ⊘ Skipped (not configured)")
 
+        console.print(f"  PLC Handle:   {'✓ Claimed' if plc_handle else '✗ Not claimed or not checked'}")
+
         if has_both:
             console.print()
             console.print("⚠️  Note: Both DNS TXT and well-known are configured")
@@ -719,6 +765,10 @@ def check_handle(ctx, handle: str):
         if appview_url and not appview_did:
             console.print("  • AppView cannot resolve handle - account may not be indexed yet")
             console.print("    (AppView syncs from PDS; check if account creation was recent)")
+        if not plc_handle:
+            console.print("  • PLC DID document doesn't claim this handle")
+            console.print("    Try re-setting the handle to trigger PLC update:")
+            console.print(f"    ./pds-wadmin-{config.environment or 'dev'} wid handle <did> {handle}")
 
     console.print("═" * 63)
 
