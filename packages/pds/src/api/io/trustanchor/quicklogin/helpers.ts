@@ -23,12 +23,23 @@ export type NeuroCallbackPayload = {
 }
 
 /**
+ * Normalize JID by stripping resource identifier suffix
+ * WID may send: aa7d758f-0726-4a77-a99a-815c5fa98f14@domain/resourceId
+ * We use:       aa7d758f-0726-4a77-a99a-815c5fa98f14@domain
+ */
+export function normalizeJid(jid: string): string {
+  // Strip resource identifier suffix (everything after /)
+  const slashIndex = jid.indexOf('/')
+  return slashIndex > 0 ? jid.substring(0, slashIndex) : jid
+}
+
+/**
  * Parse and validate QuickLogin payload (WP1)
  * Returns parsed fields with defaults
  */
 export function parseQuickLoginPayload(payload: NeuroCallbackPayload) {
   return {
-    jid: payload.JID || '',
+    jid: normalizeJid(payload.JID || ''),
     isTestUser: payload.istestuser === 'true' ? 1 : 0,
     preferredHandle: payload.preferredhandle || undefined,
   }

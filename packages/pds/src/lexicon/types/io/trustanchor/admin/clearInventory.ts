@@ -12,28 +12,18 @@ import {
 
 const is$typed = _is$typed,
   validate = _validate
-const id = 'io.trustanchor.admin.createInvitation'
+const id = 'io.trustanchor.admin.clearInventory'
 
 export type QueryParams = {}
 
 export interface InputSchema {
-  /** Invitation email */
-  email: string
-  /** Optional suggested handle */
-  preferredHandle?: string
-  /** Unix timestamp when invitation was issued */
-  invitationTimestamp: number
+  /** Only clear accounts older than this many days (optional) */
+  olderThanDays?: number
 }
 
 export interface OutputSchema {
-  success: boolean
-  email: string
-  preferredHandle?: string
-  /** Onboarding URL for invitation */
-  onboardingUrl?: string
-  /** QR code image URL */
-  qrCodeUrl?: string
-  expiresAt?: string
+  /** Number of accounts deleted */
+  deleted: number
 }
 
 export interface HandlerInput {

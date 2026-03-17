@@ -1,0 +1,35 @@
+{
+  "lexicon": 1,
+  "id": "io.trustanchor.admin.getInventoryStatus",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Get WID account inventory status. Admin only.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["available", "allocated", "consumed", "total"],
+          "properties": {
+            "available": {
+              "type": "integer",
+              "description": "Number of available accounts (ready to allocate)"
+            },
+            "allocated": {
+              "type": "integer",
+              "description": "Number of allocated accounts (assigned to invitations)"
+            },
+            "consumed": {
+              "type": "integer",
+              "description": "Number of consumed accounts (activated)"
+            },
+            "total": {
+              "type": "integer",
+              "description": "Total number of accounts in inventory"
+            }
+          }
+        }
+      }
+    }
+  }
+}

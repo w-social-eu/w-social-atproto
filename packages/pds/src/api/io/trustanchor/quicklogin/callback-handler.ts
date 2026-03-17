@@ -4,6 +4,7 @@ import {
   NeuroCallbackPayload,
   createAccountViaQuickLogin,
   getHandleForDid,
+  normalizeJid,
 } from './helpers'
 import type { QuickLoginSession } from './store'
 
@@ -40,6 +41,16 @@ const throwInvitationRequired = (message: string): never => {
   const err = new Error(message) as Error & { code: string }
   err.code = 'InvitationRequired'
   throw err
+}
+
+/**
+ * Normalize domain by stripping resource identifier suffix
+ * WID may send: domain/resourceId
+ * We validate: domain
+ */
+const normalizeDomain = (domain: string): string => {
+  const slashIndex = domain.indexOf('/')
+  return slashIndex > 0 ? domain.substring(0, slashIndex) : domain
 }
 
 // Unused in JID-based flow but kept for backwards compatibility
@@ -169,8 +180,9 @@ export async function handleQuickLoginCallback(
   }
 
   // WP1: Parse JID from payload (required, pseudonymous lookup key)
-  const jid = payload.JID
-  if (!jid) {
+  // Normalize to strip any resource identifier suffix (e.g., user@domain/resourceId → user@domain)
+  const rawJid = payload.JID
+  if (!rawJid) {
     log.error({ payload }, 'JID missing from callback')
     ctx.quickloginStore.updateSession(session.sessionId, {
       status: 'failed',
@@ -178,11 +190,14 @@ export async function handleQuickLoginCallback(
     })
     throw new Error('JID missing from callback')
   }
+  const jid = normalizeJid(rawJid)
 
   // Validate Neuro server hostname against allowed suffixes (security check)
   // If suffixes configured: REQUIRED validation
   // If no suffixes configured: SKIP validation (development mode)
-  const domain = payload.Domain
+  // Normalize domain to strip any resource identifier suffix
+  const rawDomain = payload.Domain
+  const domain = rawDomain ? normalizeDomain(rawDomain) : undefined
   const allowedSuffixes = ctx.cfg.quicklogin?.hostnameSuffixes || []
 
   if (allowedSuffixes.length > 0) {
@@ -309,6 +324,17 @@ export async function handleQuickLoginCallback(
     // Consume matching JID invitation if present (policy: always consume on login)
     await ctx.invitationManager.consumeInvitationByJid(jid, did, handle)
 
+    // Mark WID inventory account as consumed
+    try {
+      await ctx.widInventoryManager.markAccountConsumed(jid)
+    } catch (err) {
+      // Log but don't fail - inventory tracking is non-critical
+      log.warn(
+        { jid: jid.substring(0, 8) + '...', error: (err as Error).message },
+        'Failed to mark inventory account as consumed',
+      )
+    }
+
     // Create session
     const account = await ctx.accountManager.getAccount(did)
     if (!account) {
@@ -366,6 +392,17 @@ export async function handleQuickLoginCallback(
       // Consume invitation by JID (only matching JID row)
       await ctx.invitationManager.consumeInvitationByJid(jid, did, handle)
 
+      // Mark WID inventory account as consumed
+      try {
+        await ctx.widInventoryManager.markAccountConsumed(jid)
+      } catch (err) {
+        // Log but don't fail - inventory tracking is non-critical
+        log.warn(
+          { jid: jid.substring(0, 8) + '...', error: (err as Error).message },
+          'Failed to mark inventory account as consumed',
+        )
+      }
+
       log.info(
         { sessionId: session.sessionId },
         'New account created via QuickLogin',
@@ -413,6 +450,8 @@ export async function handleQuickLoginCallback(
  * Handle a QuickLogin callback for a non-login approval session
  * (delete_account, plc_operation). Creates an internal email-style token
  * and stores it in the session for the client to retrieve via status polling.
+ *
+ * SECURITY: Verifies that the JID scanning the QR code matches the account owner's JID.
  */
 async function handleApprovalCallback(
   session: QuickLoginSession,
@@ -435,8 +474,77 @@ async function handleApprovalCallback(
   }
 
   log.info(
-    { purpose, did: approvalDid, jid },
-    'WID approval QR scanned — creating token',
+    { purpose, did: approvalDid, jid: jid.substring(0, 8) + '...' },
+    'WID approval QR scanned — verifying ownership',
+  )
+
+  // SECURITY FIX: Verify the JID scanning the QR code owns the account being approved
+  // This prevents cross-account deletion/modification attacks
+  const accountLink = await ctx.accountManager.db.db
+    .selectFrom('neuro_identity_link')
+    .select(['userJid', 'testUserJid', 'isTestUser'])
+    .where('did', '=', approvalDid)
+    .executeTakeFirst()
+
+  if (!accountLink) {
+    log.error(
+      { sessionId: session.sessionId, did: approvalDid },
+      'Account has no linked WID identity - cannot approve',
+    )
+    ctx.quickloginStore.updateSession(session.sessionId, {
+      status: 'failed',
+      error: 'Account has no linked WID identity',
+    })
+    throw new Error('Account has no linked WID identity')
+  }
+
+  const accountJid =
+    accountLink.isTestUser === 1 ? accountLink.testUserJid : accountLink.userJid
+
+  if (!accountJid) {
+    log.error(
+      { sessionId: session.sessionId, did: approvalDid },
+      'Account link missing JID field',
+    )
+    ctx.quickloginStore.updateSession(session.sessionId, {
+      status: 'failed',
+      error: 'Account link missing JID',
+    })
+    throw new Error('Account link missing JID field')
+  }
+
+  // Normalize both JIDs for comparison (strip resource identifiers)
+  const normalizedAccountJid = normalizeJid(accountJid)
+  const normalizedScannedJid = normalizeJid(jid)
+
+  // CRITICAL SECURITY CHECK: JIDs must match
+  if (normalizedAccountJid !== normalizedScannedJid) {
+    log.warn(
+      {
+        sessionId: session.sessionId,
+        purpose,
+        approvalDid,
+        expectedJid: normalizedAccountJid.substring(0, 8) + '...',
+        receivedJid: normalizedScannedJid.substring(0, 8) + '...',
+      },
+      'JID mismatch: QR code must be scanned by account owner',
+    )
+
+    ctx.quickloginStore.updateSession(session.sessionId, {
+      status: 'failed',
+      error: 'JID mismatch: QR code must be scanned by account owner',
+    })
+
+    throw new Error('This QR code must be scanned by the account owner')
+  }
+
+  log.info(
+    {
+      purpose,
+      did: approvalDid,
+      jid: normalizedScannedJid.substring(0, 8) + '...',
+    },
+    'JID ownership verified — creating approval token',
   )
 
   try {

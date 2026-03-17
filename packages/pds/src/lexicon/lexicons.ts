@@ -15851,6 +15851,43 @@ export const schemaDict = {
       },
     },
   },
+  IoTrustanchorAdminClearInventory: {
+    lexicon: 1,
+    id: 'io.trustanchor.admin.clearInventory',
+    defs: {
+      main: {
+        type: 'procedure',
+        description: 'Clear available WID accounts from inventory. Admin only.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            properties: {
+              olderThanDays: {
+                type: 'integer',
+                minimum: 0,
+                description:
+                  'Only clear accounts older than this many days (optional)',
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['deleted'],
+            properties: {
+              deleted: {
+                type: 'integer',
+                description: 'Number of accounts deleted',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   IoTrustanchorAdminCreateInvitation: {
     lexicon: 1,
     id: 'io.trustanchor.admin.createInvitation',
@@ -15894,6 +15931,14 @@ export const schemaDict = {
               },
               preferredHandle: {
                 type: 'string',
+              },
+              onboardingUrl: {
+                type: 'string',
+                description: 'Onboarding URL for invitation',
+              },
+              qrCodeUrl: {
+                type: 'string',
+                description: 'QR code image URL',
               },
               expiresAt: {
                 type: 'string',
@@ -16007,6 +16052,42 @@ export const schemaDict = {
               },
               id: {
                 type: 'integer',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  IoTrustanchorAdminGetInventoryStatus: {
+    lexicon: 1,
+    id: 'io.trustanchor.admin.getInventoryStatus',
+    defs: {
+      main: {
+        type: 'query',
+        description: 'Get WID account inventory status. Admin only.',
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['available', 'allocated', 'consumed', 'total'],
+            properties: {
+              available: {
+                type: 'integer',
+                description: 'Number of available accounts (ready to allocate)',
+              },
+              allocated: {
+                type: 'integer',
+                description:
+                  'Number of allocated accounts (assigned to invitations)',
+              },
+              consumed: {
+                type: 'integer',
+                description: 'Number of consumed accounts (activated)',
+              },
+              total: {
+                type: 'integer',
+                description: 'Total number of accounts in inventory',
               },
             },
           },
@@ -16138,6 +16219,18 @@ export const schemaDict = {
           preferredHandle: {
             type: 'string',
           },
+          jid: {
+            type: 'string',
+            description: 'W ID (DID) associated with this invitation',
+          },
+          onboardingUrl: {
+            type: 'string',
+            description: 'Onboarding URL for the invitation',
+          },
+          qrCodeUrl: {
+            type: 'string',
+            description: 'QR code URL for quick login',
+          },
           status: {
             type: 'string',
             enum: ['pending', 'consumed', 'expired', 'revoked'],
@@ -16162,6 +16255,93 @@ export const schemaDict = {
           },
           consumingHandle: {
             type: 'string',
+          },
+          emailLastSentAt: {
+            type: 'string',
+            format: 'datetime',
+            description: 'Timestamp of last email attempt',
+          },
+          emailAttemptCount: {
+            type: 'integer',
+            description: 'Number of email send attempts',
+          },
+          emailLastError: {
+            type: 'string',
+            description: 'Last email send error message',
+          },
+        },
+      },
+    },
+  },
+  IoTrustanchorAdminLoadInventory: {
+    lexicon: 1,
+    id: 'io.trustanchor.admin.loadInventory',
+    defs: {
+      main: {
+        type: 'procedure',
+        description: 'Load WID account inventory from batch JSON. Admin only.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['accounts'],
+            properties: {
+              accounts: {
+                type: 'array',
+                items: {
+                  type: 'ref',
+                  ref: 'lex:io.trustanchor.admin.loadInventory#inventoryAccount',
+                },
+                description: 'Array of WID accounts to load',
+              },
+              batchName: {
+                type: 'string',
+                description: 'Optional batch identifier',
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['loaded', 'skipped', 'total'],
+            properties: {
+              loaded: {
+                type: 'integer',
+                description: 'Number of accounts successfully loaded',
+              },
+              skipped: {
+                type: 'integer',
+                description: 'Number of accounts skipped (duplicates)',
+              },
+              total: {
+                type: 'integer',
+                description: 'Total accounts processed',
+              },
+            },
+          },
+        },
+      },
+      inventoryAccount: {
+        type: 'object',
+        required: ['did', 'onboardingUrl', 'qrCodeUrl'],
+        properties: {
+          did: {
+            type: 'string',
+            description: 'Account DID (used as JID)',
+          },
+          onboardingUrl: {
+            type: 'string',
+            description: 'Onboarding URL for account activation',
+          },
+          qrCodeUrl: {
+            type: 'string',
+            description: 'URL to QR code image',
+          },
+          preferredHandle: {
+            type: 'string',
+            description: 'Optional suggested handle',
           },
         },
       },
@@ -16211,6 +16391,58 @@ export const schemaDict = {
               before: {
                 type: 'string',
                 format: 'datetime',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  IoTrustanchorAdminUpdateInvitationEmailStatus: {
+    lexicon: 1,
+    id: 'io.trustanchor.admin.updateInvitationEmailStatus',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Update email delivery status for an invitation. Admin only. Called from CLI after sending via Brevo.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['email', 'status'],
+            properties: {
+              email: {
+                type: 'string',
+                description: 'Invitation email address',
+              },
+              status: {
+                type: 'string',
+                enum: ['email_sent', 'email_failed'],
+                description: 'Email delivery status',
+              },
+              error: {
+                type: 'string',
+                description: 'Error message if status is email_failed',
+              },
+              messageId: {
+                type: 'string',
+                description: 'Brevo message ID if status is email_sent',
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['success'],
+            properties: {
+              success: {
+                type: 'boolean',
+              },
+              invitationId: {
+                type: 'integer',
               },
             },
           },
@@ -21990,13 +22222,19 @@ export const ids = {
     'com.atproto.temp.requestPhoneVerification',
   ComAtprotoTempRevokeAccountCredentials:
     'com.atproto.temp.revokeAccountCredentials',
+  IoTrustanchorAdminClearInventory: 'io.trustanchor.admin.clearInventory',
   IoTrustanchorAdminCreateInvitation: 'io.trustanchor.admin.createInvitation',
   IoTrustanchorAdminCreateIosTestUser: 'io.trustanchor.admin.createIosTestUser',
   IoTrustanchorAdminDeleteInvitation: 'io.trustanchor.admin.deleteInvitation',
+  IoTrustanchorAdminGetInventoryStatus:
+    'io.trustanchor.admin.getInventoryStatus',
   IoTrustanchorAdminGetInvitationStats:
     'io.trustanchor.admin.getInvitationStats',
   IoTrustanchorAdminListInvitations: 'io.trustanchor.admin.listInvitations',
+  IoTrustanchorAdminLoadInventory: 'io.trustanchor.admin.loadInventory',
   IoTrustanchorAdminPurgeInvitations: 'io.trustanchor.admin.purgeInvitations',
+  IoTrustanchorAdminUpdateInvitationEmailStatus:
+    'io.trustanchor.admin.updateInvitationEmailStatus',
   IoTrustanchorQuickloginCallback: 'io.trustanchor.quicklogin.callback',
   IoTrustanchorQuickloginInit: 'io.trustanchor.quicklogin.init',
   IoTrustanchorQuickloginStatus: 'io.trustanchor.quicklogin.status',

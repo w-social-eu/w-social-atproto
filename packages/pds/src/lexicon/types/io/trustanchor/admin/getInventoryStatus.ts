@@ -12,34 +12,23 @@ import {
 
 const is$typed = _is$typed,
   validate = _validate
-const id = 'io.trustanchor.admin.createInvitation'
+const id = 'io.trustanchor.admin.getInventoryStatus'
 
 export type QueryParams = {}
-
-export interface InputSchema {
-  /** Invitation email */
-  email: string
-  /** Optional suggested handle */
-  preferredHandle?: string
-  /** Unix timestamp when invitation was issued */
-  invitationTimestamp: number
-}
+export type InputSchema = undefined
 
 export interface OutputSchema {
-  success: boolean
-  email: string
-  preferredHandle?: string
-  /** Onboarding URL for invitation */
-  onboardingUrl?: string
-  /** QR code image URL */
-  qrCodeUrl?: string
-  expiresAt?: string
+  /** Number of available accounts (ready to allocate) */
+  available: number
+  /** Number of allocated accounts (assigned to invitations) */
+  allocated: number
+  /** Number of consumed accounts (activated) */
+  consumed: number
+  /** Total number of accounts in inventory */
+  total: number
 }
 
-export interface HandlerInput {
-  encoding: 'application/json'
-  body: InputSchema
-}
+export type HandlerInput = void
 
 export interface HandlerSuccess {
   encoding: 'application/json'
