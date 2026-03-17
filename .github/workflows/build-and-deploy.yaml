@@ -27,7 +27,7 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       packages: write
 
     steps:
@@ -48,6 +48,13 @@ jobs:
           echo "environment=$ENV" >> $GITHUB_OUTPUT
           echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
           echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+          # Map env to kubeconfig secret name
+          case "$ENV" in
+            dev)   echo "kubeconfig_secret=KUBECONFIG_DEV" >> $GITHUB_OUTPUT ;;
+            stage) echo "kubeconfig_secret=KUBECONFIG_STAGE" >> $GITHUB_OUTPUT ;;
+            prod)  echo "kubeconfig_secret=KUBECONFIG_PROD" >> $GITHUB_OUTPUT ;;
+          esac
 
       # --- Step 1: Build atproto PDS tarball locally ---
 
@@ -144,7 +151,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # --- Step 3: Update infrastructure repo image tag ---
+      # --- Step 3: Deploy to K8s via Helm ---
 
       - name: Checkout infrastructure
         uses: actions/checkout@v4
@@ -153,37 +160,33 @@ jobs:
           token: ${{ secrets.PAT_TOKEN }}
           path: infrastructure
 
-      - name: Update image tag
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets[steps.config.outputs.kubeconfig_secret] }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Deploy PDS
         run: |
           ENV="${{ steps.config.outputs.environment }}"
           TAG="${{ steps.config.outputs.image_tag }}"
-          VALUES_FILE="infrastructure/fleet/bundles/pds/values-${ENV}.yaml"
+          CHART="infrastructure/fleet/bundles/pds"
 
-          if [ ! -f "$VALUES_FILE" ]; then
-            echo "::error::Values file not found: $VALUES_FILE"
-            exit 1
-          fi
-
-          # Update image repository and tag
-          sed -i "s|tag: \"custom-${ENV}-[a-f0-9]*\"|tag: \"${TAG}\"|" "$VALUES_FILE"
-          echo "Updated $VALUES_FILE with tag: $TAG"
-          grep -E 'repository:|tag:' "$VALUES_FILE"
-
-      - name: Push infrastructure update
-        run: |
-          cd infrastructure
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          ENV="${{ steps.config.outputs.environment }}"
-          TAG="${{ steps.config.outputs.image_tag }}"
-          git add "fleet/bundles/pds/values-${ENV}.yaml"
-          git diff --cached --quiet && echo "No changes to commit" && exit 0
-          git commit -m "deploy pds ${TAG} to ${ENV}"
-          git push
+          helm upgrade --install pds "$CHART" \
+            -f "$CHART/values.yaml" \
+            -f "$CHART/values-${ENV}.yaml" \
+            --set image.repository=${{ env.PDS_IMAGE }} \
+            --set image.tag="${TAG}" \
+            -n pds \
+            --wait --timeout 5m
 
       # --- Summary ---
 
       - name: Summary
+        if: always()
         run: |
           echo "## PDS Build & Deploy" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -192,5 +195,4 @@ jobs:
           echo "| Environment | **${{ steps.config.outputs.environment }}** |" >> $GITHUB_STEP_SUMMARY
           echo "| Atproto commit | \`${{ steps.config.outputs.short_sha }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Docker image | \`${{ env.PDS_IMAGE }}:${{ steps.config.outputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Infrastructure | Updated \`values-${{ steps.config.outputs.environment }}.yaml\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Deploy | Fleet auto-deploys from git |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deploy | \`helm upgrade\` to \`${{ steps.config.outputs.environment }}\` cluster |" >> $GITHUB_STEP_SUMMARY
