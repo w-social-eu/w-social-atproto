@@ -21,7 +21,7 @@ env:
   NODE_VERSION: '20'
   PNPM_VERSION: '8.15.9'
   REGISTRY: ghcr.io
-  PDS_IMAGE: ghcr.io/w-social-eu/pds
+  PDS_IMAGE: ghcr.io/w-social-eu/w-social-atproto/pds
 
 jobs:
   build-and-deploy:
@@ -97,7 +97,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.PAT_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prepare Docker build context
         run: |
@@ -127,7 +127,7 @@ jobs:
           ENV NODE_ENV=production
           ENV UV_USE_IO_URING=0
           CMD ["node", "--enable-source-maps", "index.js"]
-          LABEL org.opencontainers.image.source=https://github.com/w-social-eu/pds
+          LABEL org.opencontainers.image.source=https://github.com/w-social-eu/w-social-atproto
           LABEL org.opencontainers.image.description="AT Protocol PDS (Custom Build)"
           LABEL org.opencontainers.image.licenses=MIT
           EOF
@@ -164,9 +164,10 @@ jobs:
             exit 1
           fi
 
+          # Update image repository and tag
           sed -i "s|tag: \"custom-${ENV}-[a-f0-9]*\"|tag: \"${TAG}\"|" "$VALUES_FILE"
           echo "Updated $VALUES_FILE with tag: $TAG"
-          grep 'tag:' "$VALUES_FILE"
+          grep -E 'repository:|tag:' "$VALUES_FILE"
 
       - name: Push infrastructure update
         run: |
