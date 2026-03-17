@@ -1,4 +1,3 @@
-import { AGE_ASSURANCE_CONFIG } from '../../../../api/age-assurance/const'
 import { AppContext } from '../../../../context'
 import { Server } from '../../../../lexicon'
 
@@ -8,7 +7,10 @@ export default function (server: Server, ctx: AppContext) {
     handler: async () => {
       return {
         encoding: 'application/json',
-        body: AGE_ASSURANCE_CONFIG,
+        body: {
+          // Empty regions list — everyone gets full access (all users treated as adults)
+          regions: [],
+        },
       }
     },
   })
