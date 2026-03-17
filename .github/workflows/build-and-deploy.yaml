@@ -166,7 +166,7 @@ jobs:
       - name: Setup kubeconfig
         run: |
           mkdir -p ~/.kube
-          echo "${{ secrets[steps.config.outputs.kubeconfig_secret] }}" | base64 -d > ~/.kube/config
+          echo "${{ secrets[steps.config.outputs.kubeconfig_secret] }}" > ~/.kube/config
           chmod 600 ~/.kube/config
 
       - name: Deploy PDS
