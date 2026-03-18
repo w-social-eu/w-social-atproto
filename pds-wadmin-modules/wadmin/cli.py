@@ -71,6 +71,10 @@ cli.add_command(account)
 from .commands.nomad import nomad
 cli.add_command(nomad)
 
+# Phase 5 - Import Admin commands
+from .commands.admin import admin
+cli.add_command(admin)
+
 
 @cli.command()
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)

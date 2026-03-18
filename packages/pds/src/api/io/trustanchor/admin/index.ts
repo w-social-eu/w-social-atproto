@@ -10,6 +10,7 @@ import getInventoryStatus from './getInventoryStatus'
 import loadInventory from './loadInventory'
 import clearInventory from './clearInventory'
 import updateInvitationEmailStatus from './updateInvitationEmailStatus'
+import getBuildInfo from './getBuildInfo'
 
 export default function (server: Server, ctx: AppContext) {
   createInvitation(server, ctx)
@@ -22,4 +23,5 @@ export default function (server: Server, ctx: AppContext) {
   loadInventory(server, ctx)
   clearInventory(server, ctx)
   updateInvitationEmailStatus(server, ctx)
+  getBuildInfo(server, ctx)
 }

@@ -16059,6 +16059,46 @@ export const schemaDict = {
       },
     },
   },
+  IoTrustanchorAdminGetBuildInfo: {
+    lexicon: 1,
+    id: 'io.trustanchor.admin.getBuildInfo',
+    defs: {
+      main: {
+        type: 'query',
+        description:
+          'Get PDS build information (version, build time, uptime). Admin only.',
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['buildHash', 'buildTime', 'startedAt', 'uptime'],
+            properties: {
+              buildHash: {
+                type: 'string',
+                description: 'Git commit hash of the build',
+              },
+              buildTime: {
+                type: 'string',
+                description: 'ISO 8601 timestamp of when the build was created',
+              },
+              startedAt: {
+                type: 'string',
+                description: 'ISO 8601 timestamp of when the server started',
+              },
+              uptime: {
+                type: 'integer',
+                description: 'Server uptime in seconds',
+              },
+              nodeVersion: {
+                type: 'string',
+                description: 'Node.js version',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   IoTrustanchorAdminGetInventoryStatus: {
     lexicon: 1,
     id: 'io.trustanchor.admin.getInventoryStatus',
@@ -22226,6 +22266,7 @@ export const ids = {
   IoTrustanchorAdminCreateInvitation: 'io.trustanchor.admin.createInvitation',
   IoTrustanchorAdminCreateIosTestUser: 'io.trustanchor.admin.createIosTestUser',
   IoTrustanchorAdminDeleteInvitation: 'io.trustanchor.admin.deleteInvitation',
+  IoTrustanchorAdminGetBuildInfo: 'io.trustanchor.admin.getBuildInfo',
   IoTrustanchorAdminGetInventoryStatus:
     'io.trustanchor.admin.getInventoryStatus',
   IoTrustanchorAdminGetInvitationStats:
