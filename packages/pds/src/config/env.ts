@@ -188,6 +188,9 @@ export function readEnv() {
     neuroCallbackSignatureRequired: envBool(
       'PDS_NEURO_CALLBACK_SIGNATURE_REQUIRED',
     ),
+
+    // W Social extensions
+    wsocialOrganizationDids: envList('PDS_WSOCIAL_ORGANIZATION_DIDS'),
   }
 }
 
