@@ -358,12 +358,16 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
           apiBaseUrl: env.quickloginApiBaseUrl,
           propertyFilter: env.quickloginPropertyFilter,
           attachmentFilter: env.quickloginAttachmentFilter,
+          purposeTextLogin: env.quickloginPurposeTextLogin,
           hostnameSuffixes: env.neuroHostnameSuffixes || [],
         }
       : null,
     debugNeuro: env.debugNeuro ?? false,
     allowTestUserLogin: env.allowTestUserLogin ?? false, // DEFAULT: false (fail-safe)
     neuroCallbackSignatureRequired: env.neuroCallbackSignatureRequired ?? false, // WP2 feature-flagged pending signature contract
+    wsocial: {
+      organizationDids: env.wsocialOrganizationDids || [],
+    },
   }
 }
 
@@ -393,6 +397,7 @@ export type ServerConfig = {
   debugNeuro: boolean
   allowTestUserLogin: boolean // Enable/disable test-user login (new unified QuickLogin flow)
   neuroCallbackSignatureRequired: boolean // Feature flag: require callback signature verification (WP2)
+  wsocial: WSocialConfig
 }
 
 export type ServiceConfig = {
@@ -563,5 +568,10 @@ export type QuickLoginConfig = {
   apiBaseUrl?: string
   propertyFilter?: string
   attachmentFilter?: string
+  purposeTextLogin?: string
   hostnameSuffixes: string[] // Allowed Neuro server hostname suffixes (e.g., ['.example.tld', '.example.dev']). Empty array = accept any domain (dev mode)
+}
+
+export type WSocialConfig = {
+  organizationDids: string[] // DIDs that should be marked as "organization" account type
 }

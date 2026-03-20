@@ -60,7 +60,7 @@ export default function (server: Server, ctx: AppContext) {
       try {
         const qrRequestBody: Record<string, unknown> = {
           mode: 'image',
-          purpose: 'Login to W Social',
+          purpose: ctx.cfg.quicklogin.purposeTextLogin || 'Login to W Social',
           serviceId,
           tab: session.sessionId,
         }
