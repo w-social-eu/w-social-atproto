@@ -236,6 +236,25 @@ export class PDS {
       },
       'PDS starting',
     )
+
+    // Write build info to file for debugging (survives log rotation)
+    try {
+      const buildInfo = {
+        hash: BUILD_HASH || 'unknown',
+        buildTime: BUILD_TIME || 'unknown',
+        startedAt: new Date().toISOString(),
+        nodeVersion: process.version,
+      }
+      const fs = await import('node:fs/promises')
+      await fs.writeFile(
+        '/pds/build-info.json',
+        JSON.stringify(buildInfo, null, 2),
+      )
+    } catch (err) {
+      // Non-critical - log but don't fail startup
+      httpLogger.warn({ err }, 'Failed to write build-info.json')
+    }
+
     await this.ctx.sequencer.start()
     const server = this.app.listen(this.ctx.cfg.service.port)
     this.server = server

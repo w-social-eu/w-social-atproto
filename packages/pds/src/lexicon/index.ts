@@ -230,6 +230,7 @@ import * as IoTrustanchorAdminClearInventory from './types/io/trustanchor/admin/
 import * as IoTrustanchorAdminCreateInvitation from './types/io/trustanchor/admin/createInvitation.js'
 import * as IoTrustanchorAdminCreateIosTestUser from './types/io/trustanchor/admin/createIosTestUser.js'
 import * as IoTrustanchorAdminDeleteInvitation from './types/io/trustanchor/admin/deleteInvitation.js'
+import * as IoTrustanchorAdminGetBuildInfo from './types/io/trustanchor/admin/getBuildInfo.js'
 import * as IoTrustanchorAdminGetInventoryStatus from './types/io/trustanchor/admin/getInventoryStatus.js'
 import * as IoTrustanchorAdminGetInvitationStats from './types/io/trustanchor/admin/getInvitationStats.js'
 import * as IoTrustanchorAdminListInvitations from './types/io/trustanchor/admin/listInvitations.js'
@@ -3387,6 +3388,18 @@ export class IoTrustanchorAdminNS {
     >,
   ) {
     const nsid = 'io.trustanchor.admin.deleteInvitation' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  getBuildInfo<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorAdminGetBuildInfo.QueryParams,
+      IoTrustanchorAdminGetBuildInfo.HandlerInput,
+      IoTrustanchorAdminGetBuildInfo.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.admin.getBuildInfo' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 

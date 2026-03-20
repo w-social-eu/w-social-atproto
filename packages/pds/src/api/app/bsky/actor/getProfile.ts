@@ -8,6 +8,7 @@ import {
   LocalViewer,
   pipethroughReadAfterWrite,
 } from '../../../../read-after-write'
+import { addWSocialExtensions } from '../../../io/trustanchor/profile-extensions'
 
 export default function (server: Server, ctx: AppContext) {
   if (!ctx.bskyAppView) return
@@ -21,18 +22,28 @@ export default function (server: Server, ctx: AppContext) {
       },
     }),
     handler: async (reqCtx) => {
-      return pipethroughReadAfterWrite(ctx, reqCtx, getProfileMunge)
+      return pipethroughReadAfterWrite(ctx, reqCtx, getProfileMunge(ctx))
     },
   })
 }
 
-const getProfileMunge = async (
-  localViewer: LocalViewer,
-  original: OutputSchema,
-  local: LocalRecords,
-  requester: string,
-): Promise<OutputSchema> => {
-  if (!local.profile) return original
-  if (original.did !== requester) return original
-  return localViewer.updateProfileDetailed(original, local.profile.record)
-}
+const getProfileMunge =
+  (ctx: AppContext) =>
+  async (
+    localViewer: LocalViewer,
+    original: OutputSchema,
+    local: LocalRecords,
+    requester: string,
+  ): Promise<OutputSchema> => {
+    // Apply read-after-write updates if viewing own profile
+    let profile = original
+    if (local.profile && original.did === requester) {
+      profile = localViewer.updateProfileDetailed(
+        original,
+        local.profile.record,
+      )
+    }
+
+    // Add W Social extensions to any profile (local accounts only)
+    return addWSocialExtensions(ctx, profile)
+  }

@@ -8,6 +8,7 @@ import {
   LocalViewer,
   pipethroughReadAfterWrite,
 } from '../../../../read-after-write'
+import { addWSocialExtensions } from '../../../io/trustanchor/profile-extensions'
 
 export default function (server: Server, ctx: AppContext) {
   if (!ctx.bskyAppView) return
@@ -21,26 +22,37 @@ export default function (server: Server, ctx: AppContext) {
       },
     }),
     handler: async (reqCtx) => {
-      return pipethroughReadAfterWrite(ctx, reqCtx, getProfilesMunge)
+      return pipethroughReadAfterWrite(ctx, reqCtx, getProfilesMunge(ctx))
     },
   })
 }
 
-const getProfilesMunge = async (
-  localViewer: LocalViewer,
-  original: OutputSchema,
-  local: LocalRecords,
-  requester: string,
-): Promise<OutputSchema> => {
-  const localProf = local.profile
-  if (!localProf) return original
+const getProfilesMunge =
+  (ctx: AppContext) =>
+  async (
+    localViewer: LocalViewer,
+    original: OutputSchema,
+    local: LocalRecords,
+    requester: string,
+  ): Promise<OutputSchema> => {
+    const localProf = local.profile
 
-  const profiles = original.profiles.map((prof) => {
-    if (prof.did !== requester) return prof
-    return localViewer.updateProfileDetailed(prof, localProf.record)
-  })
-  return {
-    ...original,
-    profiles,
+    // Process all profiles: apply read-after-write + W Social extensions
+    const profiles = await Promise.all(
+      original.profiles.map(async (prof) => {
+        // Apply read-after-write updates if viewing own profile
+        let profile = prof
+        if (localProf && prof.did === requester) {
+          profile = localViewer.updateProfileDetailed(prof, localProf.record)
+        }
+
+        // Add W Social extensions to any profile (local accounts only)
+        return addWSocialExtensions(ctx, profile)
+      }),
+    )
+
+    return {
+      ...original,
+      profiles,
+    }
   }
-}
