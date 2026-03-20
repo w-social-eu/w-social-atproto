@@ -1,0 +1,169 @@
+name: Build & Deploy PDS
+
+on:
+  push:
+    branches:
+      - develop
+      - feature/ci_cd_unified
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: false
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - stage
+          - prod
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '8.15.9'
+  REGISTRY: ghcr.io
+  PDS_IMAGE: ghcr.io/w-social-eu/w-social-atproto/pds
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Determine environment
+        id: config
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            ENV="${{ github.event.inputs.environment }}"
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+            ENV="stage"
+          elif [[ "${{ github.ref_name }}" == "develop" || "${{ github.ref_name }}" == feature/* ]]; then
+            ENV="dev"
+          else
+            ENV="dev"
+          fi
+          SHORT_SHA="${GITHUB_SHA::7}"
+          IMAGE_TAG="custom-${ENV}-${SHORT_SHA}"
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+          # Map env to kubeconfig secret name
+          case "$ENV" in
+            dev)   echo "kubeconfig_secret=KUBECONFIG_DEV" >> $GITHUB_OUTPUT ;;
+            stage) echo "kubeconfig_secret=KUBECONFIG_STAGE" >> $GITHUB_OUTPUT ;;
+            prod)  echo "kubeconfig_secret=KUBECONFIG_PROD" >> $GITHUB_OUTPUT ;;
+          esac
+
+      # --- Step 1: Build atproto PDS tarball locally ---
+
+      - name: Checkout atproto
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Build PDS package
+        run: pnpm --filter @atproto/pds... build
+
+      - name: Pack tarball
+        id: tarball
+        run: |
+          cd packages/pds
+          pnpm pack --pack-destination /tmp/
+          TARBALL=$(ls /tmp/atproto-pds-*.tgz | head -1)
+          echo "path=$TARBALL" >> $GITHUB_OUTPUT
+          echo "Tarball: $TARBALL ($(du -h $TARBALL | cut -f1))"
+
+      # --- Step 2: Build PDS Docker image ---
+
+      - name: Checkout PDS repo
+        uses: actions/checkout@v4
+        with:
+          repository: w-social-eu/pds
+          token: ${{ secrets.PAT_TOKEN }}
+          path: pds-repo
+
+      - name: Setup Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare Docker build context
+        run: |
+          cp ${{ steps.tarball.outputs.path }} pds-repo/atproto-pds.tgz
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: pds-repo
+          push: true
+          file: pds-repo/Dockerfile.custom
+          tags: |
+            ${{ env.PDS_IMAGE }}:${{ steps.config.outputs.image_tag }}
+            ${{ env.PDS_IMAGE }}:${{ steps.config.outputs.environment }}-latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # --- Step 3: Deploy to K8s via Helm ---
+
+      - name: Checkout infrastructure
+        uses: actions/checkout@v4
+        with:
+          repository: w-social-eu/w-social-infrastructure
+          token: ${{ secrets.PAT_TOKEN }}
+          path: infrastructure
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets[steps.config.outputs.kubeconfig_secret] }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Deploy PDS
+        run: |
+          ENV="${{ steps.config.outputs.environment }}"
+          TAG="${{ steps.config.outputs.image_tag }}"
+          CHART="infrastructure/fleet/bundles/pds"
+
+          helm upgrade --install pds "$CHART" \
+            -f "$CHART/values.yaml" \
+            -f "$CHART/values-${ENV}.yaml" \
+            --set image.repository=${{ env.PDS_IMAGE }} \
+            --set image.tag="${TAG}" \
+            -n pds \
+            --wait --timeout 5m
+
+      # --- Summary ---
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## PDS Build & Deploy" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | **${{ steps.config.outputs.environment }}** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Atproto commit | \`${{ steps.config.outputs.short_sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker image | \`${{ env.PDS_IMAGE }}:${{ steps.config.outputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deploy | \`helm upgrade\` to \`${{ steps.config.outputs.environment }}\` cluster |" >> $GITHUB_STEP_SUMMARY
