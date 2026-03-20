@@ -179,6 +179,7 @@ export function readEnv() {
     quickloginApiBaseUrl: envStr('PDS_QUICKLOGIN_API_BASE_URL'),
     quickloginPropertyFilter: envStr('PDS_QUICKLOGIN_PROPERTY_FILTER'),
     quickloginAttachmentFilter: envStr('PDS_QUICKLOGIN_ATTACHMENT_FILTER'),
+    quickloginPurposeTextLogin: envStr('PDS_QUICKLOGIN_PURPOSE_TEXT_LOGIN'),
     neuroHostnameSuffixes: envList('PDS_NEURO_HOSTNAME_SUFFIXES'),
     debugNeuro: envBool('PDS_DEBUG_NEURO'),
 

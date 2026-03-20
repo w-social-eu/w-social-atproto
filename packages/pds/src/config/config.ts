@@ -358,6 +358,7 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
           apiBaseUrl: env.quickloginApiBaseUrl,
           propertyFilter: env.quickloginPropertyFilter,
           attachmentFilter: env.quickloginAttachmentFilter,
+          purposeTextLogin: env.quickloginPurposeTextLogin,
           hostnameSuffixes: env.neuroHostnameSuffixes || [],
         }
       : null,
@@ -563,5 +564,6 @@ export type QuickLoginConfig = {
   apiBaseUrl?: string
   propertyFilter?: string
   attachmentFilter?: string
+  purposeTextLogin?: string
   hostnameSuffixes: string[] // Allowed Neuro server hostname suffixes (e.g., ['.example.tld', '.example.dev']). Empty array = accept any domain (dev mode)
 }
