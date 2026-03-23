@@ -123,12 +123,12 @@ def rehome(ctx, did: str, target_pds_url: str, handle: Optional[str]):
     console.print(f"  Rehomed At:    {result.get('migratedAt', 'N/A')}")
 
 
-@account.command("create-ios-test-user")
+@account.command("create-bot-account")
 @click.argument("handle")
-@click.option("--email", default=None, help="Email address for the test user")
+@click.option("--email", default=None, help="Email address for the bot account")
 @click.pass_context
-def create_ios_test_user(ctx, handle: str, email: Optional[str]):
-    """Create an iOS test user account."""
+def create_bot_account(ctx, handle: str, email: Optional[str]):
+    """Create a bot account (admin only). Bot accounts are for automated services."""
     client: PDSClient = ctx.obj["client"]
 
     # Build request body
@@ -137,10 +137,10 @@ def create_ios_test_user(ctx, handle: str, email: Optional[str]):
         data["email"] = email
 
     # Call PDS admin endpoint
-    response = client.call("POST", "io.trustanchor.admin.createIosTestUser", data=data)
+    response = client.call("POST", "io.trustanchor.admin.createBotAccount", data=data)
 
     if not response.success:
-        print_error("Failed to create iOS test user", response.error or "Unknown error")
+        print_error("Failed to create bot account", response.error or "Unknown error")
         raise click.Abort()
 
     if not response.data:
@@ -149,7 +149,7 @@ def create_ios_test_user(ctx, handle: str, email: Optional[str]):
 
     result = response.data
 
-    print_success("iOS Test User Created")
+    print_success("Bot Account Created")
     console.print()
     console.print(f"  Handle:   {result.get('handle', 'N/A')}")
     console.print(f"  DID:      {result.get('did', 'N/A')}")
@@ -159,8 +159,6 @@ def create_ios_test_user(ctx, handle: str, email: Optional[str]):
     # Show deep link if available
     deep_link = result.get("deepLink")
     if deep_link:
-        console.print("Deep Link (for iOS app):")
+        console.print("Deep Link:")
         console.print(f"  {deep_link}")
         console.print()
-        console.print("You can also scan this QR code with the app:")
-        console.print(f"  {result.get('qrCodeUrl', 'N/A')}")

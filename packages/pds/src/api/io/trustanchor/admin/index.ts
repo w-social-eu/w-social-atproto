@@ -1,16 +1,16 @@
 import { AppContext } from '../../../../context'
 import { Server } from '../../../../lexicon'
-import listInvitations from './listInvitations'
-import getInvitationStats from './getInvitationStats'
-import deleteInvitation from './deleteInvitation'
-import purgeInvitations from './purgeInvitations'
-import createInvitation from './createInvitation'
-import createIosTestUser from './createIosTestUser'
-import getInventoryStatus from './getInventoryStatus'
-import loadInventory from './loadInventory'
 import clearInventory from './clearInventory'
-import updateInvitationEmailStatus from './updateInvitationEmailStatus'
+import createBotAccount from './createBotAccount'
+import createInvitation from './createInvitation'
+import deleteInvitation from './deleteInvitation'
 import getBuildInfo from './getBuildInfo'
+import getInventoryStatus from './getInventoryStatus'
+import getInvitationStats from './getInvitationStats'
+import listInvitations from './listInvitations'
+import loadInventory from './loadInventory'
+import purgeInvitations from './purgeInvitations'
+import updateInvitationEmailStatus from './updateInvitationEmailStatus'
 
 export default function (server: Server, ctx: AppContext) {
   createInvitation(server, ctx)
@@ -18,7 +18,7 @@ export default function (server: Server, ctx: AppContext) {
   getInvitationStats(server, ctx)
   deleteInvitation(server, ctx)
   purgeInvitations(server, ctx)
-  createIosTestUser(server, ctx)
+  createBotAccount(server, ctx)
   getInventoryStatus(server, ctx)
   loadInventory(server, ctx)
   clearInventory(server, ctx)

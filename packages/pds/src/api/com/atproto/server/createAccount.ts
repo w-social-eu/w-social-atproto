@@ -225,6 +225,16 @@ const validateInputsForLocalPds = async (
     throw new InvalidRequestError('Unsupported input: "plcOp"')
   }
 
+  // SECURITY: Block password-based account creation when invitations are disabled
+  // Bot accounts should only be created by admins via dedicated endpoint
+  // Human accounts should use WID/QuickLogin authentication
+  if (!ctx.cfg.invites.required) {
+    throw new InvalidRequestError(
+      'Password-based account creation is disabled. Please use WID authentication via QuickLogin.',
+      'PasswordAccountCreationDisabled',
+    )
+  }
+
   if (password && password.length > NEW_PASSWORD_MAX_LENGTH) {
     throw new InvalidRequestError(
       `Password too long. Maximum length is ${NEW_PASSWORD_MAX_LENGTH} characters.`,

@@ -12,12 +12,12 @@ import {
 
 const is$typed = _is$typed,
   validate = _validate
-const id = 'io.trustanchor.admin.createIosTestUser'
+const id = 'io.trustanchor.admin.createBotAccount'
 
 export type QueryParams = {}
 
 export interface InputSchema {
-  /** Handle for the test user (e.g., 'ios-test-alice') */
+  /** Handle for the bot account (e.g., 'mybot' or 'test-bot') */
   handle: string
   /** Optional email for account recovery */
   email?: string
@@ -28,11 +28,11 @@ export interface InputSchema {
 export interface OutputSchema {
   /** DID of created account */
   did: string
-  /** Full handle (e.g., 'ios-test-alice.wsky.social') */
+  /** Full handle (e.g., 'mybot.wsky.social') */
   handle: string
   /** Generated app password (1234-abcd-5678-efgh) */
   appPassword: string
-  /** Deep link URL for iOS auto-login */
+  /** Deep link URL for auto-login */
   deepLink: string
 }
 

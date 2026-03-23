@@ -127,6 +127,15 @@ export class OAuthStore
     password,
     emailOtp,
   }: SignUpData & { emailOtp?: string }): Promise<Account> {
+    // SECURITY: OAuth account creation disabled
+    // All account creation should use QuickLogin callback endpoint
+    // This method is kept as a stub in case OAuth needs to be re-enabled
+    throw new InvalidRequestError(
+      'OAuth account creation is disabled. Please use WID authentication via QuickLogin.',
+      'OAuthAccountCreationDisabled',
+    )
+
+    /* Code below is commented out - unreachable after throw above
     // @TODO Send an account creation confirmation email (+verification link) to the user (in their locale)
     // @NOTE Password strength & length already enforced by the OAuthProvider
 
@@ -246,6 +255,7 @@ export class OAuthStore
       }
       throw err
     }
+    */
   }
 
   async authenticateAccount({
@@ -724,6 +734,15 @@ This will authenticate you with your Neuro identity.`
     locale?: string
     identity: import('./helpers/neuro-auth-manager').NeuroIdentity
   }): Promise<Account> {
+    // SECURITY: OAuth+Neuro account creation disabled
+    // All WID-based account creation should use QuickLogin callback endpoint
+    // This method is kept as a stub in case OAuth needs to be re-enabled
+    throw new InvalidRequestError(
+      'OAuth account creation is disabled. WID authentication should use the QuickLogin callback endpoint.',
+      'OAuthAccountCreationDisabled',
+    )
+
+    /* Code below is commented out - unreachable after throw above
     if (!this.neuroAuthManager) {
       throw new InvalidRequestError('Neuro authentication not configured')
     }
@@ -845,6 +864,7 @@ This will authenticate you with your Neuro identity.`
       }
       throw err
     }
+    */
   }
 
   private async buildAccount(

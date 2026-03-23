@@ -15888,6 +15888,66 @@ export const schemaDict = {
       },
     },
   },
+  IoTrustanchorAdminCreateBotAccount: {
+    lexicon: 1,
+    id: 'io.trustanchor.admin.createBotAccount',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Create a bot account with app password authentication (admin only). Bot accounts are for automated services, not human users.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['handle'],
+            properties: {
+              handle: {
+                type: 'string',
+                description:
+                  "Handle for the bot account (e.g., 'mybot' or 'test-bot')",
+              },
+              email: {
+                type: 'string',
+                description: 'Optional email for account recovery',
+              },
+              privileged: {
+                type: 'boolean',
+                description:
+                  'Whether app password has full privileges (default: true)',
+                default: true,
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['did', 'handle', 'appPassword', 'deepLink'],
+            properties: {
+              did: {
+                type: 'string',
+                description: 'DID of created account',
+              },
+              handle: {
+                type: 'string',
+                description: "Full handle (e.g., 'mybot.wsky.social')",
+              },
+              appPassword: {
+                type: 'string',
+                description: 'Generated app password (1234-abcd-5678-efgh)',
+              },
+              deepLink: {
+                type: 'string',
+                description: 'Deep link URL for auto-login',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   IoTrustanchorAdminCreateInvitation: {
     lexicon: 1,
     id: 'io.trustanchor.admin.createInvitation',
@@ -15943,66 +16003,6 @@ export const schemaDict = {
               expiresAt: {
                 type: 'string',
                 format: 'datetime',
-              },
-            },
-          },
-        },
-      },
-    },
-  },
-  IoTrustanchorAdminCreateIosTestUser: {
-    lexicon: 1,
-    id: 'io.trustanchor.admin.createIosTestUser',
-    defs: {
-      main: {
-        type: 'procedure',
-        description:
-          'Create an iOS test user account with app password authentication (bypasses WID)',
-        input: {
-          encoding: 'application/json',
-          schema: {
-            type: 'object',
-            required: ['handle'],
-            properties: {
-              handle: {
-                type: 'string',
-                description:
-                  "Handle for the test user (e.g., 'ios-test-alice')",
-              },
-              email: {
-                type: 'string',
-                description: 'Optional email for account recovery',
-              },
-              privileged: {
-                type: 'boolean',
-                description:
-                  'Whether app password has full privileges (default: true)',
-                default: true,
-              },
-            },
-          },
-        },
-        output: {
-          encoding: 'application/json',
-          schema: {
-            type: 'object',
-            required: ['did', 'handle', 'appPassword', 'deepLink'],
-            properties: {
-              did: {
-                type: 'string',
-                description: 'DID of created account',
-              },
-              handle: {
-                type: 'string',
-                description: "Full handle (e.g., 'ios-test-alice.wsky.social')",
-              },
-              appPassword: {
-                type: 'string',
-                description: 'Generated app password (1234-abcd-5678-efgh)',
-              },
-              deepLink: {
-                type: 'string',
-                description: 'Deep link URL for iOS auto-login',
               },
             },
           },
@@ -22263,8 +22263,8 @@ export const ids = {
   ComAtprotoTempRevokeAccountCredentials:
     'com.atproto.temp.revokeAccountCredentials',
   IoTrustanchorAdminClearInventory: 'io.trustanchor.admin.clearInventory',
+  IoTrustanchorAdminCreateBotAccount: 'io.trustanchor.admin.createBotAccount',
   IoTrustanchorAdminCreateInvitation: 'io.trustanchor.admin.createInvitation',
-  IoTrustanchorAdminCreateIosTestUser: 'io.trustanchor.admin.createIosTestUser',
   IoTrustanchorAdminDeleteInvitation: 'io.trustanchor.admin.deleteInvitation',
   IoTrustanchorAdminGetBuildInfo: 'io.trustanchor.admin.getBuildInfo',
   IoTrustanchorAdminGetInventoryStatus:
