@@ -47,6 +47,7 @@ import { ImageUrlBuilder } from '../image/image-url-builder'
 import { dbLogger } from '../logger'
 import { ServerMailer } from '../mailer'
 import { Sequencer, syncEvtDataFromCommit } from '../sequencer'
+import { sendIdentityEventWithRetry } from '../sequencer/identity-event-helper'
 import { AccountManager } from './account-manager'
 import * as schemas from './db/schema'
 import * as accountHelper from './helpers/account'
@@ -126,6 +127,15 @@ export class OAuthStore
     password,
     emailOtp,
   }: SignUpData & { emailOtp?: string }): Promise<Account> {
+    // SECURITY: OAuth account creation disabled
+    // All account creation should use QuickLogin callback endpoint
+    // This method is kept as a stub in case OAuth needs to be re-enabled
+    throw new InvalidRequestError(
+      'OAuth account creation is disabled. Please use WID authentication via QuickLogin.',
+      'OAuthAccountCreationDisabled',
+    )
+
+    /* Code below is commented out - unreachable after throw above
     // @TODO Send an account creation confirmation email (+verification link) to the user (in their locale)
     // @NOTE Password strength & length already enforced by the OAuthProvider
 
@@ -208,7 +218,15 @@ export class OAuthStore
           repoRev: commit.rev,
         })
         try {
-          await this.sequencer.sequenceIdentityEvt(did, handle)
+          await sendIdentityEventWithRetry(
+            this.sequencer,
+            this.backgroundQueue,
+            did,
+            handle,
+            dbLogger,
+            'OAuth flow',
+          )
+
           await this.sequencer.sequenceAccountEvt(did, AccountStatus.Active)
           await this.sequencer.sequenceCommit(did, commit)
           await this.sequencer.sequenceSyncEvt(
@@ -237,6 +255,7 @@ export class OAuthStore
       }
       throw err
     }
+    */
   }
 
   async authenticateAccount({
@@ -715,6 +734,15 @@ This will authenticate you with your Neuro identity.`
     locale?: string
     identity: import('./helpers/neuro-auth-manager').NeuroIdentity
   }): Promise<Account> {
+    // SECURITY: OAuth+Neuro account creation disabled
+    // All WID-based account creation should use QuickLogin callback endpoint
+    // This method is kept as a stub in case OAuth needs to be re-enabled
+    throw new InvalidRequestError(
+      'OAuth account creation is disabled. WID authentication should use the QuickLogin callback endpoint.',
+      'OAuthAccountCreationDisabled',
+    )
+
+    /* Code below is commented out - unreachable after throw above
     if (!this.neuroAuthManager) {
       throw new InvalidRequestError('Neuro authentication not configured')
     }
@@ -800,7 +828,15 @@ This will authenticate you with your Neuro identity.`
             identity.userName,
           )
 
-          await this.sequencer.sequenceIdentityEvt(did, data.handle)
+          await sendIdentityEventWithRetry(
+            this.sequencer,
+            this.backgroundQueue,
+            did,
+            data.handle,
+            dbLogger,
+            'Neuro OAuth flow',
+          )
+
           await this.sequencer.sequenceAccountEvt(did, AccountStatus.Active)
           await this.sequencer.sequenceCommit(did, commit)
           await this.sequencer.sequenceSyncEvt(
@@ -828,6 +864,7 @@ This will authenticate you with your Neuro identity.`
       }
       throw err
     }
+    */
   }
 
   private async buildAccount(

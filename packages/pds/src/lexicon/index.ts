@@ -227,8 +227,8 @@ import * as ComAtprotoTempFetchLabels from './types/com/atproto/temp/fetchLabels
 import * as ComAtprotoTempRequestPhoneVerification from './types/com/atproto/temp/requestPhoneVerification.js'
 import * as ComAtprotoTempRevokeAccountCredentials from './types/com/atproto/temp/revokeAccountCredentials.js'
 import * as IoTrustanchorAdminClearInventory from './types/io/trustanchor/admin/clearInventory.js'
+import * as IoTrustanchorAdminCreateBotAccount from './types/io/trustanchor/admin/createBotAccount.js'
 import * as IoTrustanchorAdminCreateInvitation from './types/io/trustanchor/admin/createInvitation.js'
-import * as IoTrustanchorAdminCreateIosTestUser from './types/io/trustanchor/admin/createIosTestUser.js'
 import * as IoTrustanchorAdminDeleteInvitation from './types/io/trustanchor/admin/deleteInvitation.js'
 import * as IoTrustanchorAdminGetBuildInfo from './types/io/trustanchor/admin/getBuildInfo.js'
 import * as IoTrustanchorAdminGetInventoryStatus from './types/io/trustanchor/admin/getInventoryStatus.js'
@@ -3355,6 +3355,18 @@ export class IoTrustanchorAdminNS {
     return this._server.xrpc.method(nsid, cfg)
   }
 
+  createBotAccount<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorAdminCreateBotAccount.QueryParams,
+      IoTrustanchorAdminCreateBotAccount.HandlerInput,
+      IoTrustanchorAdminCreateBotAccount.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.admin.createBotAccount' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
   createInvitation<A extends Auth = void>(
     cfg: MethodConfigOrHandler<
       A,
@@ -3364,18 +3376,6 @@ export class IoTrustanchorAdminNS {
     >,
   ) {
     const nsid = 'io.trustanchor.admin.createInvitation' // @ts-ignore
-    return this._server.xrpc.method(nsid, cfg)
-  }
-
-  createIosTestUser<A extends Auth = void>(
-    cfg: MethodConfigOrHandler<
-      A,
-      IoTrustanchorAdminCreateIosTestUser.QueryParams,
-      IoTrustanchorAdminCreateIosTestUser.HandlerInput,
-      IoTrustanchorAdminCreateIosTestUser.HandlerOutput
-    >,
-  ) {
-    const nsid = 'io.trustanchor.admin.createIosTestUser' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 

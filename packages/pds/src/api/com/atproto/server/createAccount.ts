@@ -12,6 +12,7 @@ import { baseNormalizeAndValidate } from '../../../../handle'
 import { Server } from '../../../../lexicon'
 import { InputSchema as CreateAccountInput } from '../../../../lexicon/types/com/atproto/server/createAccount'
 import { syncEvtDataFromCommit } from '../../../../sequencer'
+import { sendIdentityEventWithRetry } from '../../../../sequencer/identity-event-helper'
 import { safeResolveDidDoc } from './util'
 
 export default function (server: Server, ctx: AppContext) {
@@ -117,7 +118,15 @@ export default function (server: Server, ctx: AppContext) {
         }
 
         if (!deactivated) {
-          await ctx.sequencer.sequenceIdentityEvt(did, handle)
+          await sendIdentityEventWithRetry(
+            ctx.sequencer,
+            ctx.backgroundQueue,
+            did,
+            handle,
+            req.log,
+            'account creation',
+          )
+
           await ctx.sequencer.sequenceAccountEvt(did, AccountStatus.Active)
           await ctx.sequencer.sequenceCommit(did, commit)
           await ctx.sequencer.sequenceSyncEvt(
@@ -214,6 +223,16 @@ const validateInputsForLocalPds = async (
   const { email, password, inviteCode } = input
   if (input.plcOp) {
     throw new InvalidRequestError('Unsupported input: "plcOp"')
+  }
+
+  // SECURITY: Block password-based account creation when invitations are disabled
+  // Bot accounts should only be created by admins via dedicated endpoint
+  // Human accounts should use WID/QuickLogin authentication
+  if (!ctx.cfg.invites.required) {
+    throw new InvalidRequestError(
+      'Password-based account creation is disabled. Please use WID authentication via QuickLogin.',
+      'PasswordAccountCreationDisabled',
+    )
   }
 
   if (password && password.length > NEW_PASSWORD_MAX_LENGTH) {

@@ -4,27 +4,23 @@ import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AccountStatus } from '../../../../account-manager/account-manager'
 import { AppContext } from '../../../../context'
 import { Server } from '../../../../lexicon'
+import { sendIdentityEventWithRetry } from '../../../../sequencer/identity-event-helper'
 import { validateAdminAuth } from './shared'
 
 export default function (server: Server, ctx: AppContext) {
-  server.io.trustanchor.admin.createIosTestUser({
+  server.io.trustanchor.admin.createBotAccount({
     handler: async ({ input, req }) => {
       validateAdminAuth(req, ctx)
       const { handle, email, privileged = true } = input.body
 
-      // Validate handle format (must start with ios-test-)
-      if (!handle.startsWith('ios-test-')) {
-        throw new InvalidRequestError(
-          'iOS test user handles must start with "ios-test-"',
-        )
-      }
+      // Bot accounts can have any handle (no prefix requirement)
 
       // Build full handle
       const fullHandle = handle.includes('.')
         ? handle
         : `${handle}.${ctx.cfg.service.hostname}`
 
-      req.log.info({ handle: fullHandle }, 'Creating iOS test user')
+      req.log.info({ handle: fullHandle }, 'Creating bot account')
 
       // Check if handle is available
       const handleTaken = await ctx.accountManager.db.db
@@ -69,12 +65,12 @@ export default function (server: Server, ctx: AppContext) {
         did,
         handle: fullHandle,
         email: accountEmail,
-        password: undefined, // iOS test users authenticate with app password only
+        password: undefined, // Bot accounts authenticate with app password only
         repoCid: commit.cid,
         repoRev: commit.rev,
       })
 
-      // Mark email as confirmed (skip verification for test users)
+      // Mark email as confirmed (skip verification for bot accounts)
       await ctx.accountManager.db.db
         .updateTable('account')
         .set({ emailConfirmedAt: new Date().toISOString() })
@@ -84,14 +80,22 @@ export default function (server: Server, ctx: AppContext) {
       req.log.info({ did, handle: fullHandle }, 'Account created')
 
       // Sequence events
-      await ctx.sequencer.sequenceIdentityEvt(did, fullHandle)
+      await sendIdentityEventWithRetry(
+        ctx.sequencer,
+        ctx.backgroundQueue,
+        did,
+        fullHandle,
+        req.log,
+        'bot account creation',
+      )
+
       await ctx.sequencer.sequenceAccountEvt(did, AccountStatus.Active)
       await ctx.sequencer.sequenceCommit(did, commit)
 
       // Create app password
       const appPassword = await ctx.accountManager.createAppPassword(
         did,
-        'ios-test-login',
+        'bot-login',
         privileged,
       )
 
@@ -104,7 +108,7 @@ export default function (server: Server, ctx: AppContext) {
 
       req.log.info(
         { did, handle: fullHandle, deepLink },
-        'iOS test user created with deep link',
+        'Bot account created with deep link',
       )
 
       return {

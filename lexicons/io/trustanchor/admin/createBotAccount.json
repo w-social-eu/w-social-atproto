@@ -1,10 +1,10 @@
 {
   "lexicon": 1,
-  "id": "io.trustanchor.admin.createIosTestUser",
+  "id": "io.trustanchor.admin.createBotAccount",
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Create an iOS test user account with app password authentication (bypasses WID)",
+      "description": "Create a bot account with app password authentication (admin only). Bot accounts are for automated services, not human users.",
       "input": {
         "encoding": "application/json",
         "schema": {
@@ -13,7 +13,7 @@
           "properties": {
             "handle": {
               "type": "string",
-              "description": "Handle for the test user (e.g., 'ios-test-alice')"
+              "description": "Handle for the bot account (e.g., 'mybot' or 'test-bot')"
             },
             "email": {
               "type": "string",
@@ -39,7 +39,7 @@
             },
             "handle": {
               "type": "string",
-              "description": "Full handle (e.g., 'ios-test-alice.wsky.social')"
+              "description": "Full handle (e.g., 'mybot.wsky.social')"
             },
             "appPassword": {
               "type": "string",
@@ -47,7 +47,7 @@
             },
             "deepLink": {
               "type": "string",
-              "description": "Deep link URL for iOS auto-login"
+              "description": "Deep link URL for auto-login"
             }
           }
         }
