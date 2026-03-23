@@ -2,6 +2,7 @@ import * as plc from '@did-plc/lib'
 import { Secp256k1Keypair } from '@atproto/crypto'
 import { AccountStatus } from '../../../../account-manager/account-manager'
 import { AppContext } from '../../../../context'
+import { sendIdentityEventWithRetry } from '../../../../sequencer/identity-event-helper'
 import { QuickLoginResult } from './store'
 
 export type NeuroCallbackPayload = {
@@ -185,7 +186,28 @@ export async function createAccountViaQuickLogin(
   }
 
   // Sequence events
-  await ctx.sequencer.sequenceIdentityEvt(did, handle)
+  // Create logger wrapper that includes sessionId if available
+  const logger =
+    log && sessionId
+      ? {
+          info: (obj: any, msg: string) => log.info({ sessionId, ...obj }, msg),
+          error: (obj: any, msg: string) =>
+            log.error({ sessionId, ...obj }, msg),
+        }
+      : {
+          info: () => {},
+          error: () => {},
+        }
+
+  await sendIdentityEventWithRetry(
+    ctx.sequencer,
+    ctx.backgroundQueue,
+    did,
+    handle,
+    logger,
+    'QuickLogin flow',
+  )
+
   await ctx.sequencer.sequenceAccountEvt(did, AccountStatus.Active)
   await ctx.sequencer.sequenceCommit(did, commit)
 

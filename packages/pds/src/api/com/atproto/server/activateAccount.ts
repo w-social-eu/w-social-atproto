@@ -3,6 +3,7 @@ import { ForbiddenError, InvalidRequestError } from '@atproto/xrpc-server'
 import { ACCESS_FULL } from '../../../../auth-scope'
 import { AppContext } from '../../../../context'
 import { Server } from '../../../../lexicon'
+import { sendIdentityEventWithRetry } from '../../../../sequencer/identity-event-helper'
 import { assertValidDidDocumentForService } from './util'
 
 export default function (server: Server, ctx: AppContext) {
@@ -45,10 +46,17 @@ export default function (server: Server, ctx: AppContext) {
       // @NOTE: we're over-emitting for now for backwards compatibility, can reduce this in the future
       const status = await ctx.accountManager.getAccountStatus(requester)
       await ctx.sequencer.sequenceAccountEvt(requester, status)
-      await ctx.sequencer.sequenceIdentityEvt(
+
+      const handle = account.handle ?? INVALID_HANDLE
+      await sendIdentityEventWithRetry(
+        ctx.sequencer,
+        ctx.backgroundQueue,
         requester,
-        account.handle ?? INVALID_HANDLE,
+        handle,
+        req.log,
+        'account activation',
       )
+
       await ctx.sequencer.sequenceSyncEvt(requester, syncData)
     },
   })
