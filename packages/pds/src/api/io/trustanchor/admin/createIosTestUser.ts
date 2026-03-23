@@ -4,6 +4,7 @@ import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AccountStatus } from '../../../../account-manager/account-manager'
 import { AppContext } from '../../../../context'
 import { Server } from '../../../../lexicon'
+import { sendIdentityEventWithRetry } from '../../../../sequencer/identity-event-helper'
 import { validateAdminAuth } from './shared'
 
 export default function (server: Server, ctx: AppContext) {
@@ -84,7 +85,15 @@ export default function (server: Server, ctx: AppContext) {
       req.log.info({ did, handle: fullHandle }, 'Account created')
 
       // Sequence events
-      await ctx.sequencer.sequenceIdentityEvt(did, fullHandle)
+      await sendIdentityEventWithRetry(
+        ctx.sequencer,
+        ctx.backgroundQueue,
+        did,
+        fullHandle,
+        req.log,
+        'iOS test user',
+      )
+
       await ctx.sequencer.sequenceAccountEvt(did, AccountStatus.Active)
       await ctx.sequencer.sequenceCommit(did, commit)
 

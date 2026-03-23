@@ -47,6 +47,7 @@ import { ImageUrlBuilder } from '../image/image-url-builder'
 import { dbLogger } from '../logger'
 import { ServerMailer } from '../mailer'
 import { Sequencer, syncEvtDataFromCommit } from '../sequencer'
+import { sendIdentityEventWithRetry } from '../sequencer/identity-event-helper'
 import { AccountManager } from './account-manager'
 import * as schemas from './db/schema'
 import * as accountHelper from './helpers/account'
@@ -208,7 +209,15 @@ export class OAuthStore
           repoRev: commit.rev,
         })
         try {
-          await this.sequencer.sequenceIdentityEvt(did, handle)
+          await sendIdentityEventWithRetry(
+            this.sequencer,
+            this.backgroundQueue,
+            did,
+            handle,
+            dbLogger,
+            'OAuth flow',
+          )
+
           await this.sequencer.sequenceAccountEvt(did, AccountStatus.Active)
           await this.sequencer.sequenceCommit(did, commit)
           await this.sequencer.sequenceSyncEvt(
@@ -800,7 +809,15 @@ This will authenticate you with your Neuro identity.`
             identity.userName,
           )
 
-          await this.sequencer.sequenceIdentityEvt(did, data.handle)
+          await sendIdentityEventWithRetry(
+            this.sequencer,
+            this.backgroundQueue,
+            did,
+            data.handle,
+            dbLogger,
+            'Neuro OAuth flow',
+          )
+
           await this.sequencer.sequenceAccountEvt(did, AccountStatus.Active)
           await this.sequencer.sequenceCommit(did, commit)
           await this.sequencer.sequenceSyncEvt(
