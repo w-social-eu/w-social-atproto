@@ -70,7 +70,16 @@ export function decodeQueryParam(
     return undefined
   }
   if (type === 'string' || type === 'datetime') {
-    return String(value)
+    let str = String(value)
+    // Handle double-encoded URIs (e.g. %253A from clients that encode twice)
+    if (str.includes('%25')) {
+      try {
+        str = decodeURIComponent(str)
+      } catch {
+        // ignore decode errors, use original string
+      }
+    }
+    return str
   }
   if (type === 'float') {
     return Number(String(value))
