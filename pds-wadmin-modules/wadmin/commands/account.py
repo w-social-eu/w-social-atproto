@@ -205,3 +205,54 @@ def subscribe_to_lists(ctx, did: str, lists: tuple):
         console.print("Lists:")
         for list_uri in lists:
             console.print(f"  • {list_uri}")
+
+
+@account.command("set-thread-prefs")
+@click.argument("did")
+@click.option(
+    "--layout",
+    type=click.Choice(["threaded", "linear"], case_sensitive=False),
+    required=True,
+    help="Reply layout: threaded or linear",
+)
+@click.option(
+    "--sort",
+    type=click.Choice(
+        ["oldest", "newest", "hotness", "most-likes", "random"], case_sensitive=False
+    ),
+    required=True,
+    help="Reply sort order",
+)
+@click.pass_context
+def set_thread_prefs(ctx, did: str, layout: str, sort: str):
+    """Set thread view preferences for an account."""
+    client: PDSClient = ctx.obj["client"]
+
+    tree_view_enabled = layout.lower() == "threaded"
+
+    console.print(
+        f"Setting thread view preferences for account {did}...",
+    )
+    console.print()
+
+    # Build request body
+    data = {"did": did, "treeViewEnabled": tree_view_enabled, "sort": sort.lower()}
+
+    # Call PDS admin endpoint
+    response = client.call(
+        "POST", "io.trustanchor.admin.setThreadViewPreferences", data=data
+    )
+
+    if not response.success:
+        print_error(
+            "Failed to set thread preferences", response.error or "Unknown error"
+        )
+        raise click.Abort()
+
+    print_success("Thread Preferences Updated")
+    console.print()
+    console.print(f"  Account:      {did}")
+    console.print(f"  Layout:       {layout} (lab_treeViewEnabled: {tree_view_enabled})")
+    console.print(f"  Sort Order:   {sort}")
+    console.print()
+

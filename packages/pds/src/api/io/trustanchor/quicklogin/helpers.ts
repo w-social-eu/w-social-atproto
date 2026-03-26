@@ -4,6 +4,7 @@ import { AccountStatus } from '../../../../account-manager/account-manager'
 import { AppContext } from '../../../../context'
 import { sendIdentityEventWithRetry } from '../../../../sequencer/identity-event-helper'
 import { subscribeToLists } from '../../../../services/list-subscription'
+import { setThreadViewPreferences } from '../../../../services/thread-preferences'
 import { QuickLoginResult } from './store'
 
 export type NeuroCallbackPayload = {
@@ -234,6 +235,37 @@ export async function createAccountViaQuickLogin(
         log.error(
           { sessionId, did, err },
           'Failed to subscribe account to default lists',
+        )
+      }
+    }
+  }
+
+  // Set default thread view preferences (for human and test accounts)
+  // Note: Both real users (isTestUser=0) and test users (isTestUser=1) get these preferences
+  // to ensure testers have the same experience as real users
+  if (ctx.cfg.wsocial.defaultThreadPref.enabled) {
+    try {
+      await setThreadViewPreferences(ctx, did, {
+        treeViewEnabled: ctx.cfg.wsocial.defaultThreadPref.treeViewEnabled,
+        sort: ctx.cfg.wsocial.defaultThreadPref.sort,
+      })
+      if (log && sessionId) {
+        log.info(
+          {
+            sessionId,
+            did,
+            treeViewEnabled: ctx.cfg.wsocial.defaultThreadPref.treeViewEnabled,
+            sort: ctx.cfg.wsocial.defaultThreadPref.sort,
+          },
+          'Set default thread view preferences for new account',
+        )
+      }
+    } catch (err) {
+      // Log error but don't fail account creation
+      if (log && sessionId) {
+        log.error(
+          { sessionId, did, err },
+          'Failed to set thread view preferences',
         )
       }
     }

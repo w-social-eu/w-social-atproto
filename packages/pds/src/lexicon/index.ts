@@ -236,6 +236,7 @@ import * as IoTrustanchorAdminGetInvitationStats from './types/io/trustanchor/ad
 import * as IoTrustanchorAdminListInvitations from './types/io/trustanchor/admin/listInvitations.js'
 import * as IoTrustanchorAdminLoadInventory from './types/io/trustanchor/admin/loadInventory.js'
 import * as IoTrustanchorAdminPurgeInvitations from './types/io/trustanchor/admin/purgeInvitations.js'
+import * as IoTrustanchorAdminSetThreadViewPreferences from './types/io/trustanchor/admin/setThreadViewPreferences.js'
 import * as IoTrustanchorAdminSubscribeToLists from './types/io/trustanchor/admin/subscribeToLists.js'
 import * as IoTrustanchorAdminUpdateInvitationEmailStatus from './types/io/trustanchor/admin/updateInvitationEmailStatus.js'
 import * as IoTrustanchorQuickloginCallback from './types/io/trustanchor/quicklogin/callback.js'
@@ -3461,6 +3462,18 @@ export class IoTrustanchorAdminNS {
     >,
   ) {
     const nsid = 'io.trustanchor.admin.purgeInvitations' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  setThreadViewPreferences<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorAdminSetThreadViewPreferences.QueryParams,
+      IoTrustanchorAdminSetThreadViewPreferences.HandlerInput,
+      IoTrustanchorAdminSetThreadViewPreferences.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.admin.setThreadViewPreferences' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 

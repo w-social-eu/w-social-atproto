@@ -194,6 +194,7 @@ export function readEnv() {
     wsocialDefaultSubscribeLists: envList(
       'PDS_WSOCIAL_DEFAULT_SUBSCRIBE_LISTS',
     ),
+    wsocialDefaultThreadPref: envStr('PDS_WSOCIAL_DEFAULT_THREAD_PREF'),
   }
 }
 

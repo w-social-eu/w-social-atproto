@@ -16438,6 +16438,67 @@ export const schemaDict = {
       },
     },
   },
+  IoTrustanchorAdminSetThreadViewPreferences: {
+    lexicon: 1,
+    id: 'io.trustanchor.admin.setThreadViewPreferences',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Admin endpoint to set thread view preferences for an existing account. Sets both layout (linear/threaded) and sort order.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['did', 'treeViewEnabled', 'sort'],
+            properties: {
+              did: {
+                type: 'string',
+                format: 'did',
+                description: 'The DID of the account to update',
+              },
+              treeViewEnabled: {
+                type: 'boolean',
+                description:
+                  'Whether to enable threaded view (true) or linear view (false)',
+              },
+              sort: {
+                type: 'string',
+                description: 'Sort order for thread replies',
+                knownValues: [
+                  'oldest',
+                  'newest',
+                  'most-likes',
+                  'random',
+                  'hotness',
+                ],
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['success'],
+            properties: {
+              success: {
+                type: 'boolean',
+              },
+            },
+          },
+        },
+        errors: [
+          {
+            name: 'AccountNotFound',
+          },
+          {
+            name: 'InvalidSort',
+          },
+        ],
+      },
+    },
+  },
   IoTrustanchorAdminSubscribeToLists: {
     lexicon: 1,
     id: 'io.trustanchor.admin.subscribeToLists',
@@ -22324,6 +22385,8 @@ export const ids = {
   IoTrustanchorAdminListInvitations: 'io.trustanchor.admin.listInvitations',
   IoTrustanchorAdminLoadInventory: 'io.trustanchor.admin.loadInventory',
   IoTrustanchorAdminPurgeInvitations: 'io.trustanchor.admin.purgeInvitations',
+  IoTrustanchorAdminSetThreadViewPreferences:
+    'io.trustanchor.admin.setThreadViewPreferences',
   IoTrustanchorAdminSubscribeToLists: 'io.trustanchor.admin.subscribeToLists',
   IoTrustanchorAdminUpdateInvitationEmailStatus:
     'io.trustanchor.admin.updateInvitationEmailStatus',
