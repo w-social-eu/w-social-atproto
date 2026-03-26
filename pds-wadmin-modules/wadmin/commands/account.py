@@ -162,3 +162,46 @@ def create_bot_account(ctx, handle: str, email: Optional[str]):
         console.print("Deep Link:")
         console.print(f"  {deep_link}")
         console.print()
+
+
+@account.command("subscribe-to-lists")
+@click.argument("did")
+@click.option("--list", "lists", multiple=True, required=True, help="AT-URI of list to subscribe to (can be specified multiple times)")
+@click.pass_context
+def subscribe_to_lists(ctx, did: str, lists: tuple):
+    """Subscribe an account to one or more lists."""
+    client: PDSClient = ctx.obj["client"]
+
+    console.print(f"Subscribing account {did} to {len(lists)} list(s)...")
+    console.print()
+
+    # Build request body
+    data = {
+        "did": did,
+        "lists": list(lists)  # Convert tuple to list
+    }
+
+    # Call PDS admin endpoint
+    response = client.call("POST", "io.trustanchor.admin.subscribeToLists", data=data)
+
+    if not response.success:
+        print_error("Failed to subscribe to lists", response.error or "Unknown error")
+        raise click.Abort()
+
+    if not response.data:
+        print_error("No data returned from API")
+        raise click.Abort()
+
+    result = response.data
+
+    print_success("Subscription Complete")
+    console.print()
+    console.print(f"  Account:        {did}")
+    console.print(f"  Lists Provided: {len(lists)}")
+    console.print(f"  Subscribed:     {result.get('subscribedCount', 0)}")
+    console.print()
+
+    if lists:
+        console.print("Lists:")
+        for list_uri in lists:
+            console.print(f"  • {list_uri}")

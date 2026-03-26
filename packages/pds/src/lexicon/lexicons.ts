@@ -16438,6 +16438,56 @@ export const schemaDict = {
       },
     },
   },
+  IoTrustanchorAdminSubscribeToLists: {
+    lexicon: 1,
+    id: 'io.trustanchor.admin.subscribeToLists',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Admin endpoint to subscribe an account to one or more lists',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['did', 'lists'],
+            properties: {
+              did: {
+                type: 'string',
+                format: 'did',
+                description: 'DID of the account to subscribe',
+              },
+              lists: {
+                type: 'array',
+                items: {
+                  type: 'string',
+                  format: 'at-uri',
+                },
+                description:
+                  'Array of list AT-URIs to subscribe the account to',
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['success', 'subscribedCount'],
+            properties: {
+              success: {
+                type: 'boolean',
+              },
+              subscribedCount: {
+                type: 'integer',
+                description: 'Number of lists subscribed to',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   IoTrustanchorAdminUpdateInvitationEmailStatus: {
     lexicon: 1,
     id: 'io.trustanchor.admin.updateInvitationEmailStatus',
@@ -22274,6 +22324,7 @@ export const ids = {
   IoTrustanchorAdminListInvitations: 'io.trustanchor.admin.listInvitations',
   IoTrustanchorAdminLoadInventory: 'io.trustanchor.admin.loadInventory',
   IoTrustanchorAdminPurgeInvitations: 'io.trustanchor.admin.purgeInvitations',
+  IoTrustanchorAdminSubscribeToLists: 'io.trustanchor.admin.subscribeToLists',
   IoTrustanchorAdminUpdateInvitationEmailStatus:
     'io.trustanchor.admin.updateInvitationEmailStatus',
   IoTrustanchorQuickloginCallback: 'io.trustanchor.quicklogin.callback',

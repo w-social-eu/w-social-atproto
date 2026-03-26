@@ -367,6 +367,7 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
     neuroCallbackSignatureRequired: env.neuroCallbackSignatureRequired ?? false, // WP2 feature-flagged pending signature contract
     wsocial: {
       organizationDids: env.wsocialOrganizationDids || [],
+      defaultSubscribeLists: env.wsocialDefaultSubscribeLists || [],
     },
   }
 }
@@ -574,4 +575,5 @@ export type QuickLoginConfig = {
 
 export type WSocialConfig = {
   organizationDids: string[] // DIDs that should be marked as "organization" account type
+  defaultSubscribeLists: string[] // AT-URIs of lists to auto-subscribe human/test accounts on creation
 }

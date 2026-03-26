@@ -3,6 +3,7 @@ import { Secp256k1Keypair } from '@atproto/crypto'
 import { AccountStatus } from '../../../../account-manager/account-manager'
 import { AppContext } from '../../../../context'
 import { sendIdentityEventWithRetry } from '../../../../sequencer/identity-event-helper'
+import { subscribeToLists } from '../../../../services/list-subscription'
 import { QuickLoginResult } from './store'
 
 export type NeuroCallbackPayload = {
@@ -210,6 +211,33 @@ export async function createAccountViaQuickLogin(
 
   await ctx.sequencer.sequenceAccountEvt(did, AccountStatus.Active)
   await ctx.sequencer.sequenceCommit(did, commit)
+
+  // Subscribe to default lists (for human and test accounts)
+  // Note: Both real users (isTestUser=0) and test users (isTestUser=1) get subscribed
+  // to ensure testers have the same experience as real users
+  if (ctx.cfg.wsocial.defaultSubscribeLists.length > 0) {
+    try {
+      const subscribedCount = await subscribeToLists(
+        ctx,
+        did,
+        ctx.cfg.wsocial.defaultSubscribeLists,
+      )
+      if (log && sessionId) {
+        log.info(
+          { sessionId, did, subscribedCount },
+          'Subscribed new account to default lists',
+        )
+      }
+    } catch (err) {
+      // Log error but don't fail account creation
+      if (log && sessionId) {
+        log.error(
+          { sessionId, did, err },
+          'Failed to subscribe account to default lists',
+        )
+      }
+    }
+  }
 
   // Create session
   const { accessJwt, refreshJwt } = await ctx.accountManager.createSession(
