@@ -71,8 +71,8 @@ export function decodeQueryParam(
   }
   if (type === 'string' || type === 'datetime') {
     let str = String(value)
-    // Handle double-encoded URIs (e.g. %253A from clients that encode twice)
-    if (str.includes('%25')) {
+    // Handle double-encoded URIs (e.g. %3A remaining after URLSearchParams decoded %253A)
+    if (/%[0-9A-Fa-f]{2}/.test(str)) {
       try {
         str = decodeURIComponent(str)
       } catch {
