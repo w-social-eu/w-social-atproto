@@ -1,7 +1,14 @@
 import * as plc from '@did-plc/lib'
 import { Secp256k1Keypair } from '@atproto/crypto'
+import { isValidTld } from '@atproto/syntax'
 import { AccountStatus } from '../../../../account-manager/account-manager'
 import { AppContext } from '../../../../context'
+import {
+  baseNormalizeAndValidate,
+  ensureHandleServiceConstraints,
+  isServiceDomain,
+} from '../../../../handle'
+import { hasExplicitSlur } from '../../../../handle/explicit-slurs'
 import { sendIdentityEventWithRetry } from '../../../../sequencer/identity-event-helper'
 import { subscribeToLists } from '../../../../services/list-subscription'
 import { setThreadViewPreferences } from '../../../../services/thread-preferences'
@@ -80,6 +87,13 @@ export async function deriveAvailableHandle(
 
   // Try base handle first
   let handle = `${baseName}.${handleDomain}`
+
+  // Validate handle meets AT Protocol and service domain constraints
+  if (!isHandleValid(handle, baseName, ctx.cfg.identity.serviceHandleDomains)) {
+    baseName = defaultBase
+    handle = `${baseName}.${handleDomain}`
+  }
+
   let existing = await ctx.accountManager.getAccount(handle)
 
   if (!existing) {
@@ -101,6 +115,29 @@ export async function deriveAvailableHandle(
 
   // Safety fallback: use timestamp
   return `ql-${Date.now()}.${handleDomain}`
+}
+
+/**
+ * Check if a handle passes AT Protocol validation constraints.
+ * Used by QuickLogin to validate preferred handles before use.
+ */
+function isHandleValid(
+  handle: string,
+  baseName: string,
+  serviceHandleDomains: string[],
+): boolean {
+  try {
+    baseNormalizeAndValidate(handle)
+    if (!isValidTld(handle)) return false
+    if (hasExplicitSlur(baseName)) return false
+    if (isServiceDomain(handle, serviceHandleDomains)) {
+      // allowReserved=true: QuickLogin handles come from WID provider, not user input
+      ensureHandleServiceConstraints(handle, serviceHandleDomains, true)
+    }
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**
