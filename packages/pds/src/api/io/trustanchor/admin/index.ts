@@ -10,6 +10,8 @@ import getInvitationStats from './getInvitationStats'
 import listInvitations from './listInvitations'
 import loadInventory from './loadInventory'
 import purgeInvitations from './purgeInvitations'
+import setThreadViewPreferences from './setThreadViewPreferences'
+import subscribeToLists from './subscribeToLists'
 import updateInvitationEmailStatus from './updateInvitationEmailStatus'
 
 export default function (server: Server, ctx: AppContext) {
@@ -19,6 +21,8 @@ export default function (server: Server, ctx: AppContext) {
   deleteInvitation(server, ctx)
   purgeInvitations(server, ctx)
   createBotAccount(server, ctx)
+  subscribeToLists(server, ctx)
+  setThreadViewPreferences(server, ctx)
   getInventoryStatus(server, ctx)
   loadInventory(server, ctx)
   clearInventory(server, ctx)

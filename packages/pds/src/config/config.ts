@@ -8,6 +8,46 @@ import { ServerEnvironment } from './env'
 // off-config but still from env:
 // logging: LOG_LEVEL, LOG_SYSTEMS, LOG_ENABLED, LOG_DESTINATION
 
+// Parse thread preference from env var format: "threaded,hotness" or "linear,newest"
+function parseThreadPref(value: string | undefined) {
+  if (!value) {
+    return {
+      enabled: false,
+      treeViewEnabled: false,
+      sort: 'hotness',
+    }
+  }
+
+  const parts = value.split(',').map((p) => p.trim())
+  if (parts.length !== 2) {
+    throw new Error(
+      `Invalid PDS_WSOCIAL_DEFAULT_THREAD_PREF format: "${value}". Expected format: "threaded,hotness" or "linear,newest"`,
+    )
+  }
+
+  const [layout, sort] = parts
+  const validLayouts = ['threaded', 'linear']
+  const validSorts = ['oldest', 'newest', 'most-likes', 'random', 'hotness']
+
+  if (!validLayouts.includes(layout)) {
+    throw new Error(
+      `Invalid thread layout: "${layout}". Must be "threaded" or "linear"`,
+    )
+  }
+
+  if (!validSorts.includes(sort)) {
+    throw new Error(
+      `Invalid thread sort: "${sort}". Must be one of: ${validSorts.join(', ')}`,
+    )
+  }
+
+  return {
+    enabled: true,
+    treeViewEnabled: layout === 'threaded',
+    sort,
+  }
+}
+
 export const envToCfg = (env: ServerEnvironment): ServerConfig => {
   const port = env.port ?? 2583
   const hostname = env.hostname ?? 'localhost'
@@ -367,6 +407,8 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
     neuroCallbackSignatureRequired: env.neuroCallbackSignatureRequired ?? false, // WP2 feature-flagged pending signature contract
     wsocial: {
       organizationDids: env.wsocialOrganizationDids || [],
+      defaultSubscribeLists: env.wsocialDefaultSubscribeLists || [],
+      defaultThreadPref: parseThreadPref(env.wsocialDefaultThreadPref),
     },
   }
 }
@@ -574,4 +616,10 @@ export type QuickLoginConfig = {
 
 export type WSocialConfig = {
   organizationDids: string[] // DIDs that should be marked as "organization" account type
+  defaultSubscribeLists: string[] // AT-URIs of lists to auto-subscribe human/test accounts on creation
+  defaultThreadPref: {
+    enabled: boolean
+    treeViewEnabled: boolean // lab_treeViewEnabled: true for threaded, false for linear
+    sort: string // 'hotness', 'oldest', 'newest', 'most-likes', 'random'
+  }
 }

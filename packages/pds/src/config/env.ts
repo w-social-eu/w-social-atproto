@@ -191,6 +191,10 @@ export function readEnv() {
 
     // W Social extensions
     wsocialOrganizationDids: envList('PDS_WSOCIAL_ORGANIZATION_DIDS'),
+    wsocialDefaultSubscribeLists: envList(
+      'PDS_WSOCIAL_DEFAULT_SUBSCRIBE_LISTS',
+    ),
+    wsocialDefaultThreadPref: envStr('PDS_WSOCIAL_DEFAULT_THREAD_PREF'),
   }
 }
 

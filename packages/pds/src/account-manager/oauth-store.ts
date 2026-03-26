@@ -1,7 +1,7 @@
 import assert from 'node:assert'
-import { Client, createOp as createPlcOp } from '@did-plc/lib'
+import { Client, createOp as _createPlcOp } from '@did-plc/lib'
 import { Selectable } from 'kysely'
-import { Keypair, Secp256k1Keypair } from '@atproto/crypto'
+import { Keypair, Secp256k1Keypair as _Secp256k1Keypair } from '@atproto/crypto'
 import {
   Account,
   AccountStore,
@@ -46,12 +46,15 @@ import { fromDateISO } from '../db'
 import { ImageUrlBuilder } from '../image/image-url-builder'
 import { dbLogger } from '../logger'
 import { ServerMailer } from '../mailer'
-import { Sequencer, syncEvtDataFromCommit } from '../sequencer'
-import { sendIdentityEventWithRetry } from '../sequencer/identity-event-helper'
+import {
+  Sequencer,
+  syncEvtDataFromCommit as _syncEvtDataFromCommit,
+} from '../sequencer'
+import { sendIdentityEventWithRetry as _sendIdentityEventWithRetry } from '../sequencer/identity-event-helper'
 import { AccountManager } from './account-manager'
 import * as schemas from './db/schema'
 import * as accountHelper from './helpers/account'
-import { AccountStatus } from './helpers/account'
+import { AccountStatus as _AccountStatus } from './helpers/account'
 import * as accountDeviceHelper from './helpers/account-device'
 import * as authRequestHelper from './helpers/authorization-request'
 import * as authorizedClientHelper from './helpers/authorized-client'
@@ -121,11 +124,11 @@ export class OAuthStore
 
   async createAccount({
     locale: _locale,
-    inviteCode,
-    handle,
-    email,
-    password,
-    emailOtp,
+    inviteCode: _inviteCode,
+    handle: _handle,
+    email: _email,
+    password: _password,
+    emailOtp: _emailOtp,
   }: SignUpData & { emailOtp?: string }): Promise<Account> {
     // SECURITY: OAuth account creation disabled
     // All account creation should use QuickLogin callback endpoint
@@ -727,7 +730,7 @@ This will authenticate you with your Neuro identity.`
     }
   }
 
-  private async createAccountWithNeuro(data: {
+  private async createAccountWithNeuro(_data: {
     handle: string
     email?: string
     inviteCode?: string
