@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - develop
-      - feature/ci_cd_unified
+      - main
   workflow_dispatch:
     inputs:
       environment:
