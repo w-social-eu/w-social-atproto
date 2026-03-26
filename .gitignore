@@ -23,6 +23,7 @@ old/
 coverage
 packages/lex/lex-password-agent
 packages/pds/src/version.ts
+/invites
 
 # Python
 *.pyc
