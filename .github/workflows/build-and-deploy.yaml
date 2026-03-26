@@ -82,7 +82,16 @@ jobs:
       - name: Build PDS package
         run: pnpm --filter @atproto/pds... build
 
-      - name: Pack tarball
+      - name: Pack xrpc-server tarball
+        id: xrpc-server
+        run: |
+          cd packages/xrpc-server
+          pnpm pack --pack-destination /tmp/
+          XRPC_TARBALL=$(ls /tmp/atproto-xrpc-server-*.tgz | head -1)
+          echo "path=$XRPC_TARBALL" >> $GITHUB_OUTPUT
+          echo "xrpc-server tarball: $XRPC_TARBALL ($(du -h $XRPC_TARBALL | cut -f1))"
+
+      - name: Pack PDS tarball
         id: tarball
         run: |
           cd packages/pds
@@ -113,6 +122,7 @@ jobs:
       - name: Prepare Docker build context
         run: |
           cp ${{ steps.tarball.outputs.path }} pds-repo/atproto-pds.tgz
+          cp ${{ steps.xrpc-server.outputs.path }} pds-repo/atproto-xrpc-server.tgz
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
