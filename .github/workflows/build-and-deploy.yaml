@@ -5,6 +5,8 @@ on:
     branches:
       - develop
       - main
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       environment:
@@ -36,6 +38,8 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             ENV="${{ github.event.inputs.environment }}"
+          elif [[ "${{ github.ref_type }}" == "tag" && "${{ github.ref_name }}" == v* ]]; then
+            ENV="prod"
           elif [[ "${{ github.ref_name }}" == "main" ]]; then
             ENV="stage"
           elif [[ "${{ github.ref_name }}" == "develop" || "${{ github.ref_name }}" == feature/* ]]; then
@@ -119,6 +123,7 @@ jobs:
           tags: |
             ${{ env.PDS_IMAGE }}:${{ steps.config.outputs.image_tag }}
             ${{ env.PDS_IMAGE }}:${{ steps.config.outputs.environment }}-latest
+            ${{ github.ref_type == 'tag' && format('{0}:{1}', env.PDS_IMAGE, github.ref_name) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
