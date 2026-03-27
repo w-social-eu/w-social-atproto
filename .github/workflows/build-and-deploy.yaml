@@ -134,8 +134,8 @@ jobs:
             ${{ env.PDS_IMAGE }}:${{ steps.config.outputs.image_tag }}
             ${{ env.PDS_IMAGE }}:${{ steps.config.outputs.environment }}-latest
             ${{ github.ref_type == 'tag' && format('{0}:{1}', env.PDS_IMAGE, github.ref_name) || '' }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # No Docker layer cache - tarball content changes aren't detected by filename-based caching
+          no-cache: true
 
       # --- Step 3: Deploy to K8s via Helm ---
 
