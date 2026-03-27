@@ -166,6 +166,7 @@ jobs:
             -f "$CHART/values-${ENV}.yaml" \
             --set image.repository=${{ env.PDS_IMAGE }} \
             --set image.tag="${TAG}" \
+            --set podAnnotations.deployedAt="$(date +%s)" \
             -n pds \
             --wait --timeout 5m
 
