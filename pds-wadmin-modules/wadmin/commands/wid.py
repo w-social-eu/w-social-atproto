@@ -999,10 +999,8 @@ def clear(ctx, older_than_days: Optional[int], yes: bool):
     print_success(f"Successfully cleared {deleted} available account(s) from inventory.")
 
 
-@wid.command()
-@click.pass_context
-def schema(ctx):
-    """Show database schema for key tables (requires Nomad access)."""
+def schema_command(ctx):
+    """Show database schema for key tables."""
     config: Config = ctx.obj["config"]
 
     console.print(f"Database Schema for pds/{config.environment or 'unknown'}")
@@ -1037,11 +1035,8 @@ def schema(ctx):
     console.print(output)
 
 
-@wid.command()
-@click.option("--query", default=None, help="Custom SQL query to execute")
-@click.pass_context
-def db(ctx, query: Optional[str]):
-    """Query neuro_identity_link database (requires Nomad access)."""
+def db_command(ctx, query: Optional[str]):
+    """Query neuro_identity_link database."""
     config: Config = ctx.obj["config"]
 
     if query:
@@ -1070,11 +1065,8 @@ ORDER BY nil.did, nil.linkedAt;
         console.print(output)
 
 
-@wid.command("check-db")
-@click.argument("did")
-@click.pass_context
-def check_db(ctx, did: str):
-    """Check database consistency for a specific DID (requires Nomad access)."""
+def check_db_command(ctx, did: str):
+    """Check database consistency for a specific DID."""
     config: Config = ctx.obj["config"]
 
     console.print("═" * 63)

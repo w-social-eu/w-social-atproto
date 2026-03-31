@@ -67,11 +67,7 @@ cli.add_command(invitation)
 from .commands.account import account
 cli.add_command(account)
 
-# Phase 4 - Import Nomad commands
-from .commands.nomad import nomad
-cli.add_command(nomad)
-
-# Phase 5 - Import Admin commands
+# Phase 4 - Import Admin commands
 from .commands.admin import admin
 cli.add_command(admin)
 
