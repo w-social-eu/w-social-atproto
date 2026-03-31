@@ -10,6 +10,11 @@ from typing import Optional
 from dataclasses import dataclass
 from pathlib import Path
 
+# Kubernetes namespace and container name are the same across all environments.
+K8S_NAMESPACE = "pds"
+K8S_POD = "pds-0"
+K8S_CONTAINER = "pds"
+
 
 @dataclass
 class Config:
@@ -28,6 +33,7 @@ class Config:
     nomad_addr: Optional[str] = None
     nomad_token: Optional[str] = None
     nomad_job_name: Optional[str] = None
+    k8s_cluster_id: Optional[str] = None
 
     @classmethod
     def from_environment(cls, script_name: str) -> "Config":
@@ -117,6 +123,7 @@ class Config:
             bsky_app_view_did=secrets.get("BSKY_APP_VIEW_DID"),
             nomad_addr="https://nomad.wsocial.cloud",
             nomad_job_name=f"pds-{env}",
+            k8s_cluster_id=env,
             # Nomad token handled separately (login on demand)
         )
 
@@ -156,6 +163,7 @@ class Config:
             nomad_addr=os.getenv("NOMAD_ADDR"),
             nomad_token=os.getenv("NOMAD_TOKEN"),
             nomad_job_name=os.getenv("PDS_NOMAD_JOB_NAME"),
+            k8s_cluster_id=os.getenv("K8S_ENV", os.getenv("K8S_CLUSTER_ID")),
         )
 
     def has_brevo_config(self) -> bool:
@@ -165,3 +173,7 @@ class Config:
     def has_nomad_config(self) -> bool:
         """Check if Nomad configuration is available."""
         return bool(self.nomad_addr and self.nomad_job_name)
+
+    def has_k8s_config(self) -> bool:
+        """Check if Rancher/k8s configuration is available."""
+        return bool(self.k8s_cluster_id)

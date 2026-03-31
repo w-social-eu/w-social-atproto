@@ -80,8 +80,19 @@ export async function subscribeToLists(
     }
   }
 
-  // Add new list subscriptions (skip duplicates)
-  const existingValues = new Set(savedFeeds.items.map((item) => item.value))
+  // Add new list subscriptions (skip duplicates).
+  // Also ensure the "following" timeline entry is always present — it may be
+  // missing on accounts whose prefs were written before this guard was added.
+  const followingAdded = !existingValues.has('following')
+  if (followingAdded) {
+    savedFeeds.items.unshift({
+      id: `timeline-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      type: 'timeline',
+      value: 'following',
+      pinned: true,
+    })
+    existingValues.add('following')
+  }
   let subscribedCount = 0
 
   for (const listUri of listUris) {
@@ -96,8 +107,8 @@ export async function subscribeToLists(
     }
   }
 
-  // Update preferences if any lists were added
-  if (subscribedCount > 0) {
+  // Update preferences if anything changed (new lists added or following repaired)
+  if (subscribedCount > 0 || followingAdded) {
     const updatedPrefs = [...currentPrefs]
     if (savedFeedsIndex >= 0) {
       updatedPrefs[savedFeedsIndex] = savedFeeds

@@ -367,7 +367,7 @@ export class InvitationManager {
       'Creating invitation with JID',
     )
 
-    // Insert new invitation with JID
+    // Upsert invitation with JID - handles re-inviting revoked/expired emails
     await this.db.db
       .insertInto('pending_invitations')
       .values({
@@ -382,6 +382,19 @@ export class InvitationManager {
         status: 'pending', // Main invitation status
         email_attempt_count: 0,
       })
+      .onConflict((oc) =>
+        oc.column('email').doUpdateSet({
+          email_hash: emailHash,
+          jid,
+          onboarding_url: onboardingUrl,
+          preferred_handle: preferredHandle || null,
+          invitation_timestamp: timestamp,
+          created_at: now,
+          expires_at: expiresAt,
+          status: 'pending',
+          email_attempt_count: 0,
+        }),
+      )
       .execute()
 
     // Fetch the created invitation

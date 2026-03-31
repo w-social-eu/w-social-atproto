@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Optional
 
 import click
+from rich.console import Console
 from tabulate import tabulate
 
 from ..api import PDSClient
@@ -24,68 +25,13 @@ from ..utils import (
 
 def exec_sqlite(config: Config, sql: str) -> str:
     """
-    Execute SQL query via Nomad exec in the PDS container.
+    Execute SQL query in the PDS container via k8s (rancher kubectl exec) or
+    Nomad alloc exec, depending on which is configured.
 
-    Uses Node.js + better-sqlite3 to query the account.sqlite database.
-
-    Args:
-        config: Configuration with Nomad settings
-        sql: SQL query to execute
-
-    Returns:
-        Query results as string output
-
-    Raises:
-        click.Abort: If Nomad is not configured or query fails
+    Uses Node.js + better-sqlite3 inside the container.
     """
-    if not config.has_nomad_config():
-        print_error(
-            "Database commands require Nomad access",
-            "Use pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod"
-        )
-        raise click.Abort()
-
-    # Import nomad helper
-    from .nomad import check_nomad_auth
-
-    nomad_addr, nomad_token = check_nomad_auth(config)
-    job_name = config.nomad_job_name
-    if not job_name:
-        print_error("Nomad job name not configured")
-        raise click.Abort()
-
-    # Get running allocation ID
-    result = subprocess.run(
-        ["nomad", "status", job_name],
-        env={**os.environ, "NOMAD_ADDR": nomad_addr, "NOMAD_TOKEN": nomad_token},
-        capture_output=True,
-        text=True
-    )
-
-    if result.returncode != 0:
-        print_error("Failed to get Nomad job status")
-        raise click.Abort()
-
-    # Parse allocation ID
-    alloc_id = None
-    for line in result.stdout.split('\n'):
-        parts = line.split()
-        if len(parts) > 0 and len(parts[0]) == 8:
-            try:
-                int(parts[0], 16)
-                if "running" in line.lower():
-                    alloc_id = parts[0]
-                    break
-            except ValueError:
-                continue
-
-    if not alloc_id:
-        print_error("No running allocation found", f"Job {job_name} has no running allocations")
-        raise click.Abort()
-
-    # Build Node.js script to query SQLite
-    # JSON-encode the SQL to avoid quoting issues
-    import sys
+    # Build Node.js script (shared by both transports)
+    import sys as _sys
     sql_json = json.dumps(sql)
 
     node_script = f"""
@@ -136,13 +82,55 @@ if(isWrite){{
 }}
 """
 
-    # Execute via nomad alloc exec
-    result = subprocess.run(
-        ["nomad", "alloc", "exec", "-task", "pds", alloc_id, "node", "-e", node_script],
-        env={**os.environ, "NOMAD_ADDR": nomad_addr, "NOMAD_TOKEN": nomad_token},
-        capture_output=True,
-        text=True
-    )
+    # Execute via k8s (preferred) or Nomad fallback
+    if config.has_k8s_config():
+        from .nomad import check_k8s_auth, run_kubectl
+        from ..config import K8S_NAMESPACE, K8S_POD, K8S_CONTAINER
+        kubeconfig = check_k8s_auth(config)
+        result = run_kubectl(
+            kubeconfig,
+            ["-n", K8S_NAMESPACE, "exec", K8S_POD, "-c", K8S_CONTAINER,
+             "--", "node", "-e", node_script],
+            capture_output=True, text=True
+        )
+    elif config.has_nomad_config():
+        from .nomad import check_nomad_auth
+        nomad_addr, nomad_token = check_nomad_auth(config)
+        job_name = config.nomad_job_name
+        # Get running allocation ID
+        status = subprocess.run(
+            ["nomad", "status", job_name],
+            env={**os.environ, "NOMAD_ADDR": nomad_addr, "NOMAD_TOKEN": nomad_token},
+            capture_output=True, text=True
+        )
+        if status.returncode != 0:
+            print_error("Failed to get Nomad job status")
+            raise click.Abort()
+        alloc_id = None
+        for line in status.stdout.split('\n'):
+            parts = line.split()
+            if len(parts) > 0 and len(parts[0]) == 8:
+                try:
+                    int(parts[0], 16)
+                    if "running" in line.lower():
+                        alloc_id = parts[0]
+                        break
+                except ValueError:
+                    continue
+        if not alloc_id:
+            print_error("No running allocation found", f"Job {job_name} has no running allocations")
+            raise click.Abort()
+        result = subprocess.run(
+            ["nomad", "alloc", "exec", "-task", "pds", alloc_id, "node", "-e", node_script],
+            env={**os.environ, "NOMAD_ADDR": nomad_addr, "NOMAD_TOKEN": nomad_token},
+            capture_output=True, text=True
+        )
+    else:
+        print_error(
+            "Database commands require cluster access",
+            "Use pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod"
+        )
+        raise click.Abort()
 
     if result.returncode != 0:
         print_error("SQLite query failed", result.stderr or "Unknown error")
@@ -234,7 +222,10 @@ def list_command(ctx):
     header_parts.append(f"[bold blue]{headers[4]}[/bold blue]")       # LINKED_AT - blue
     header_parts.append(f"[bold red]{headers[5]}[/bold red]")         # FLAGS - red
 
-    console.print("  ".join(header_parts), highlight=False)
+    # Use an unbounded-width console so each row is always a single line —
+    # no wrapping, no truncation — making grep / piping work correctly.
+    wide = Console(width=32000)
+    wide.print("  ".join(header_parts), highlight=False)
 
     # Print rows with colors
     for row in table_data:
@@ -246,7 +237,7 @@ def list_command(ctx):
         row_parts.append(f"[blue]{row[4]}[/blue]")         # LINKED_AT - blue
         row_parts.append(f"[red]{row[5]}[/red]" if row[5] else "")  # FLAGS - red (only if present)
 
-        console.print("  ".join(row_parts), highlight=False)
+        wide.print("  ".join(row_parts), highlight=False)
 
 
 @wid.command()
