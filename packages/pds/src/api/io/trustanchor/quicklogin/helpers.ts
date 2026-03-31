@@ -2,6 +2,7 @@ import * as plc from '@did-plc/lib'
 import { Secp256k1Keypair } from '@atproto/crypto'
 import { AccountStatus } from '../../../../account-manager/account-manager'
 import { AppContext } from '../../../../context'
+import { prepareCreate } from '../../../../repo/prepare'
 import { sendIdentityEventWithRetry } from '../../../../sequencer/identity-event-helper'
 import { subscribeToLists } from '../../../../services/list-subscription'
 import { setThreadViewPreferences } from '../../../../services/thread-preferences'
@@ -137,10 +138,23 @@ export async function createAccountViaQuickLogin(
 
   const did = plcCreate.did
 
-  // Create actor repo
+  // Create actor repo with a minimal profile record.
+  // An empty repo results in a 'sync' event in the AppView which only calls
+  // indexHandle — if the identity event also fails (DID not yet cached), the
+  // actor row is never created and the account becomes permanently invisible.
+  // Seeding an app.bsky.actor.profile record ensures the AppView receives a
+  // 'create' record event that calls indexRecord, guaranteeing actor row creation
+  // even if the identity event is dropped due to a DID resolution race.
   await ctx.actorStore.create(did, signingKey)
+  const profileWrite = await prepareCreate({
+    did,
+    collection: 'app.bsky.actor.profile',
+    rkey: 'self',
+    record: { $type: 'app.bsky.actor.profile' },
+    validate: false,
+  })
   const commit = await ctx.actorStore.transact(did, (actorTxn) =>
-    actorTxn.repo.createRepo([]),
+    actorTxn.repo.createRepo([profileWrite]),
   )
 
   // Publish DID to PLC

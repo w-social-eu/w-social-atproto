@@ -57,12 +57,6 @@ def run_kubectl(kubeconfig: str, args: list[str], **kwargs) -> subprocess.Comple
     )
 
 
-@click.group()
-def nomad():
-    """Nomad cluster management commands."""
-    pass
-
-
 def check_nomad_auth(config: Config) -> tuple[str, str]:
     """
     Ensure Nomad authentication is valid and return (nomad_addr, nomad_token).
@@ -136,9 +130,7 @@ def check_nomad_auth(config: Config) -> tuple[str, str]:
     return nomad_addr, nomad_token
 
 
-@nomad.command()
-@click.pass_context
-def status(ctx):
+def status_command(ctx):
     """Show Nomad job status."""
     config: Config = ctx.obj["config"]
 
@@ -163,11 +155,7 @@ def status(ctx):
             raise click.Abort()
 
 
-@nomad.command()
-@click.option("--tail", default=None, type=int, help="Number of lines to tail")
-@click.option("--follow", "-f", is_flag=True, help="Follow log output")
-@click.pass_context
-def logs(ctx, tail: Optional[int], follow: bool):
+def logs_command(ctx, tail: Optional[int], follow: bool):
     """Fetch logs from the running PDS container."""
     config: Config = ctx.obj["config"]
 
@@ -222,10 +210,7 @@ def logs(ctx, tail: Optional[int], follow: bool):
         subprocess.run(cmd, env={**os.environ, "NOMAD_ADDR": nomad_addr, "NOMAD_TOKEN": nomad_token})
 
 
-@nomad.command()
-@click.option("--tail", default=None, type=int, help="Number of lines to tail")
-@click.pass_context
-def logfile(ctx, tail: Optional[int]):
+def logfile_command(ctx, tail: Optional[int]):
     """Fetch logs and save to timestamped file (pds-<env>YYYYMMDD-HHMM.log.json)."""
     from datetime import datetime
     from pathlib import Path
