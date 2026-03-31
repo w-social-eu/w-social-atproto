@@ -83,6 +83,7 @@ export async function subscribeToLists(
   // Add new list subscriptions (skip duplicates).
   // Also ensure the "following" timeline entry is always present — it may be
   // missing on accounts whose prefs were written before this guard was added.
+  const existingValues = new Set(savedFeeds.items.map((item) => item.value))
   const followingAdded = !existingValues.has('following')
   if (followingAdded) {
     savedFeeds.items.unshift({
