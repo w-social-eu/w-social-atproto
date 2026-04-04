@@ -499,16 +499,25 @@ def check_handle(ctx, handle: str):
         )
         dns_result = result.stdout.strip()
 
-        if dns_result:
+        # dig +short follows CNAMEs and prints the CNAME target (unquoted hostname)
+        # alongside any TXT records (quoted strings). Only accept quoted TXT values.
+        txt_lines = [line for line in dns_result.split("\n") if line.startswith('"')]
+
+        if txt_lines:
             console.print("✓ Found DNS TXT record:")
-            for line in dns_result.split("\n"):
+            for line in txt_lines:
                 console.print(f"  {line}")
 
             # Extract DID
-            match = re.search(r'did:plc:[a-z0-9]+', dns_result)
+            match = re.search(r'did:plc:[a-z0-9]+', "\n".join(txt_lines))
             if match:
                 dns_did = match.group(0)
                 console.print(f"  Extracted DID: {dns_did}")
+        elif dns_result:
+            # Output present but no quoted TXT values — likely CNAME bleed-through
+            console.print("✗ No DNS TXT record found (got CNAME, not a TXT record):")
+            for line in dns_result.split("\n"):
+                console.print(f"  {line}")
         else:
             console.print("✗ No DNS TXT record found")
     except Exception as e:
@@ -655,7 +664,53 @@ def check_handle(ctx, handle: str):
 
     console.print()
 
-    # 6. Summary
+    # 6. AppView Actor State (getProfile by DID)
+    appview_actor_handle = None
+    appview_actor_ok = None  # None = skipped, True = ok, False = handle.invalid
+    if appview_url and plc_did:
+        console.print("6️⃣  AppView Actor State ({}/xrpc/app.bsky.actor.getProfile)".format(appview_url))
+        console.print("─" * 63)
+        try:
+            response = requests.get(
+                f"{appview_url}/xrpc/app.bsky.actor.getProfile",
+                params={"actor": plc_did},
+                timeout=10
+            )
+            if response.status_code == 200:
+                data = response.json()
+                appview_actor_handle = data.get("handle")
+                if appview_actor_handle == "handle.invalid":
+                    console.print(f"✗ AppView actor handle is [bold red]handle.invalid[/bold red]")
+                    console.print(f"  The AppView has cached the handle as invalid for DID {plc_did}")
+                    console.print(f"  Fix: run [cyan]admin repair-actor {plc_did}[/cyan] to re-trigger handle verification")
+                    appview_actor_ok = False
+                elif appview_actor_handle:
+                    console.print(f"✓ AppView actor handle: {appview_actor_handle}")
+                    appview_actor_ok = True
+                else:
+                    console.print("⚠️  AppView returned profile without handle field")
+                    appview_actor_ok = False
+            elif response.status_code == 400:
+                error_data = response.json()
+                console.print(f"✗ AppView returned error: {error_data.get('message', error_data.get('error', 'Unknown'))}")
+                appview_actor_ok = False
+            else:
+                console.print(f"✗ AppView getProfile failed (HTTP {response.status_code})")
+                appview_actor_ok = False
+        except Exception as e:
+            console.print(f"✗ AppView getProfile failed: {str(e)}")
+    elif not plc_did:
+        console.print("6️⃣  AppView Actor State")
+        console.print("─" * 63)
+        console.print("⊘ Skipped (no DID available)")
+    else:
+        console.print("6️⃣  AppView Actor State")
+        console.print("─" * 63)
+        console.print("⊘ Skipped (BSKY_APP_VIEW_URL not configured)")
+
+    console.print()
+
+    # 7. Summary
     console.print("═" * 63)
     console.print("Summary")
     console.print("═" * 63)
@@ -670,7 +725,7 @@ def check_handle(ctx, handle: str):
     # If AppView was checked, require it too
     all_checks_passed = all_required_passed
     if appview_url:
-        all_checks_passed = all_required_passed and bool(appview_did)
+        all_checks_passed = all_required_passed and bool(appview_did) and appview_actor_ok is not False
 
     if all_checks_passed:
         console.print("Status: ✓ All checks passed")
@@ -695,6 +750,8 @@ def check_handle(ctx, handle: str):
             console.print(f"  DID: {reference_did}")
             if plc_handle:
                 console.print(f"  PLC Handle Claim: ✓ {handle}")
+            if appview_actor_ok is True:
+                console.print(f"  AppView Actor:    ✓ {appview_actor_handle}")
 
             if has_both:
                 console.print()
@@ -735,6 +792,10 @@ def check_handle(ctx, handle: str):
 
         if appview_url:
             console.print(f"  AppView:      {'✓ ' + appview_did if appview_did else '✗ Failed'}")
+            if appview_actor_ok is False:
+                console.print(f"  Actor State:  ✗ handle.invalid (run [cyan]admin repair-actor {plc_did}[/cyan])")
+            elif appview_actor_ok is True:
+                console.print(f"  Actor State:  ✓ {appview_actor_handle}")
         else:
             console.print("  AppView:      ⊘ Skipped (not configured)")
 
@@ -756,6 +817,10 @@ def check_handle(ctx, handle: str):
         if appview_url and not appview_did:
             console.print("  • AppView cannot resolve handle - account may not be indexed yet")
             console.print("    (AppView syncs from PDS; check if account creation was recent)")
+        if appview_actor_ok is False and appview_actor_handle == "handle.invalid":
+            console.print(f"  • AppView actor state is handle.invalid - run:")
+            console.print(f"    [cyan]admin repair-actor {plc_did}[/cyan]")
+            console.print(f"    This re-sequences an identity event to trigger re-verification")
         if not plc_handle:
             console.print("  • PLC DID document doesn't claim this handle")
             console.print("    Try re-setting the handle to trigger PLC update:")
