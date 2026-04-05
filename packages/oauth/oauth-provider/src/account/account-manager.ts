@@ -5,6 +5,7 @@ import {
 import { Client } from '../client/client.js'
 import { DeviceId } from '../device/device-id.js'
 import { InvalidRequestError } from '../errors/invalid-request-error.js'
+import { SecondAuthenticationFactorRequiredError } from '../errors/second-authentication-factor-required-error.js'
 import { HCaptchaClient, HcaptchaVerifyResult } from '../lib/hcaptcha.js'
 import { constantTime } from '../lib/util/time.js'
 import { OAuthHooks, RequestMetadata } from '../oauth-hooks.js'
@@ -183,6 +184,7 @@ export class AccountManager {
 
       return account
     } catch (err) {
+      if (err instanceof SecondAuthenticationFactorRequiredError) throw err
       throw InvalidRequestError.from(
         err,
         'Unable to sign-in due to an unexpected server error',
