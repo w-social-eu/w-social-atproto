@@ -80,8 +80,6 @@ ENV NODE_ENV=production
 # potential perf issues w/ io_uring on this version of node
 ENV UV_USE_IO_URING=0
 
-# https://github.com/nodejs/docker-node/blob/master/docs/BestPractices.md#non-root-user
-USER node
 CMD ["node", "--heapsnapshot-signal=SIGUSR2", "--enable-source-maps", "--require=./tracer.js", "index.js"]
 
 LABEL org.opencontainers.image.source=https://github.com/bluesky-social/atproto
