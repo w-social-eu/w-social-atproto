@@ -1,5 +1,5 @@
 import { Trans, useLingui } from '@lingui/react/macro'
-import { ReactNode, useCallback, useRef, useState } from 'react'
+import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/forms/button.tsx'
 import { Fieldset } from '../../../components/forms/fieldset.tsx'
 import {
@@ -73,6 +73,48 @@ export function SignInForm({
 
   const formRef = useRef<AsyncActionController>(null)
 
+  // In QR mode: poll QuickLogin status and auto-submit when the scan completes
+  const pendingAutoSubmitRef = useRef(false)
+
+  useEffect(() => {
+    const { qrCodeUrl, sessionId, sessionToken } = secondFactor ?? {}
+    if (!qrCodeUrl || !sessionId || !sessionToken) return
+
+    const ac = new AbortController()
+    const poll = async () => {
+      while (!ac.signal.aborted) {
+        await new Promise<void>((r) => setTimeout(r, 2000))
+        if (ac.signal.aborted) break
+        try {
+          const res = await fetch('/xrpc/io.trustanchor.quicklogin.status', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ sessionId, sessionToken }),
+            signal: ac.signal,
+          })
+          if (!res.ok) continue
+          const data = (await res.json()) as { status?: string }
+          if (data.status === 'completed') {
+            pendingAutoSubmitRef.current = true
+            setOtp(sessionToken)
+            break
+          }
+        } catch {
+          if (!ac.signal.aborted) continue
+        }
+      }
+    }
+    void poll()
+    return () => ac.abort()
+  }, [secondFactor?.sessionId, secondFactor?.sessionToken, secondFactor?.qrCodeUrl])
+
+  useEffect(() => {
+    if (pendingAutoSubmitRef.current && otp) {
+      pendingAutoSubmitRef.current = false
+      formRef.current?.submit()
+    }
+  }, [otp])
+
   const clearSecondFactor = useCallback(() => {
     setOtp(null)
     setSecondFactor(null)
@@ -132,7 +174,7 @@ export function SignInForm({
       cancelLabel={backLabel ?? t`Back`}
       append={children}
       invalid={
-        invalid || !username || !password || (secondFactor != null && !otp)
+        invalid || !username || (secondFactor != null && !secondFactor.qrCodeUrl && !otp)
       }
       submitLabel={
         secondFactor ? (
@@ -167,42 +209,57 @@ export function SignInForm({
         />
       </Fieldset>
 
-      <Fieldset disabled={loading} label={<Trans>Password</Trans>}>
-        <InputPassword
-          name="password"
-          onChange={(event) => {
-            resetState()
-            setPassword(event.target.value)
-          }}
-          append={
-            onForgotPassword && (
-              <Button
-                className="text-sm"
-                type="button"
-                onClick={() => {
-                  onForgotPassword(
-                    username?.includes('@') ? username : undefined,
-                  )
-                }}
-                aria-label={t`Reset your password`}
-              >
-                <Trans>Forgot?</Trans>
-              </Button>
-            )
-          }
-          enterKeyHint={secondFactor ? 'next' : 'done'}
+      {/* Hide password field once the WID QR scan flow has been initiated */}
+      {!secondFactor?.qrCodeUrl && (
+        <Fieldset
           disabled={loading}
-          autoFocus={usernameReadonly}
-          required
-        />
-      </Fieldset>
+          label={
+            <>
+              <Trans>Password</Trans>
+              <span className="ml-1 font-normal text-slate-500 dark:text-slate-400">
+                {' '}(<Trans>leave blank to sign in with WID</Trans>)
+              </span>
+            </>
+          }
+        >
+          <InputPassword
+            name="password"
+            onChange={(event) => {
+              resetState()
+              setPassword(event.target.value)
+            }}
+            append={
+              onForgotPassword && (
+                <Button
+                  className="text-sm"
+                  type="button"
+                  onClick={() => {
+                    onForgotPassword(
+                      username?.includes('@') ? username : undefined,
+                    )
+                  }}
+                  aria-label={t`Reset your password`}
+                >
+                  <Trans>Forgot?</Trans>
+                </Button>
+              )
+            }
+            enterKeyHint={secondFactor ? 'next' : 'done'}
+            disabled={loading}
+            autoFocus={usernameReadonly}
+          />
+        </Fieldset>
+      )}
 
-      <Admonition role="alert" title={<Trans>Warning</Trans>}>
-        <Trans>
-          Please verify the domain name of the website before entering your
-          password. Never enter your password on a domain you do not trust.
-        </Trans>
-      </Admonition>
+      {/* Only show the password warning when actually using a password */}
+      {!secondFactor?.qrCodeUrl && password && (
+        <Admonition role="alert" title={<Trans>Warning</Trans>}>
+          <Trans>
+            Please verify the domain name of the website before entering your
+            password. Never enter your password on a domain you do not trust.
+          </Trans>
+        </Admonition>
+      )}
 
       <InputCheckbox
         name="remember"
@@ -218,24 +275,49 @@ export function SignInForm({
         <Fieldset
           key="2fa"
           disabled={loading}
-          label={<Trans>2FA Confirmation</Trans>}
+          label={
+            secondFactor.qrCodeUrl ? (
+              <Trans>WID Authentication</Trans>
+            ) : (
+              <Trans>2FA Confirmation</Trans>
+            )
+          }
         >
-          <div>
-            <InputToken
-              title={t`Confirmation code`}
-              enterKeyHint="done"
-              required
-              autoFocus={true}
-              value={otp ?? ''}
-              onToken={setOtp}
-            />
-
-            <p className="text-sm text-slate-600 dark:text-slate-400">
-              <Trans>
-                Check your {secondFactor.hint} email for a login code and enter
-                it here.
-              </Trans>
-            </p>
+          <div className="flex flex-col gap-3">
+            {secondFactor.qrCodeUrl ? (
+              <>
+                <img
+                  src={secondFactor.qrCodeUrl}
+                  alt={t`WID QR code`}
+                  className="mx-auto block w-44 h-44"
+                />
+                <p className="text-sm text-center text-slate-600 dark:text-slate-400">
+                  <Trans>
+                    Scan this QR code with your WID app to sign in.
+                  </Trans>
+                </p>
+                <p className="text-sm text-center italic text-slate-500 dark:text-slate-400">
+                  <Trans>Waiting for scan…</Trans>
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  <Trans>
+                    Check your {secondFactor.hint} email for a login code and
+                    enter it here.
+                  </Trans>
+                </p>
+                <InputToken
+                  title={t`Confirmation code`}
+                  enterKeyHint="done"
+                  required
+                  autoFocus={true}
+                  value={otp ?? ''}
+                  onToken={setOtp}
+                />
+              </>
+            )}
           </div>
         </Fieldset>
       )}

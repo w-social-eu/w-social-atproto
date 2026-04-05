@@ -192,6 +192,12 @@ export type SecondAuthenticationFactorRequiredPayload =
   JsonErrorPayload<'second_authentication_factor_required'> & {
     type: 'emailOtp'
     hint: string
+    /** QR code image URL — present when the server wants WID/QR authentication */
+    qrCodeUrl?: string
+    /** QuickLogin sessionId — browser uses this to poll status endpoint */
+    sessionId?: string
+    /** QuickLogin sessionToken — browser auto-submits this as emailOtp once scan is detected */
+    sessionToken?: string
   }
 export class SecondAuthenticationFactorRequiredError<
   P extends
@@ -210,6 +216,15 @@ export class SecondAuthenticationFactorRequiredError<
   }
   get hint() {
     return this.payload.hint
+  }
+  get qrCodeUrl() {
+    return this.payload.qrCodeUrl
+  }
+  get sessionId() {
+    return this.payload.sessionId
+  }
+  get sessionToken() {
+    return this.payload.sessionToken
   }
 
   static is(json: unknown): json is SecondAuthenticationFactorRequiredPayload {

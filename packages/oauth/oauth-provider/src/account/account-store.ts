@@ -54,6 +54,7 @@ export type CreateAccountData = {
 
 export type AuthenticateAccountData = {
   locale: string
+  /** Empty string when the user is signing in via WID/QR (no password). */
   password: string
   username: string
   emailOtp?: string | undefined
