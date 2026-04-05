@@ -9,6 +9,8 @@ import {
 
 export type AsyncActionController = {
   reset: () => void
+  /** Programmatically trigger the async action (equivalent to pressing Submit). */
+  submit: () => void
 }
 
 export type UseAsyncActionOptions = {
@@ -55,10 +57,13 @@ export function useAsyncAction(
     }
   }, [doSetError, doSetLoading])
 
+  const runRef = useRef<() => void>(null)
+
   useImperativeHandle(
     ref,
     (): AsyncActionController => ({
       reset: () => resetRef.current?.(),
+      submit: () => runRef.current?.(),
     }),
     [],
   )
@@ -102,6 +107,10 @@ export function useAsyncAction(
       controller.abort()
     }
   }, [fn, doSetLoading, doSetError])
+
+  useEffect(() => {
+    runRef.current = run
+  }, [run])
 
   return {
     loading,
