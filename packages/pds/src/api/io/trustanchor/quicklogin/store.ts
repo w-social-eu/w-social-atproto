@@ -91,6 +91,14 @@ export class QuickLoginSessionStore {
     return undefined
   }
 
+  /** Look up a session by its sessionToken (the secret 48-char hex given to the browser). */
+  getSessionByToken(sessionToken: string): QuickLoginSession | undefined {
+    for (const session of this.sessions.values()) {
+      if (session.sessionToken === sessionToken) return session
+    }
+    return undefined
+  }
+
   updateSessionKey(sessionId: string, signKey: string): void {
     const session = this.sessions.get(sessionId)
     if (session) {

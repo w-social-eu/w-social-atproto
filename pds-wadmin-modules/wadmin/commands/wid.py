@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Optional
 
 import click
+from rich.console import Console
 from tabulate import tabulate
 
 from ..api import PDSClient
@@ -24,68 +25,13 @@ from ..utils import (
 
 def exec_sqlite(config: Config, sql: str) -> str:
     """
-    Execute SQL query via Nomad exec in the PDS container.
+    Execute SQL query in the PDS container via k8s (rancher kubectl exec) or
+    Nomad alloc exec, depending on which is configured.
 
-    Uses Node.js + better-sqlite3 to query the account.sqlite database.
-
-    Args:
-        config: Configuration with Nomad settings
-        sql: SQL query to execute
-
-    Returns:
-        Query results as string output
-
-    Raises:
-        click.Abort: If Nomad is not configured or query fails
+    Uses Node.js + better-sqlite3 inside the container.
     """
-    if not config.has_nomad_config():
-        print_error(
-            "Database commands require Nomad access",
-            "Use pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod"
-        )
-        raise click.Abort()
-
-    # Import nomad helper
-    from .nomad import check_nomad_auth
-
-    nomad_addr, nomad_token = check_nomad_auth(config)
-    job_name = config.nomad_job_name
-    if not job_name:
-        print_error("Nomad job name not configured")
-        raise click.Abort()
-
-    # Get running allocation ID
-    result = subprocess.run(
-        ["nomad", "status", job_name],
-        env={**os.environ, "NOMAD_ADDR": nomad_addr, "NOMAD_TOKEN": nomad_token},
-        capture_output=True,
-        text=True
-    )
-
-    if result.returncode != 0:
-        print_error("Failed to get Nomad job status")
-        raise click.Abort()
-
-    # Parse allocation ID
-    alloc_id = None
-    for line in result.stdout.split('\n'):
-        parts = line.split()
-        if len(parts) > 0 and len(parts[0]) == 8:
-            try:
-                int(parts[0], 16)
-                if "running" in line.lower():
-                    alloc_id = parts[0]
-                    break
-            except ValueError:
-                continue
-
-    if not alloc_id:
-        print_error("No running allocation found", f"Job {job_name} has no running allocations")
-        raise click.Abort()
-
-    # Build Node.js script to query SQLite
-    # JSON-encode the SQL to avoid quoting issues
-    import sys
+    # Build Node.js script (shared by both transports)
+    import sys as _sys
     sql_json = json.dumps(sql)
 
     node_script = f"""
@@ -136,13 +82,55 @@ if(isWrite){{
 }}
 """
 
-    # Execute via nomad alloc exec
-    result = subprocess.run(
-        ["nomad", "alloc", "exec", "-task", "pds", alloc_id, "node", "-e", node_script],
-        env={**os.environ, "NOMAD_ADDR": nomad_addr, "NOMAD_TOKEN": nomad_token},
-        capture_output=True,
-        text=True
-    )
+    # Execute via k8s (preferred) or Nomad fallback
+    if config.has_k8s_config():
+        from .nomad import check_k8s_auth, run_kubectl
+        from ..config import K8S_NAMESPACE, K8S_POD, K8S_CONTAINER
+        kubeconfig = check_k8s_auth(config)
+        result = run_kubectl(
+            kubeconfig,
+            ["-n", K8S_NAMESPACE, "exec", K8S_POD, "-c", K8S_CONTAINER,
+             "--", "node", "-e", node_script],
+            capture_output=True, text=True
+        )
+    elif config.has_nomad_config():
+        from .nomad import check_nomad_auth
+        nomad_addr, nomad_token = check_nomad_auth(config)
+        job_name = config.nomad_job_name
+        # Get running allocation ID
+        status = subprocess.run(
+            ["nomad", "status", job_name],
+            env={**os.environ, "NOMAD_ADDR": nomad_addr, "NOMAD_TOKEN": nomad_token},
+            capture_output=True, text=True
+        )
+        if status.returncode != 0:
+            print_error("Failed to get Nomad job status")
+            raise click.Abort()
+        alloc_id = None
+        for line in status.stdout.split('\n'):
+            parts = line.split()
+            if len(parts) > 0 and len(parts[0]) == 8:
+                try:
+                    int(parts[0], 16)
+                    if "running" in line.lower():
+                        alloc_id = parts[0]
+                        break
+                except ValueError:
+                    continue
+        if not alloc_id:
+            print_error("No running allocation found", f"Job {job_name} has no running allocations")
+            raise click.Abort()
+        result = subprocess.run(
+            ["nomad", "alloc", "exec", "-task", "pds", alloc_id, "node", "-e", node_script],
+            env={**os.environ, "NOMAD_ADDR": nomad_addr, "NOMAD_TOKEN": nomad_token},
+            capture_output=True, text=True
+        )
+    else:
+        print_error(
+            "Database commands require cluster access",
+            "Use pds-wadmin-dev, pds-wadmin-stage, or pds-wadmin-prod"
+        )
+        raise click.Abort()
 
     if result.returncode != 0:
         print_error("SQLite query failed", result.stderr or "Unknown error")
@@ -234,7 +222,10 @@ def list_command(ctx):
     header_parts.append(f"[bold blue]{headers[4]}[/bold blue]")       # LINKED_AT - blue
     header_parts.append(f"[bold red]{headers[5]}[/bold red]")         # FLAGS - red
 
-    console.print("  ".join(header_parts), highlight=False)
+    # Use an unbounded-width console so each row is always a single line —
+    # no wrapping, no truncation — making grep / piping work correctly.
+    wide = Console(width=32000)
+    wide.print("  ".join(header_parts), highlight=False)
 
     # Print rows with colors
     for row in table_data:
@@ -246,7 +237,7 @@ def list_command(ctx):
         row_parts.append(f"[blue]{row[4]}[/blue]")         # LINKED_AT - blue
         row_parts.append(f"[red]{row[5]}[/red]" if row[5] else "")  # FLAGS - red (only if present)
 
-        console.print("  ".join(row_parts), highlight=False)
+        wide.print("  ".join(row_parts), highlight=False)
 
 
 @wid.command()
@@ -508,16 +499,25 @@ def check_handle(ctx, handle: str):
         )
         dns_result = result.stdout.strip()
 
-        if dns_result:
+        # dig +short follows CNAMEs and prints the CNAME target (unquoted hostname)
+        # alongside any TXT records (quoted strings). Only accept quoted TXT values.
+        txt_lines = [line for line in dns_result.split("\n") if line.startswith('"')]
+
+        if txt_lines:
             console.print("✓ Found DNS TXT record:")
-            for line in dns_result.split("\n"):
+            for line in txt_lines:
                 console.print(f"  {line}")
 
             # Extract DID
-            match = re.search(r'did:plc:[a-z0-9]+', dns_result)
+            match = re.search(r'did:plc:[a-z0-9]+', "\n".join(txt_lines))
             if match:
                 dns_did = match.group(0)
                 console.print(f"  Extracted DID: {dns_did}")
+        elif dns_result:
+            # Output present but no quoted TXT values — likely CNAME bleed-through
+            console.print("✗ No DNS TXT record found (got CNAME, not a TXT record):")
+            for line in dns_result.split("\n"):
+                console.print(f"  {line}")
         else:
             console.print("✗ No DNS TXT record found")
     except Exception as e:
@@ -664,7 +664,53 @@ def check_handle(ctx, handle: str):
 
     console.print()
 
-    # 6. Summary
+    # 6. AppView Actor State (getProfile by DID)
+    appview_actor_handle = None
+    appview_actor_ok = None  # None = skipped, True = ok, False = handle.invalid
+    if appview_url and plc_did:
+        console.print("6️⃣  AppView Actor State ({}/xrpc/app.bsky.actor.getProfile)".format(appview_url))
+        console.print("─" * 63)
+        try:
+            response = requests.get(
+                f"{appview_url}/xrpc/app.bsky.actor.getProfile",
+                params={"actor": plc_did},
+                timeout=10
+            )
+            if response.status_code == 200:
+                data = response.json()
+                appview_actor_handle = data.get("handle")
+                if appview_actor_handle == "handle.invalid":
+                    console.print(f"✗ AppView actor handle is [bold red]handle.invalid[/bold red]")
+                    console.print(f"  The AppView has cached the handle as invalid for DID {plc_did}")
+                    console.print(f"  Fix: run [cyan]admin repair-actor {plc_did}[/cyan] to re-trigger handle verification")
+                    appview_actor_ok = False
+                elif appview_actor_handle:
+                    console.print(f"✓ AppView actor handle: {appview_actor_handle}")
+                    appview_actor_ok = True
+                else:
+                    console.print("⚠️  AppView returned profile without handle field")
+                    appview_actor_ok = False
+            elif response.status_code == 400:
+                error_data = response.json()
+                console.print(f"✗ AppView returned error: {error_data.get('message', error_data.get('error', 'Unknown'))}")
+                appview_actor_ok = False
+            else:
+                console.print(f"✗ AppView getProfile failed (HTTP {response.status_code})")
+                appview_actor_ok = False
+        except Exception as e:
+            console.print(f"✗ AppView getProfile failed: {str(e)}")
+    elif not plc_did:
+        console.print("6️⃣  AppView Actor State")
+        console.print("─" * 63)
+        console.print("⊘ Skipped (no DID available)")
+    else:
+        console.print("6️⃣  AppView Actor State")
+        console.print("─" * 63)
+        console.print("⊘ Skipped (BSKY_APP_VIEW_URL not configured)")
+
+    console.print()
+
+    # 7. Summary
     console.print("═" * 63)
     console.print("Summary")
     console.print("═" * 63)
@@ -679,7 +725,7 @@ def check_handle(ctx, handle: str):
     # If AppView was checked, require it too
     all_checks_passed = all_required_passed
     if appview_url:
-        all_checks_passed = all_required_passed and bool(appview_did)
+        all_checks_passed = all_required_passed and bool(appview_did) and appview_actor_ok is not False
 
     if all_checks_passed:
         console.print("Status: ✓ All checks passed")
@@ -704,6 +750,8 @@ def check_handle(ctx, handle: str):
             console.print(f"  DID: {reference_did}")
             if plc_handle:
                 console.print(f"  PLC Handle Claim: ✓ {handle}")
+            if appview_actor_ok is True:
+                console.print(f"  AppView Actor:    ✓ {appview_actor_handle}")
 
             if has_both:
                 console.print()
@@ -744,6 +792,10 @@ def check_handle(ctx, handle: str):
 
         if appview_url:
             console.print(f"  AppView:      {'✓ ' + appview_did if appview_did else '✗ Failed'}")
+            if appview_actor_ok is False:
+                console.print(f"  Actor State:  ✗ handle.invalid (run [cyan]admin repair-actor {plc_did}[/cyan])")
+            elif appview_actor_ok is True:
+                console.print(f"  Actor State:  ✓ {appview_actor_handle}")
         else:
             console.print("  AppView:      ⊘ Skipped (not configured)")
 
@@ -765,6 +817,10 @@ def check_handle(ctx, handle: str):
         if appview_url and not appview_did:
             console.print("  • AppView cannot resolve handle - account may not be indexed yet")
             console.print("    (AppView syncs from PDS; check if account creation was recent)")
+        if appview_actor_ok is False and appview_actor_handle == "handle.invalid":
+            console.print(f"  • AppView actor state is handle.invalid - run:")
+            console.print(f"    [cyan]admin repair-actor {plc_did}[/cyan]")
+            console.print(f"    This re-sequences an identity event to trigger re-verification")
         if not plc_handle:
             console.print("  • PLC DID document doesn't claim this handle")
             console.print("    Try re-setting the handle to trigger PLC update:")
@@ -1008,10 +1064,8 @@ def clear(ctx, older_than_days: Optional[int], yes: bool):
     print_success(f"Successfully cleared {deleted} available account(s) from inventory.")
 
 
-@wid.command()
-@click.pass_context
-def schema(ctx):
-    """Show database schema for key tables (requires Nomad access)."""
+def schema_command(ctx):
+    """Show database schema for key tables."""
     config: Config = ctx.obj["config"]
 
     console.print(f"Database Schema for pds/{config.environment or 'unknown'}")
@@ -1046,11 +1100,8 @@ def schema(ctx):
     console.print(output)
 
 
-@wid.command()
-@click.option("--query", default=None, help="Custom SQL query to execute")
-@click.pass_context
-def db(ctx, query: Optional[str]):
-    """Query neuro_identity_link database (requires Nomad access)."""
+def db_command(ctx, query: Optional[str]):
+    """Query neuro_identity_link database."""
     config: Config = ctx.obj["config"]
 
     if query:
@@ -1079,11 +1130,8 @@ ORDER BY nil.did, nil.linkedAt;
         console.print(output)
 
 
-@wid.command("check-db")
-@click.argument("did")
-@click.pass_context
-def check_db(ctx, did: str):
-    """Check database consistency for a specific DID (requires Nomad access)."""
+def check_db_command(ctx, did: str):
+    """Check database consistency for a specific DID."""
     config: Config = ctx.obj["config"]
 
     console.print("═" * 63)

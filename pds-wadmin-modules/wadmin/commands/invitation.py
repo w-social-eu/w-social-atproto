@@ -8,11 +8,13 @@ from pathlib import Path
 from typing import List, Optional
 
 import click
+from rich.console import Console
 from tabulate import tabulate
 
 from ..api import PDSClient
 from ..config import Config
 from ..utils import (
+
     console,
     print_error,
     print_success,
@@ -200,7 +202,8 @@ def list_command(ctx, status: str, before: Optional[str], limit: int, json_outpu
     header_parts.append(f"[bold white]{headers[6]}[/bold white]")
     header_parts.append(f"[bold white]{headers[7]}[/bold white]")
 
-    console.print("  ".join(header_parts), highlight=False)
+    wide = Console(width=32000)
+    wide.print("  ".join(header_parts), highlight=False)
 
     # Print rows
     for row in table_data:
@@ -214,7 +217,7 @@ def list_command(ctx, status: str, before: Optional[str], limit: int, json_outpu
         row_parts.append(f"[white]{row[6]}[/white]")
         row_parts.append(f"[white]{row[7]}[/white]")
 
-        console.print("  ".join(row_parts), highlight=False)
+        wide.print("  ".join(row_parts), highlight=False)
 
 
 @invitation.command()
@@ -257,7 +260,7 @@ def stats(ctx, since: Optional[str], json_output: bool):
         console.print(f"Consumed Since: {result['consumedSince']}")
 
     if "conversionRate" in result:
-        rate = int(result["conversionRate"] * 100)
+        rate = int(float(result["conversionRate"]) * 100)
         console.print(f"Conversion Rate: {rate}%")
 
     console.print()
@@ -526,7 +529,7 @@ def stock(ctx):
             console.print()
 
             if conversion_rate is not None:
-                rate = int(conversion_rate * 100)
+                rate = int(float(conversion_rate) * 100)
                 console.print(f"   Conversion Rate: {rate}%")
             else:
                 console.print("   Conversion Rate: N/A")
@@ -861,3 +864,61 @@ def move_contact(ctx, email: str, from_list: int, to_list: int):
     except Exception as e:
         print_error(f"Failed to move contact: {str(e)}")
         raise click.Abort()
+
+
+@invitation.command()
+@click.argument("jid")
+@click.option("--handle", default=None, help="Preferred handle for the account (optional)")
+@click.pass_context
+def connect(ctx, jid: str, handle: Optional[str]):
+    """Pre-authorise a JID to create an account without sending an email.
+
+    Inserts a pending invitation keyed only by JID.  When the user with that
+    JID attempts a QuickLogin for the first time, the system will find this
+    invitation and allow the account to be created automatically.
+
+    Example:
+        ./pds-wadmin invitation connect f0d860cc-60c0-4260-b54f-782c9d9a749f@auth.widentity.eu
+    """
+    from .wid import exec_sqlite
+
+    config: Config = ctx.obj["config"]
+
+    # Store only the local part (UUID before @) to match what the server stores
+    # for webhook-linked invitations. getInvitationByJid also compares local
+    # parts only, so login will work regardless of which domain the user logs in from.
+    jid_local = jid.split('@')[0]
+
+    now = datetime.utcnow()
+    now_iso = now.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    ts = int(now.timestamp())
+    # 30-day expiry to match the standard invitation lifetime
+    expiry_iso = datetime.utcfromtimestamp(ts + 30 * 24 * 3600).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    # Synthetic email placeholder — keeps the NOT NULL constraint happy
+    synthetic_email = f"jid-connect-{ts}@noemail.invalid"
+
+    preferred = handle or ""
+
+    sql = (
+        "INSERT INTO pending_invitations "
+        "(email, jid, preferred_handle, invitation_timestamp, created_at, expires_at, status) "
+        "VALUES ("
+        f"'{synthetic_email}', '{jid_local}', "
+        + (f"'{preferred}'" if preferred else "NULL") +
+        f", {ts}, '{now_iso}', '{expiry_iso}', 'pending'"
+        ");"
+    )
+
+    output = exec_sqlite(config, sql)
+    if output and output.strip():
+        print_warning(f"SQL output: {output.strip()}")
+
+    print_success(f"JID pre-authorised for account creation")
+    console.print(f"[cyan]JID:[/cyan]     {jid}", highlight=False)
+    if preferred:
+        console.print(f"[cyan]Handle:[/cyan]  {preferred}", highlight=False)
+    console.print(f"[cyan]Expires:[/cyan] {expiry_iso}", highlight=False)
+    console.print(
+        "[dim]The account will be created automatically on first QuickLogin.[/dim]",
+        highlight=False,
+    )

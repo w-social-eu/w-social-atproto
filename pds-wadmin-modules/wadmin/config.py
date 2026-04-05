@@ -1,7 +1,7 @@
 """
 Configuration management for PDS Admin Tool.
 
-Handles environment detection, Vault authentication, and secret fetching.
+Handles environment detection and secret fetching from Kubernetes.
 """
 
 import os
@@ -9,6 +9,11 @@ import sys
 from typing import Optional
 from dataclasses import dataclass
 from pathlib import Path
+
+# Kubernetes namespace and container name are the same across all environments.
+K8S_NAMESPACE = "pds"
+K8S_POD = "pds-0"
+K8S_CONTAINER = "pds"
 
 
 @dataclass
@@ -28,6 +33,7 @@ class Config:
     nomad_addr: Optional[str] = None
     nomad_token: Optional[str] = None
     nomad_job_name: Optional[str] = None
+    k8s_cluster_id: Optional[str] = None
 
     @classmethod
     def from_environment(cls, script_name: str) -> "Config":
@@ -51,73 +57,62 @@ class Config:
         env = parts[-1] if len(parts) > 1 and parts[-1] in ("dev", "stage", "prod") else None
 
         if env:
-            return cls._from_vault(env)
+            return cls._from_k8s(env)
         else:
             return cls._from_env_vars()
 
     @classmethod
-    def _from_vault(cls, env: str) -> "Config":
+    def _from_k8s(cls, env: str) -> "Config":
         """
-        Fetch all secrets from Vault in one batch operation.
+        Fetch all secrets from the k8s 'pds' secret in the pds namespace.
 
         Args:
             env: Environment name (dev, stage, prod)
 
         Returns:
-            Config instance with Vault-sourced credentials
+            Config instance with k8s-sourced credentials
 
         Raises:
-            RuntimeError: If Vault authentication fails
+            RuntimeError: If kubectl is unavailable or the secret cannot be read
         """
-        try:
-            import hvac
-        except ImportError:
+        import subprocess
+        import json
+        import base64
+
+        kubeconfig = Path.home() / ".wsocial" / "kube" / f"{env}.yaml"
+        if not kubeconfig.exists():
             raise RuntimeError(
-                "ERROR: hvac library not installed.\n"
-                "Install with: pip install hvac\n"
-                "Or run: cd pds-wadmin-modules && .venv/bin/pip install -r requirements.txt"
+                f"Kubeconfig not found: {kubeconfig}\n"
+                f"Download from Rancher UI for the '{env}' cluster and save it there."
             )
 
-        vault_addr = "https://vault.wsocial.cloud"
-        client = hvac.Client(url=vault_addr)
-
-        # Check for existing token
-        token_file = Path.home() / ".vault-token"
-        if token_file.exists():
-            client.token = token_file.read_text().strip()
-
-        # Validate authentication
-        if not client.is_authenticated():
-            print("ERROR: Vault authentication required", file=sys.stderr)
-            print("Run: vault login -method=github -path=github", file=sys.stderr)
-            sys.exit(1)
-
-        # Batch fetch all secrets for environment
-        pds_path = f"pds/{env}"
-        try:
-            response = client.secrets.kv.v2.read_secret_version(
-                path=pds_path,
-                mount_point="secret"
+        result = subprocess.run(
+            ["kubectl", "--kubeconfig", str(kubeconfig),
+             "get", "secret", "pds", "-n", K8S_NAMESPACE, "-o", "json"],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Failed to read k8s secret 'pds' in namespace '{K8S_NAMESPACE}':\n{result.stderr.strip()}"
             )
-            secrets = response["data"]["data"]
-        except Exception as e:
-            raise RuntimeError(f"Failed to fetch secrets from Vault path '{pds_path}': {e}")
 
-        # Construct config from secrets
+        raw = json.loads(result.stdout)["data"]
+        secrets = {k: base64.b64decode(v).decode() for k, v in raw.items()}
+
+        brevo_template_raw = secrets.get("PDS_BREVO_INVITATION_TEMPLATE_ID")
+
         return cls(
-            pds_host=f"https://{secrets['HOSTNAME']}",
-            admin_password=secrets["ADMIN_PASSWORD"],
+            pds_host=f"https://{secrets['PDS_HOSTNAME']}",
+            admin_password=secrets["PDS_ADMIN_PASSWORD"],
             environment=env,
-            brevo_api_key=secrets.get("BREVO_API_KEY"),
-            brevo_template_id=int(secrets["BREVO_INVITATION_TEMPLATE_ID"]) if "BREVO_INVITATION_TEMPLATE_ID" in secrets else None,
-            invitation_email_from=secrets.get("INVITATION_EMAIL_FROM"),
-            invitation_mail_from_name=secrets.get("INVITATION_MAIL_FROM_NAME"),
-            invitation_email_hash_salt=secrets.get("INVITATION_EMAIL_HASH_SALT"),
-            bsky_app_view_url=secrets.get("BSKY_APP_VIEW_URL"),
-            bsky_app_view_did=secrets.get("BSKY_APP_VIEW_DID"),
-            nomad_addr="https://nomad.wsocial.cloud",
-            nomad_job_name=f"pds-{env}",
-            # Nomad token handled separately (login on demand)
+            brevo_api_key=secrets.get("PDS_BREVO_API_KEY"),
+            brevo_template_id=int(brevo_template_raw) if brevo_template_raw else None,
+            invitation_email_from=secrets.get("PDS_INVITATION_EMAIL_FROM"),
+            invitation_mail_from_name=secrets.get("PDS_INVITATION_MAIL_FROM_NAME"),
+            invitation_email_hash_salt=secrets.get("PDS_INVITATION_EMAIL_HASH_SALT"),
+            bsky_app_view_url=secrets.get("PDS_BSKY_APP_VIEW_URL"),
+            bsky_app_view_did=secrets.get("PDS_BSKY_APP_VIEW_DID"),
+            k8s_cluster_id=env,
         )
 
     @classmethod
@@ -156,6 +151,7 @@ class Config:
             nomad_addr=os.getenv("NOMAD_ADDR"),
             nomad_token=os.getenv("NOMAD_TOKEN"),
             nomad_job_name=os.getenv("PDS_NOMAD_JOB_NAME"),
+            k8s_cluster_id=os.getenv("K8S_ENV", os.getenv("K8S_CLUSTER_ID")),
         )
 
     def has_brevo_config(self) -> bool:
@@ -165,3 +161,7 @@ class Config:
     def has_nomad_config(self) -> bool:
         """Check if Nomad configuration is available."""
         return bool(self.nomad_addr and self.nomad_job_name)
+
+    def has_k8s_config(self) -> bool:
+        """Check if Rancher/k8s configuration is available."""
+        return bool(self.k8s_cluster_id)

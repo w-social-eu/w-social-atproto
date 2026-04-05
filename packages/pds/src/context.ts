@@ -339,6 +339,25 @@ export class AppContext {
       },
     })
 
+    // Create QuickLogin session store (shared by XRPC handlers and OAuth bridge)
+    const quickloginStore = new QuickLoginSessionStore()
+
+    // Create QuickLogin OAuth bridge if quicklogin is configured
+    let quickloginBridge:
+      | import('./account-manager/helpers/quicklogin-oauth-bridge').QuickLoginOAuthBridge
+      | undefined
+    if (cfg.quicklogin) {
+      const { QuickLoginOAuthBridge } = await import(
+        './account-manager/helpers/quicklogin-oauth-bridge'
+      )
+      quickloginBridge = new QuickLoginOAuthBridge(
+        quickloginStore,
+        cfg.quicklogin,
+        safeFetch,
+        cfg.service.publicUrl,
+      )
+    }
+
     // Create Neuro Auth Manager if configured
     let neuroAuthManager:
       | import('./account-manager/helpers/neuro-auth-manager').NeuroAuthManager
@@ -375,7 +394,7 @@ export class AppContext {
             plcRotationKey,
             cfg.service.publicUrl,
             cfg.identity.recoveryDidKey,
-            neuroAuthManager,
+            quickloginBridge,
           ),
           redis: redisScratch,
           dpopSecret: secrets.dpopSecret,
@@ -484,9 +503,6 @@ export class AppContext {
         },
       },
     )
-
-    // Create QuickLogin session store
-    const quickloginStore = new QuickLoginSessionStore()
 
     // Create InvitationManager
     const { InvitationManager } = await import(

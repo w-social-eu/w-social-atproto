@@ -1,13 +1,13 @@
 import { z } from 'zod'
 import { localeSchema } from '../lib/util/locale.js'
 import { emailOtpSchema } from '../types/email-otp.js'
-import { newPasswordSchema, oldPasswordSchema } from '../types/password.js'
 
 export const signInDataSchema = z
   .object({
     locale: localeSchema,
     username: z.string(),
-    password: z.union([oldPasswordSchema, newPasswordSchema]),
+    // Allow empty string so WID/QR users (no password) can submit without one.
+    password: z.string(),
     emailOtp: emailOtpSchema.optional(),
   })
   .strict()

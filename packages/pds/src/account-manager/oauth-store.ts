@@ -60,7 +60,7 @@ import * as authRequestHelper from './helpers/authorization-request'
 import * as authorizedClientHelper from './helpers/authorized-client'
 import * as deviceHelper from './helpers/device'
 import * as lexiconHelper from './helpers/lexicon'
-import { NeuroAuthManager, NeuroErrorCodes } from './helpers/neuro-auth-manager'
+import { QuickLoginOAuthBridge } from './helpers/quicklogin-oauth-bridge'
 import * as tokenHelper from './helpers/token'
 import * as usedRefreshTokenHelper from './helpers/used-refresh-token'
 
@@ -84,7 +84,7 @@ export class OAuthStore
     private readonly plcRotationKey: Keypair,
     private readonly publicUrl: string,
     private readonly recoveryDidKey: string | null,
-    private readonly neuroAuthManager?: NeuroAuthManager,
+    private readonly quickloginBridge?: QuickLoginOAuthBridge,
   ) {}
 
   private get db() {
@@ -137,128 +137,6 @@ export class OAuthStore
       'OAuth account creation is disabled. Please use WID authentication via QuickLogin.',
       'OAuthAccountCreationDisabled',
     )
-
-    /* Code below is commented out - unreachable after throw above
-    // @TODO Send an account creation confirmation email (+verification link) to the user (in their locale)
-    // @NOTE Password strength & length already enforced by the OAuthProvider
-
-    // Check if this is a QuickLogin signup (no password + verification code)
-    if (!password && emailOtp && this.neuroAuthManager) {
-      // Verify the code
-      const sessionId = this.neuroAuthManager.getSessionByCode(emailOtp)
-
-      if (!sessionId) {
-        throw new InvalidRequestError(
-          'Invalid or expired verification code. Please check the code and try again.',
-          NeuroErrorCodes.CODE_INVALID,
-        )
-      }
-
-      if (!this.neuroAuthManager.isSessionCompleted(sessionId)) {
-        throw new InvalidRequestError(
-          'Please scan the QR code first before entering the verification code.',
-          NeuroErrorCodes.SESSION_INCOMPLETE,
-        )
-      }
-
-      const identity = this.neuroAuthManager.getSessionIdentity(sessionId)
-      if (!identity) {
-        throw new InvalidRequestError(
-          'Session data not available. Please try again.',
-          NeuroErrorCodes.SESSION_DATA_MISSING,
-        )
-      }
-
-      return this.createAccountWithNeuro({
-        handle,
-        email,
-        inviteCode,
-        locale: _locale,
-        identity,
-      })
-    }
-
-    await Promise.all([
-      this.verifyEmailAvailability(email),
-      this.verifyHandleAvailability(handle),
-      !inviteCode || this.verifyInviteCode(inviteCode),
-    ])
-
-    // @TODO The code bellow should probably be refactored to be common with the
-    // code of the `com.atproto.server.createAccount` XRPC endpoint.
-
-    const signingKey = await Secp256k1Keypair.create({ exportable: true })
-    const signingKeyDid = signingKey.did()
-
-    const plcCreate = await createPlcOp({
-      signingKey: signingKeyDid,
-      rotationKeys: this.recoveryDidKey
-        ? [this.recoveryDidKey, this.plcRotationKey.did()]
-        : [this.plcRotationKey.did()],
-      handle,
-      pds: this.publicUrl,
-      signer: this.plcRotationKey,
-    })
-
-    const { did, op } = plcCreate
-
-    try {
-      await this.actorStore.create(did, signingKey)
-      try {
-        const commit = await this.actorStore.transact(did, (actorTxn) =>
-          actorTxn.repo.createRepo([]),
-        )
-
-        await this.plcClient.sendOperation(did, op)
-
-        await this.accountManager.createAccount({
-          did,
-          handle,
-          email,
-          password,
-          inviteCode,
-          repoCid: commit.cid,
-          repoRev: commit.rev,
-        })
-        try {
-          await sendIdentityEventWithRetry(
-            this.sequencer,
-            this.backgroundQueue,
-            did,
-            handle,
-            dbLogger,
-            'OAuth flow',
-          )
-
-          await this.sequencer.sequenceAccountEvt(did, AccountStatus.Active)
-          await this.sequencer.sequenceCommit(did, commit)
-          await this.sequencer.sequenceSyncEvt(
-            did,
-            syncEvtDataFromCommit(commit),
-          )
-          await this.accountManager.updateRepoRoot(did, commit.cid, commit.rev)
-          await this.actorStore.clearReservedKeypair(signingKeyDid, did)
-
-          const account = await this.accountManager.getAccount(did)
-          if (!account) throw new Error('Account not found')
-
-          return await this.buildAccount(account)
-        } catch (err) {
-          this.accountManager.deleteAccount(did)
-          throw err
-        }
-      } catch (err) {
-        await this.actorStore.destroy(did)
-        throw err
-      }
-    } catch (err) {
-      // XrpcError => OAuthError
-      if (err instanceof XrpcInvalidRequestError) {
-        throw new InvalidRequestError(err.message, err)
-      }
-      throw err
-    }
-    */
   }
 
   async authenticateAccount({
@@ -270,78 +148,31 @@ export class OAuthStore
   }: AuthenticateAccountData): Promise<Account> {
     // @TODO (?) Send an email to the user to notify them of the login attempt
 
-    // QUICKLOGIN AUTHENTICATION FLOW
-    if (!password && this.neuroAuthManager) {
-      // Step 1: Check if user is submitting verification code (second attempt)
+    // WID QUICKLOGIN AUTHENTICATION FLOW
+    if (!password && this.quickloginBridge) {
       if (emailOtp) {
-        // User entered the 6-digit code displayed with QR
-        const sessionId = this.neuroAuthManager.getSessionByCode(emailOtp)
-
-        if (!sessionId) {
+        // Second submit — emailOtp is the sessionToken proving the browser initiated this session
+        const did = await this.quickloginBridge.getCompletedDid(emailOtp)
+        if (!did) {
           throw new InvalidRequestError(
-            'Invalid or expired verification code. Please check the code and try again.',
-            NeuroErrorCodes.CODE_INVALID,
+            'WID authentication not yet completed or expired. Please scan the QR code first.',
           )
         }
-
-        if (!this.neuroAuthManager.isSessionCompleted(sessionId)) {
-          throw new InvalidRequestError(
-            'Please scan the QR code first before entering the verification code.',
-            NeuroErrorCodes.SESSION_INCOMPLETE,
-          )
-        }
-
-        const identity = this.neuroAuthManager.getSessionIdentity(sessionId)
-        if (!identity) {
-          throw new InvalidRequestError(
-            'Session data not available. Please try again.',
-            NeuroErrorCodes.SESSION_DATA_MISSING,
-          )
-        }
-
-        // Look up account by Neuro JID
-        const accountLink =
-          await this.neuroAuthManager.findAccountByLegalIdOrJid(identity.jid)
-
-        if (!accountLink) {
-          throw new InvalidRequestError(
-            'No account linked to this Neuro identity. Please sign up first.',
-            NeuroErrorCodes.IDENTITY_NOT_LINKED,
-          )
-        }
-
-        // Update last login timestamp
-        await this.neuroAuthManager.updateLastLogin(identity.jid)
-
-        // Get account and return
-        const account = await accountHelper.getAccount(this.db, accountLink.did)
-        if (!account) {
-          throw new InvalidRequestError('Account not found')
-        }
-
+        const account = await accountHelper.getAccount(this.db, did)
+        if (!account) throw new InvalidRequestError('Account not found')
         return this.buildAccount(account)
       }
 
-      // Step 2: First attempt - initiate session and show QR code
-      const { sessionId, qrCodeUrl, verificationCode } =
-        await this.neuroAuthManager.initiateSession()
-
-      // Store session reference for this identifier
-      this.neuroAuthManager.setSessionForIdentifier(identifier, sessionId)
-
-      // Create hint with QR URL and verification code
-      const hint = `Please scan this QR code with your Neuro app:
-
-${qrCodeUrl}
-
-After scanning, enter this code: **${verificationCode}**
-
-This will authenticate you with your Neuro identity.`
-
-      // Throw 2FA error - OAuth UI will display hint + code input field
-      throw new SecondAuthenticationFactorRequiredError('emailOtp', hint, [
-        identifier,
-      ])
+      // First submit — initiate QuickLogin session and show QR
+      const { sessionId, sessionToken, qrCodeUrl } =
+        await this.quickloginBridge.initiateSession()
+      throw new SecondAuthenticationFactorRequiredError(
+        'emailOtp',
+        'Scan the QR code with your WID app.',
+        qrCodeUrl,
+        sessionId,
+        sessionToken,
+      )
     }
 
     try {
@@ -728,146 +559,6 @@ This will authenticate you with your Neuro identity.`
       account: await this.buildAccount(row),
       currentRefreshToken: row.currentRefreshToken,
     }
-  }
-
-  private async createAccountWithNeuro(_data: {
-    handle: string
-    email?: string
-    inviteCode?: string
-    locale?: string
-    identity: import('./helpers/neuro-auth-manager').NeuroIdentity
-  }): Promise<Account> {
-    // SECURITY: OAuth+Neuro account creation disabled
-    // All WID-based account creation should use QuickLogin callback endpoint
-    // This method is kept as a stub in case OAuth needs to be re-enabled
-    throw new InvalidRequestError(
-      'OAuth account creation is disabled. WID authentication should use the QuickLogin callback endpoint.',
-      'OAuthAccountCreationDisabled',
-    )
-
-    /* Code below is commented out - unreachable after throw above
-    if (!this.neuroAuthManager) {
-      throw new InvalidRequestError('Neuro authentication not configured')
-    }
-
-    const { identity } = data
-
-    // Check if already linked
-    const existing = await this.neuroAuthManager.findAccountByLegalIdOrJid(
-      identity.jid,
-    )
-
-    if (existing) {
-      throw new InvalidRequestError(
-        'This Neuro identity is already linked to an account. Please log in instead.',
-        NeuroErrorCodes.IDENTITY_ALREADY_LINKED,
-      )
-    }
-
-    // Extract email from Neuro identity
-    // Note: Neuro API may use 'email' or 'eMail' field name
-    const email =
-      identity.email || identity.eMail || identity.userName || data.email
-    if (!email) {
-      throw new InvalidRequestError(
-        'Your Neuro account does not have an email address configured. ' +
-          'Please add an email to your Neuro account or contact support.',
-        NeuroErrorCodes.IDENTITY_EMAIL_MISSING,
-      )
-    }
-
-    // Verify availability
-    await this.verifyEmailAvailability(email)
-    await this.verifyHandleAvailability(data.handle)
-    if (data.inviteCode) {
-      await this.verifyInviteCode(data.inviteCode)
-    }
-
-    // Create signing key and DID
-    const signingKey = await Secp256k1Keypair.create({ exportable: true })
-    const signingKeyDid = signingKey.did()
-
-    const plcCreate = await createPlcOp({
-      signingKey: signingKeyDid,
-      rotationKeys: this.recoveryDidKey
-        ? [this.recoveryDidKey, this.plcRotationKey.did()]
-        : [this.plcRotationKey.did()],
-      handle: data.handle,
-      pds: this.publicUrl,
-      signer: this.plcRotationKey,
-    })
-
-    const { did, op } = plcCreate
-
-    try {
-      await this.actorStore.create(did, signingKey)
-
-      try {
-        const commit = await this.actorStore.transact(did, (actorTxn) =>
-          actorTxn.repo.createRepo([]),
-        )
-
-        await this.plcClient.sendOperation(did, op)
-
-        // Create account with WID authentication (no password)
-        // Use synthetic email to satisfy DB constraints while preserving privacy
-        const syntheticEmail = `${did.split(':').pop()}@noemail.invalid`
-        await this.accountManager.createAccount({
-          did,
-          handle: data.handle,
-          email: syntheticEmail,
-          password: undefined, // WID accounts locked to WID authentication
-          inviteCode: data.inviteCode,
-          repoCid: commit.cid,
-          repoRev: commit.rev,
-        })
-
-        try {
-          // Link Neuro identity
-          await this.neuroAuthManager.linkIdentity(
-            identity.jid,
-            did,
-            email,
-            identity.userName,
-          )
-
-          await sendIdentityEventWithRetry(
-            this.sequencer,
-            this.backgroundQueue,
-            did,
-            data.handle,
-            dbLogger,
-            'Neuro OAuth flow',
-          )
-
-          await this.sequencer.sequenceAccountEvt(did, AccountStatus.Active)
-          await this.sequencer.sequenceCommit(did, commit)
-          await this.sequencer.sequenceSyncEvt(
-            did,
-            syncEvtDataFromCommit(commit),
-          )
-          await this.accountManager.updateRepoRoot(did, commit.cid, commit.rev)
-          await this.actorStore.clearReservedKeypair(signingKeyDid, did)
-
-          const account = await this.accountManager.getAccount(did)
-          if (!account) throw new Error('Account not found')
-
-          return await this.buildAccount(account)
-        } catch (err) {
-          await this.accountManager.deleteAccount(did)
-          throw err
-        }
-      } catch (err) {
-        await this.actorStore.destroy(did)
-        throw err
-      }
-    } catch (err) {
-      if (err instanceof XrpcInvalidRequestError) {
-        throw new InvalidRequestError(err.message, err)
-      }
-      throw err
-    }
-    */
   }
 
   private async buildAccount(
