@@ -107,7 +107,11 @@ export function SignInForm({
     }
     void poll()
     return () => ac.abort()
-  }, [secondFactor?.sessionId, secondFactor?.sessionToken, secondFactor?.qrCodeUrl])
+  }, [
+    secondFactor?.sessionId,
+    secondFactor?.sessionToken,
+    secondFactor?.qrCodeUrl,
+  ])
 
   useEffect(() => {
     if (pendingAutoSubmitRef.current && otp) {
@@ -175,7 +179,10 @@ export function SignInForm({
       cancelLabel={backLabel ?? t`Back`}
       append={children}
       invalid={
-        invalid || !username || (!secondFactor && showPassword && !password) || (secondFactor != null && !secondFactor.qrCodeUrl && !otp)
+        invalid ||
+        !username ||
+        (!secondFactor && showPassword && !password) ||
+        (secondFactor != null && !secondFactor.qrCodeUrl && !otp)
       }
       submitLabel={
         secondFactor ? (
@@ -249,7 +256,7 @@ export function SignInForm({
         <div className="text-center">
           <button
             type="button"
-            className="text-sm text-slate-500 dark:text-slate-400 underline"
+            className="text-sm text-slate-500 underline dark:text-slate-400"
             onClick={() => {
               resetState()
               setShowPassword(true)
@@ -298,14 +305,12 @@ export function SignInForm({
                 <img
                   src={secondFactor.qrCodeUrl}
                   alt={t`WID QR code`}
-                  className="mx-auto block w-44 h-44"
+                  className="mx-auto block h-44 w-44"
                 />
-                <p className="text-sm text-center text-slate-600 dark:text-slate-400">
-                  <Trans>
-                    Scan this QR code with your WID app to sign in.
-                  </Trans>
+                <p className="text-center text-sm text-slate-600 dark:text-slate-400">
+                  <Trans>Scan this QR code with your WID app to sign in.</Trans>
                 </p>
-                <p className="text-sm text-center italic text-slate-500 dark:text-slate-400">
+                <p className="text-center text-sm italic text-slate-500 dark:text-slate-400">
                   <Trans>Waiting for scan…</Trans>
                 </p>
               </>
