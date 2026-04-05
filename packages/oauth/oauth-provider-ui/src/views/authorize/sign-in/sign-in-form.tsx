@@ -70,6 +70,7 @@ export function SignInForm({
     useState<null | SecondAuthenticationFactorRequiredError>(null)
 
   const [loading, setLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   const formRef = useRef<AsyncActionController>(null)
 
@@ -174,13 +175,15 @@ export function SignInForm({
       cancelLabel={backLabel ?? t`Back`}
       append={children}
       invalid={
-        invalid || !username || (secondFactor != null && !secondFactor.qrCodeUrl && !otp)
+        invalid || !username || (!secondFactor && showPassword && !password) || (secondFactor != null && !secondFactor.qrCodeUrl && !otp)
       }
       submitLabel={
         secondFactor ? (
           <Trans context="verb">Confirm</Trans>
-        ) : (
+        ) : showPassword ? (
           <Trans context="verb">Sign in</Trans>
+        ) : (
+          <Trans context="verb">Sign in with WID</Trans>
         )
       }
       onSubmit={doSubmit}
@@ -209,19 +212,9 @@ export function SignInForm({
         />
       </Fieldset>
 
-      {/* Hide password field once the WID QR scan flow has been initiated */}
-      {!secondFactor?.qrCodeUrl && (
-        <Fieldset
-          disabled={loading}
-          label={
-            <>
-              <Trans>Password</Trans>
-              <span className="ml-1 font-normal text-slate-500 dark:text-slate-400">
-                {' '}(<Trans>leave blank to sign in with WID</Trans>)
-              </span>
-            </>
-          }
-        >
+      {/* Password field — only shown when user opts in */}
+      {!secondFactor?.qrCodeUrl && showPassword && (
+        <Fieldset disabled={loading} label={<Trans>Password</Trans>}>
           <InputPassword
             name="password"
             onChange={(event) => {
@@ -244,15 +237,31 @@ export function SignInForm({
                 </Button>
               )
             }
-            enterKeyHint={secondFactor ? 'next' : 'done'}
+            enterKeyHint="done"
             disabled={loading}
             autoFocus={usernameReadonly}
           />
         </Fieldset>
       )}
 
+      {/* Toggle to reveal password field */}
+      {!secondFactor && !showPassword && (
+        <div className="text-center">
+          <button
+            type="button"
+            className="text-sm text-slate-500 dark:text-slate-400 underline"
+            onClick={() => {
+              resetState()
+              setShowPassword(true)
+            }}
+          >
+            <Trans>Use app password instead</Trans>
+          </button>
+        </div>
+      )}
+
       {/* Only show the password warning when actually using a password */}
-      {!secondFactor?.qrCodeUrl && password && (
+      {!secondFactor?.qrCodeUrl && showPassword && password && (
         <Admonition role="alert" title={<Trans>Warning</Trans>}>
           <Trans>
             Please verify the domain name of the website before entering your
