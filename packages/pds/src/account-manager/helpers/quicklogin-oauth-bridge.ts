@@ -48,6 +48,7 @@ export class QuickLoginOAuthBridge {
     const t1 = Date.now()
     const providerRes = await this.safeFetch.call(undefined, providerUrl, {
       method: 'POST',
+      redirect: 'error',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ service: callbackUrl, sessionId: tempSessionId }),
     })
