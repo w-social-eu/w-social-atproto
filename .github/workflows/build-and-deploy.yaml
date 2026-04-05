@@ -94,6 +94,10 @@ jobs:
           context: .
           push: true
           file: services/pds/Dockerfile
+          build-args: |
+            GIT_HASH=${{ steps.config.outputs.short_sha }}
+            GIT_HASH_FULL=${{ github.sha }}
+            BUILD_TIME=${{ github.event.head_commit.timestamp }}
           tags: |
             ${{ env.PDS_IMAGE }}:${{ steps.config.outputs.image_tag }}
             ${{ env.PDS_IMAGE }}:${{ steps.config.outputs.environment }}-latest

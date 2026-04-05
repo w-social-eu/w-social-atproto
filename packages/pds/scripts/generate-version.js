@@ -7,13 +7,13 @@ const fs = require('fs')
 const path = require('path')
 
 try {
-  const gitHash = execSync('git rev-parse --short HEAD', {
-    encoding: 'utf8',
-  }).trim()
-  const gitHashFull = execSync('git rev-parse HEAD', {
-    encoding: 'utf8',
-  }).trim()
-  const buildTime = new Date().toISOString()
+  const gitHash =
+    process.env.GIT_HASH ||
+    execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim()
+  const gitHashFull =
+    process.env.GIT_HASH_FULL ||
+    execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim()
+  const buildTime = process.env.BUILD_TIME || new Date().toISOString()
 
   const content = `/**
  * Auto-generated file - DO NOT EDIT
