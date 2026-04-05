@@ -1,4 +1,4 @@
-FROM node:18-alpine AS build
+FROM node:20-alpine AS build
 
 RUN corepack enable
 
@@ -62,7 +62,7 @@ RUN pnpm install --prod --shamefully-hoist --frozen-lockfile --prefer-offline
 WORKDIR services/ozone
 
 # Uses assets from build stage to reduce build size
-FROM node:18-alpine
+FROM node:20-alpine
 
 RUN apk add --update dumb-init
 
@@ -80,6 +80,6 @@ ENV NODE_ENV=production
 USER node
 CMD ["node", "--enable-source-maps", "api.js"]
 
-LABEL org.opencontainers.image.source=https://github.com/bluesky-social/atproto
+LABEL org.opencontainers.image.source=https://github.com/w-social-eu/w-social-atproto
 LABEL org.opencontainers.image.description="Ozone"
 LABEL org.opencontainers.image.licenses=MIT
