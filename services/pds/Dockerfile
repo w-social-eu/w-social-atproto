@@ -1,6 +1,13 @@
 # NOTE there is an additional build stage below that should match
 FROM node:20.20-alpine3.23 AS build
 
+ARG GIT_HASH=unknown
+ARG GIT_HASH_FULL=unknown
+ARG BUILD_TIME
+ENV GIT_HASH=${GIT_HASH}
+ENV GIT_HASH_FULL=${GIT_HASH_FULL}
+ENV BUILD_TIME=${BUILD_TIME}
+
 RUN corepack enable
 
 WORKDIR /app

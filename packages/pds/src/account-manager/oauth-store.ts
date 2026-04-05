@@ -165,7 +165,12 @@ export class OAuthStore
 
       // First submit — initiate QuickLogin session and show QR
       const { sessionId, sessionToken, qrCodeUrl } =
-        await this.quickloginBridge.initiateSession()
+        await this.quickloginBridge.initiateSession().catch((err) => {
+          throw new InvalidRequestError(
+            'WID authentication service is temporarily unavailable. Please try again.',
+            err,
+          )
+        })
       throw new SecondAuthenticationFactorRequiredError(
         'emailOtp',
         'Scan the QR code with your WID app.',
