@@ -60,7 +60,7 @@ jobs:
             prod)  echo "kubeconfig_secret=KUBECONFIG_PROD" >> $GITHUB_OUTPUT ;;
           esac
 
-      # --- Step 1: Build atproto PDS tarball locally ---
+      # --- Step 1: Checkout & build ---
 
       - name: Checkout atproto
         uses: actions/checkout@v4
@@ -76,29 +76,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --prefer-offline
-
-      - name: Build PDS package
-        run: pnpm --filter @atproto/pds... build
-
-      - name: Pack tarball
-        id: tarball
-        run: |
-          cd packages/pds
-          pnpm pack --pack-destination /tmp/
-          TARBALL=$(ls /tmp/atproto-pds-*.tgz | head -1)
-          echo "path=$TARBALL" >> $GITHUB_OUTPUT
-          echo "Tarball: $TARBALL ($(du -h $TARBALL | cut -f1))"
-
       # --- Step 2: Build PDS Docker image ---
-
-      - name: Checkout PDS repo
-        uses: actions/checkout@v4
-        with:
-          repository: w-social-eu/pds
-          token: ${{ secrets.PAT_TOKEN }}
-          path: pds-repo
 
       - name: Setup Docker buildx
         uses: docker/setup-buildx-action@v3
@@ -110,21 +88,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Prepare Docker build context
-        run: |
-          cp ${{ steps.tarball.outputs.path }} pds-repo/atproto-pds.tgz
-
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: pds-repo
+          context: .
           push: true
-          file: pds-repo/Dockerfile.custom
+          file: services/pds/Dockerfile
           tags: |
             ${{ env.PDS_IMAGE }}:${{ steps.config.outputs.image_tag }}
             ${{ env.PDS_IMAGE }}:${{ steps.config.outputs.environment }}-latest
             ${{ github.ref_type == 'tag' && format('{0}:{1}', env.PDS_IMAGE, github.ref_name) || '' }}
-          # No Docker layer cache - tarball content changes aren't detected by filename-based caching
           no-cache: true
 
       # --- Step 3: Deploy to K8s via Helm ---
