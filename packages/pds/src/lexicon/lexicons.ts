@@ -16438,6 +16438,53 @@ export const schemaDict = {
       },
     },
   },
+  IoTrustanchorAdminSetAccountPassword: {
+    lexicon: 1,
+    id: 'io.trustanchor.admin.setAccountPassword',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Set or remove the main account password for any account (admin only). Enables login via the PDS account page without WID. Revokes all existing refresh tokens.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['did'],
+            properties: {
+              did: {
+                type: 'string',
+                description:
+                  'DID of the account whose main password should be set',
+              },
+              password: {
+                type: 'string',
+                description:
+                  'New main account password (min 8, max 256 characters). Omit when removePassword is true.',
+              },
+              removePassword: {
+                type: 'boolean',
+                description:
+                  'When true, removes the main password (sets it to null), reverting to WID-only auth',
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['success'],
+            properties: {
+              success: {
+                type: 'boolean',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   IoTrustanchorAdminSetThreadViewPreferences: {
     lexicon: 1,
     id: 'io.trustanchor.admin.setThreadViewPreferences',
@@ -22385,6 +22432,8 @@ export const ids = {
   IoTrustanchorAdminListInvitations: 'io.trustanchor.admin.listInvitations',
   IoTrustanchorAdminLoadInventory: 'io.trustanchor.admin.loadInventory',
   IoTrustanchorAdminPurgeInvitations: 'io.trustanchor.admin.purgeInvitations',
+  IoTrustanchorAdminSetAccountPassword:
+    'io.trustanchor.admin.setAccountPassword',
   IoTrustanchorAdminSetThreadViewPreferences:
     'io.trustanchor.admin.setThreadViewPreferences',
   IoTrustanchorAdminSubscribeToLists: 'io.trustanchor.admin.subscribeToLists',

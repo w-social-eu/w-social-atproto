@@ -3466,18 +3466,6 @@ export class IoTrustanchorAdminNS {
     return this._server.xrpc.method(nsid, cfg)
   }
 
-  setThreadViewPreferences<A extends Auth = void>(
-    cfg: MethodConfigOrHandler<
-      A,
-      IoTrustanchorAdminSetThreadViewPreferences.QueryParams,
-      IoTrustanchorAdminSetThreadViewPreferences.HandlerInput,
-      IoTrustanchorAdminSetThreadViewPreferences.HandlerOutput
-    >,
-  ) {
-    const nsid = 'io.trustanchor.admin.setThreadViewPreferences' // @ts-ignore
-    return this._server.xrpc.method(nsid, cfg)
-  }
-
   setAccountPassword<A extends Auth = void>(
     cfg: MethodConfigOrHandler<
       A,
@@ -3487,6 +3475,18 @@ export class IoTrustanchorAdminNS {
     >,
   ) {
     const nsid = 'io.trustanchor.admin.setAccountPassword' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  setThreadViewPreferences<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorAdminSetThreadViewPreferences.QueryParams,
+      IoTrustanchorAdminSetThreadViewPreferences.HandlerInput,
+      IoTrustanchorAdminSetThreadViewPreferences.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.admin.setThreadViewPreferences' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 
