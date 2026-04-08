@@ -79,6 +79,29 @@ def delete(ctx, did: str):
     console.print(f"  Handle: {handle}")
 
 
+@account.command("set-email")
+@click.argument("did")
+@click.argument("email")
+@click.pass_context
+def set_email(ctx, did: str, email: str):
+    """Set the email address for an account."""
+    client: PDSClient = ctx.obj["client"]
+
+    response = client.call(
+        "POST",
+        "com.atproto.admin.updateAccountEmail",
+        data={"account": did, "email": email},
+    )
+
+    if not response.success:
+        print_error("Failed to update email", response.error or "Unknown error")
+        raise click.Abort()
+
+    print_success(f"Email updated")
+    console.print(f"  DID:   {did}")
+    console.print(f"  Email: {email}")
+
+
 @account.command()
 @click.argument("did")
 @click.argument("target_pds_url")
@@ -121,6 +144,104 @@ def rehome(ctx, did: str, target_pds_url: str, handle: Optional[str]):
     console.print(f"  Target PDS:    {result.get('targetPds', 'N/A')}")
     console.print(f"  Status:        {result.get('status', 'N/A')}")
     console.print(f"  Rehomed At:    {result.get('migratedAt', 'N/A')}")
+
+
+@account.command("set-main-password")
+@click.argument("did_or_handle")
+@click.option(
+    "--password",
+    default=None,
+    help="New main password (prompted interactively if omitted)",
+)
+@click.option(
+    "--no-password",
+    "remove_password",
+    is_flag=True,
+    default=False,
+    help="Remove the main password, reverting the account to WID-only authentication",
+)
+@click.pass_context
+def set_main_password(ctx, did_or_handle: str, password: Optional[str], remove_password: bool):
+    """Set (or remove) the main account password for a DID or handle (admin only).
+
+    Setting a password enables login via https://<pds-host>/account/sign-in
+    using the standard username + password form, bypassing WID QR authentication.
+
+    Use --no-password to revert the account to WID-only authentication.
+
+    All existing refresh tokens for the account are revoked in either case.
+    """
+    client: PDSClient = ctx.obj["client"]
+
+    if remove_password and password is not None:
+        print_error("Conflicting options", "Use either --password or --no-password, not both")
+        raise click.Abort()
+
+    # Resolve handle to DID if needed
+    did = did_or_handle
+    if not did_or_handle.startswith("did:"):
+        resolve_response = client.call(
+            "GET",
+            "com.atproto.identity.resolveHandle",
+            params={"handle": did_or_handle},
+        )
+        if not resolve_response.success or not resolve_response.data:
+            print_error(
+                "Failed to resolve handle",
+                resolve_response.error or f"Handle not found: {did_or_handle}",
+            )
+            raise click.Abort()
+        did = resolve_response.data.get("did")
+        if not did:
+            print_error("Failed to resolve handle", "No DID in response")
+            raise click.Abort()
+        console.print(f"  Resolved {did_or_handle} → {did}")
+        console.print()
+
+    if remove_password:
+        data = {"did": did, "removePassword": True}
+    else:
+        # Prompt for password if not provided on the command line
+        if password is None:
+            password = click.prompt(
+                "New main password",
+                hide_input=True,
+                confirmation_prompt="Confirm password",
+            )
+        if len(password) < 8:
+            print_error("Password too short", "Must be at least 8 characters")
+            raise click.Abort()
+        data = {"did": did, "password": password}
+
+    response = client.call(
+        "POST",
+        "io.trustanchor.admin.setAccountPassword",
+        data=data,
+    )
+
+    if not response.success:
+        print_error(
+            "Failed to update password", response.error or "Unknown error"
+        )
+        raise click.Abort()
+
+    if remove_password:
+        print_success("Main password removed (WID-only auth restored)")
+        console.print()
+        console.print(f"  Account: {did}")
+    else:
+        print_success("Main password set")
+        console.print()
+        console.print(f"  Account: {did}")
+        console.print()
+        console.print(
+            "  The account can now sign in at  [bold cyan]<pds-host>/account/sign-in[/bold cyan]"
+        )
+        console.print("  using the handle and the password you just set.")
+    console.print()
+    console.print(
+        "  [yellow]Note:[/yellow] All existing refresh tokens for this account have been revoked."
+    )
 
 
 @account.command("create-bot-account")
