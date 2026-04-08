@@ -1,6 +1,7 @@
 import { AppContext } from '../../../../context'
 import { Server } from '../../../../lexicon'
 import clearInventory from './clearInventory'
+import createAccountSession from './createAccountSession'
 import createBotAccount from './createBotAccount'
 import createInvitation from './createInvitation'
 import deleteInvitation from './deleteInvitation'
@@ -22,6 +23,7 @@ export default function (server: Server, ctx: AppContext) {
   deleteInvitation(server, ctx)
   purgeInvitations(server, ctx)
   createBotAccount(server, ctx)
+  createAccountSession(server, ctx)
   setAccountPassword(server, ctx)
   subscribeToLists(server, ctx)
   setThreadViewPreferences(server, ctx)

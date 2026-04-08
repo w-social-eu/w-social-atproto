@@ -244,6 +244,109 @@ def set_main_password(ctx, did_or_handle: str, password: Optional[str], remove_p
     )
 
 
+@account.command("create-session")
+@click.argument("did_or_handle")
+@click.pass_context
+def create_session(ctx, did_or_handle: str):
+    """Create a legacy ATProto session (accessJwt + refreshJwt) for an account without needing its password (admin only).
+
+    Useful for getting bot accounts into apps that use the standard ATProto
+    session format. Paste the printed JS snippet into the browser DevTools
+    console while on the target app to inject the session.
+    """
+    client: PDSClient = ctx.obj["client"]
+
+    # Resolve handle to DID if needed
+    did = did_or_handle
+    if not did_or_handle.startswith("did:"):
+        resolve_response = client.call(
+            "GET",
+            "com.atproto.identity.resolveHandle",
+            params={"handle": did_or_handle},
+        )
+        if not resolve_response.success or not resolve_response.data:
+            print_error(
+                "Failed to resolve handle",
+                resolve_response.error or f"Handle not found: {did_or_handle}",
+            )
+            raise click.Abort()
+        did = resolve_response.data.get("did")
+        if not did:
+            print_error("Failed to resolve handle", "No DID in response")
+            raise click.Abort()
+        console.print(f"  Resolved {did_or_handle} → {did}")
+        console.print()
+
+    response = client.call(
+        "POST",
+        "io.trustanchor.admin.createAccountSession",
+        data={"did": did},
+    )
+
+    if not response.success:
+        print_error("Failed to create session", response.error or "Unknown error")
+        raise click.Abort()
+
+    if not response.data:
+        print_error("No data returned from API")
+        raise click.Abort()
+
+    result = response.data
+    access_jwt = result.get("accessJwt", "")
+    refresh_jwt = result.get("refreshJwt", "")
+    handle = result.get("handle", did_or_handle)
+
+    # service URL must have a trailing slash (matches what the wsocial SPA stores)
+    pds_host = client.host.rstrip("/") + "/"
+
+    print_success("Session created")
+    console.print()
+    console.print(f"  Handle:      {handle}")
+    console.print(f"  DID:         {did}")
+    console.print()
+    console.print(f"  accessJwt:   {access_jwt}")
+    console.print(f"  refreshJwt:  {refresh_jwt}")
+    console.print()
+    console.print("[bold]Browser injection snippet[/bold]")
+    console.print(
+        "Open DevTools on [bold cyan]stage.wsocial.dev[/bold cyan] and paste this in the Console:"
+    )
+    console.print()
+
+    # Build the account object that matches the shape in BSKY_STORAGE.session.accounts
+    snippet = f"""(function() {{
+  var s = JSON.parse(localStorage.getItem('BSKY_STORAGE') || '{{}}');
+  var acct = {{
+    service: "{pds_host}",
+    did: "{did}",
+    handle: "{handle}",
+    emailConfirmed: true,
+    emailAuthFactor: false,
+    accessJwt: "{access_jwt}",
+    refreshJwt: "{refresh_jwt}",
+    signupQueued: false,
+    active: true,
+    isSelfHosted: false
+  }};
+  if (!s.session) s.session = {{}};
+  if (!s.session.accounts) s.session.accounts = [];
+  s.session.accounts = s.session.accounts.filter(function(a) {{ return a.did !== acct.did; }});
+  s.session.accounts.unshift(acct);
+  s.session.currentAccount = acct;
+  localStorage.setItem('BSKY_STORAGE', JSON.stringify(s));
+  location.reload();
+}})();"""
+
+    console.print(f"  [dim]{snippet}[/dim]")
+    console.print()
+    console.print(
+        "  The snippet preserves all your existing accounts and app settings."
+    )
+    console.print(
+        "  The bot account will be added at the top of the account list and set as active."
+    )
+
+
 @account.command("create-bot-account")
 @click.argument("handle")
 @click.option("--email", default=None, help="Email address for the bot account")
