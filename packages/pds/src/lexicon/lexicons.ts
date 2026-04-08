@@ -15888,6 +15888,51 @@ export const schemaDict = {
       },
     },
   },
+  IoTrustanchorAdminCreateAccountSession: {
+    lexicon: 1,
+    id: 'io.trustanchor.admin.createAccountSession',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Create a legacy ATProto session (accessJwt + refreshJwt) for any account without requiring the account password (admin only). Intended for bot account testing and debugging.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['did'],
+            properties: {
+              did: {
+                type: 'string',
+                description: 'DID of the account to create a session for',
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['accessJwt', 'refreshJwt', 'handle', 'did'],
+            properties: {
+              accessJwt: {
+                type: 'string',
+              },
+              refreshJwt: {
+                type: 'string',
+              },
+              handle: {
+                type: 'string',
+              },
+              did: {
+                type: 'string',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   IoTrustanchorAdminCreateBotAccount: {
     lexicon: 1,
     id: 'io.trustanchor.admin.createBotAccount',
@@ -22421,6 +22466,8 @@ export const ids = {
   ComAtprotoTempRevokeAccountCredentials:
     'com.atproto.temp.revokeAccountCredentials',
   IoTrustanchorAdminClearInventory: 'io.trustanchor.admin.clearInventory',
+  IoTrustanchorAdminCreateAccountSession:
+    'io.trustanchor.admin.createAccountSession',
   IoTrustanchorAdminCreateBotAccount: 'io.trustanchor.admin.createBotAccount',
   IoTrustanchorAdminCreateInvitation: 'io.trustanchor.admin.createInvitation',
   IoTrustanchorAdminDeleteInvitation: 'io.trustanchor.admin.deleteInvitation',

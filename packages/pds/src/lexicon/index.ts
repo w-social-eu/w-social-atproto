@@ -227,6 +227,7 @@ import * as ComAtprotoTempFetchLabels from './types/com/atproto/temp/fetchLabels
 import * as ComAtprotoTempRequestPhoneVerification from './types/com/atproto/temp/requestPhoneVerification.js'
 import * as ComAtprotoTempRevokeAccountCredentials from './types/com/atproto/temp/revokeAccountCredentials.js'
 import * as IoTrustanchorAdminClearInventory from './types/io/trustanchor/admin/clearInventory.js'
+import * as IoTrustanchorAdminCreateAccountSession from './types/io/trustanchor/admin/createAccountSession.js'
 import * as IoTrustanchorAdminCreateBotAccount from './types/io/trustanchor/admin/createBotAccount.js'
 import * as IoTrustanchorAdminCreateInvitation from './types/io/trustanchor/admin/createInvitation.js'
 import * as IoTrustanchorAdminDeleteInvitation from './types/io/trustanchor/admin/deleteInvitation.js'
@@ -3355,6 +3356,18 @@ export class IoTrustanchorAdminNS {
     >,
   ) {
     const nsid = 'io.trustanchor.admin.clearInventory' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  createAccountSession<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorAdminCreateAccountSession.QueryParams,
+      IoTrustanchorAdminCreateAccountSession.HandlerInput,
+      IoTrustanchorAdminCreateAccountSession.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.admin.createAccountSession' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 
