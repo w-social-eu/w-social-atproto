@@ -467,6 +467,125 @@ def handle(ctx, did: str, new_handle: str):
     console.print(f"  3. Verify resolve:  curl '{config.pds_host}/xrpc/com.atproto.identity.resolveHandle?handle={new_handle}'")
 
 
+def _run_checks_silent(handle: str, pds_host: str, appview_url: Optional[str]) -> dict:
+    """Run all 6 handle checks silently and return structured results.
+
+    Returns a dict with keys:
+      dns, wellknown, pds, appview, plc, actor  →  'ok' | 'fail' | 'skip'
+      did       →  best resolved DID (str | None)
+      actor_handle  →  handle seen by AppView actor (str | None)
+    """
+    import requests
+
+    dns_did = None
+    wellknown_did = None
+    resolved_did = None
+    appview_did = None
+
+    # 1. DNS TXT
+    dns_status = 'fail'
+    try:
+        result = subprocess.run(
+            ["dig", "TXT", f"_atproto.{handle}", "+short"],
+            capture_output=True, text=True, timeout=10
+        )
+        txt_lines = [l for l in result.stdout.strip().split("\n") if l.startswith('"')]
+        if txt_lines:
+            match = re.search(r'did:plc:[a-z0-9]+', "\n".join(txt_lines))
+            if match:
+                dns_did = match.group(0)
+                dns_status = 'ok'
+    except Exception:
+        pass
+
+    # 2. Well-known HTTPS
+    wellknown_status = 'fail'
+    try:
+        r = requests.get(f"https://{handle}/.well-known/atproto-did", timeout=10)
+        if r.status_code == 200:
+            body = r.text.strip()
+            if re.match(r'^did:plc:[a-z0-9]+$', body):
+                wellknown_did = body
+                wellknown_status = 'ok'
+    except Exception:
+        pass
+
+    # 3. PDS resolveHandle
+    pds_status = 'fail'
+    try:
+        r = requests.get(
+            f"{pds_host}/xrpc/com.atproto.identity.resolveHandle",
+            params={"handle": handle}, timeout=10
+        )
+        if r.status_code == 200:
+            data = r.json()
+            if "did" in data:
+                resolved_did = data["did"]
+                pds_status = 'ok'
+    except Exception:
+        pass
+
+    # 4. AppView resolveHandle
+    appview_status = 'skip'
+    if appview_url:
+        appview_status = 'fail'
+        try:
+            r = requests.get(
+                f"{appview_url}/xrpc/com.atproto.identity.resolveHandle",
+                params={"handle": handle}, timeout=10
+            )
+            if r.status_code == 200:
+                data = r.json()
+                if "did" in data:
+                    appview_did = data["did"]
+                    appview_status = 'ok'
+        except Exception:
+            pass
+
+    # 5. PLC Directory
+    plc_did = dns_did or wellknown_did or resolved_did or appview_did
+    plc_status = 'skip'
+    if plc_did:
+        plc_status = 'fail'
+        try:
+            r = requests.get(f"https://plc.directory/{plc_did}", timeout=10)
+            if r.status_code == 200:
+                did_doc = r.json()
+                if f"at://{handle}" in did_doc.get("alsoKnownAs", []):
+                    plc_status = 'ok'
+        except Exception:
+            pass
+
+    # 6. AppView Actor State
+    actor_status = 'skip'
+    actor_handle = None
+    if appview_url and plc_did:
+        actor_status = 'fail'
+        try:
+            r = requests.get(
+                f"{appview_url}/xrpc/app.bsky.actor.getProfile",
+                params={"actor": plc_did}, timeout=10
+            )
+            if r.status_code == 200:
+                data = r.json()
+                actor_handle = data.get("handle")
+                if actor_handle and actor_handle != "handle.invalid":
+                    actor_status = 'ok'
+        except Exception:
+            pass
+
+    return {
+        'dns': dns_status,
+        'wellknown': wellknown_status,
+        'pds': pds_status,
+        'appview': appview_status,
+        'plc': plc_status,
+        'actor': actor_status,
+        'did': plc_did,
+        'actor_handle': actor_handle,
+    }
+
+
 @wid.command("check-handle")
 @click.argument("handle")
 @click.pass_context
@@ -827,6 +946,116 @@ def check_handle(ctx, handle: str):
             console.print(f"    ./pds-wadmin-{config.environment or 'dev'} wid handle <did> {handle}")
 
     console.print("═" * 63)
+
+
+@wid.command("scan-handles")
+@click.argument("pattern", required=False, default=None)
+@click.option("--workers", default=8, show_default=True, help="Number of parallel workers.")
+@click.option("--limit", default=0, type=int, show_default=True, help="Max accounts to scan (0 = all).")
+@click.pass_context
+def scan_handles(ctx, pattern: Optional[str], workers: int, limit: int):
+    """Scan accounts and show compact handle check results.
+
+    Each output line:  SYMBOLS DID HANDLE
+
+    The 6 symbols correspond to tests 1-6 of check-handle:
+
+    \b
+      1  DNS TXT record
+      2  Well-known HTTPS
+      3  PDS resolveHandle
+      4  AppView resolveHandle
+      5  PLC DID document claims handle
+      6  AppView actor state (not handle.invalid)
+
+    Symbol key:  ✓ ok   ✗ fail   ⊘ skipped (not configured)
+
+    PATTERN is an optional regex filtered against the handle.
+    Omit to scan all accounts.
+    """
+    import concurrent.futures
+
+    client: PDSClient = ctx.obj["client"]
+    config: Config = ctx.obj["config"]
+
+    # Paginate through all accounts (API max is 1000 per page)
+    accounts = []
+    cursor = None
+    while True:
+        params = {"limit": 1000}
+        if cursor:
+            params["cursor"] = cursor
+        response = client.call("GET", "com.atproto.admin.listNeuroAccounts", params=params)
+        if not response.success:
+            print_error(f"Failed to list accounts: {response.error}")
+            raise click.Abort()
+        page = response.data.get("accounts", []) if response.data else []
+        accounts.extend(page)
+        cursor = response.data.get("cursor") if response.data else None
+        if not cursor or not page:
+            break
+
+    # Apply optional hard limit before regex filter
+    if limit > 0:
+        accounts = accounts[:limit]
+
+    # Filter by regex if given
+    if pattern:
+        try:
+            rx = re.compile(pattern)
+        except re.error as e:
+            print_error(f"Invalid regex: {e}")
+            raise click.Abort()
+        accounts = [a for a in accounts if rx.search(a.get("handle", ""))]
+
+    if not accounts:
+        print_info("No accounts match")
+        return
+
+    pds_host = config.pds_host
+    appview_url = config.bsky_app_view_url
+
+    wide = Console(width=32000)
+    wide.print(
+        f"Scanning [bold]{len(accounts)}[/bold] account(s) with {workers} workers  "
+        f"[dim](cols: dns wellknown pds appview plc actor)[/dim]",
+        highlight=False,
+    )
+
+    SYMBOLS = {'ok': '✓', 'fail': '✗', 'skip': '⊘'}
+    COLORS  = {'ok': 'green', 'fail': 'red', 'skip': 'dim'}
+    KEYS    = ['dns', 'wellknown', 'pds', 'appview', 'plc', 'actor']
+
+    def check_one(account):
+        h = account.get("handle", "")
+        d = account.get("did", "")
+        result = _run_checks_silent(h, pds_host, appview_url)
+        return d, h, result
+
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(check_one, a): a for a in accounts}
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                did, handle, result = future.result()
+                results.append((did, handle, result))
+            except Exception:
+                acct = futures[future]
+                results.append((acct.get("did", "?"), acct.get("handle", "?"), None))
+
+    # Sort by handle for stable, grep-friendly output
+    results.sort(key=lambda x: x[1])
+
+    for did, handle, result in results:
+        if result is None:
+            wide.print(f"[red]??????[/red] {did} {handle} [red](error)[/red]", highlight=False)
+            continue
+
+        symbols = "".join(
+            f"[{COLORS[result[k]]}]{SYMBOLS[result[k]]}[/{COLORS[result[k]]}]"
+            for k in KEYS
+        )
+        wide.print(f"{symbols} {did} {handle}", highlight=False)
 
 
 @wid.group()

@@ -15888,6 +15888,51 @@ export const schemaDict = {
       },
     },
   },
+  IoTrustanchorAdminCreateAccountSession: {
+    lexicon: 1,
+    id: 'io.trustanchor.admin.createAccountSession',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Create a legacy ATProto session (accessJwt + refreshJwt) for any account without requiring the account password (admin only). Intended for bot account testing and debugging.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['did'],
+            properties: {
+              did: {
+                type: 'string',
+                description: 'DID of the account to create a session for',
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['accessJwt', 'refreshJwt', 'handle', 'did'],
+            properties: {
+              accessJwt: {
+                type: 'string',
+              },
+              refreshJwt: {
+                type: 'string',
+              },
+              handle: {
+                type: 'string',
+              },
+              did: {
+                type: 'string',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   IoTrustanchorAdminCreateBotAccount: {
     lexicon: 1,
     id: 'io.trustanchor.admin.createBotAccount',
@@ -16431,6 +16476,53 @@ export const schemaDict = {
               before: {
                 type: 'string',
                 format: 'datetime',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  IoTrustanchorAdminSetAccountPassword: {
+    lexicon: 1,
+    id: 'io.trustanchor.admin.setAccountPassword',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Set or remove the main account password for any account (admin only). Enables login via the PDS account page without WID. Revokes all existing refresh tokens.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['did'],
+            properties: {
+              did: {
+                type: 'string',
+                description:
+                  'DID of the account whose main password should be set',
+              },
+              password: {
+                type: 'string',
+                description:
+                  'New main account password (min 8, max 256 characters). Omit when removePassword is true.',
+              },
+              removePassword: {
+                type: 'boolean',
+                description:
+                  'When true, removes the main password (sets it to null), reverting to WID-only auth',
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['success'],
+            properties: {
+              success: {
+                type: 'boolean',
               },
             },
           },
@@ -22374,6 +22466,8 @@ export const ids = {
   ComAtprotoTempRevokeAccountCredentials:
     'com.atproto.temp.revokeAccountCredentials',
   IoTrustanchorAdminClearInventory: 'io.trustanchor.admin.clearInventory',
+  IoTrustanchorAdminCreateAccountSession:
+    'io.trustanchor.admin.createAccountSession',
   IoTrustanchorAdminCreateBotAccount: 'io.trustanchor.admin.createBotAccount',
   IoTrustanchorAdminCreateInvitation: 'io.trustanchor.admin.createInvitation',
   IoTrustanchorAdminDeleteInvitation: 'io.trustanchor.admin.deleteInvitation',
@@ -22385,6 +22479,8 @@ export const ids = {
   IoTrustanchorAdminListInvitations: 'io.trustanchor.admin.listInvitations',
   IoTrustanchorAdminLoadInventory: 'io.trustanchor.admin.loadInventory',
   IoTrustanchorAdminPurgeInvitations: 'io.trustanchor.admin.purgeInvitations',
+  IoTrustanchorAdminSetAccountPassword:
+    'io.trustanchor.admin.setAccountPassword',
   IoTrustanchorAdminSetThreadViewPreferences:
     'io.trustanchor.admin.setThreadViewPreferences',
   IoTrustanchorAdminSubscribeToLists: 'io.trustanchor.admin.subscribeToLists',

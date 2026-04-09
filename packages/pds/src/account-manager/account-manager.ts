@@ -558,4 +558,18 @@ export class AccountManager {
       ]),
     )
   }
+
+  async removeAccountPassword(did: string) {
+    await this.db.transaction(async (dbTxn) =>
+      Promise.all([
+        dbTxn.db
+          .updateTable('account')
+          .set({ passwordScrypt: null })
+          .where('did', '=', did)
+          .execute(),
+        emailToken.deleteEmailToken(dbTxn, did, 'reset_password'),
+        auth.revokeRefreshTokensByDid(dbTxn, did),
+      ]),
+    )
+  }
 }

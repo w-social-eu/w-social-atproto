@@ -227,6 +227,7 @@ import * as ComAtprotoTempFetchLabels from './types/com/atproto/temp/fetchLabels
 import * as ComAtprotoTempRequestPhoneVerification from './types/com/atproto/temp/requestPhoneVerification.js'
 import * as ComAtprotoTempRevokeAccountCredentials from './types/com/atproto/temp/revokeAccountCredentials.js'
 import * as IoTrustanchorAdminClearInventory from './types/io/trustanchor/admin/clearInventory.js'
+import * as IoTrustanchorAdminCreateAccountSession from './types/io/trustanchor/admin/createAccountSession.js'
 import * as IoTrustanchorAdminCreateBotAccount from './types/io/trustanchor/admin/createBotAccount.js'
 import * as IoTrustanchorAdminCreateInvitation from './types/io/trustanchor/admin/createInvitation.js'
 import * as IoTrustanchorAdminDeleteInvitation from './types/io/trustanchor/admin/deleteInvitation.js'
@@ -236,6 +237,7 @@ import * as IoTrustanchorAdminGetInvitationStats from './types/io/trustanchor/ad
 import * as IoTrustanchorAdminListInvitations from './types/io/trustanchor/admin/listInvitations.js'
 import * as IoTrustanchorAdminLoadInventory from './types/io/trustanchor/admin/loadInventory.js'
 import * as IoTrustanchorAdminPurgeInvitations from './types/io/trustanchor/admin/purgeInvitations.js'
+import * as IoTrustanchorAdminSetAccountPassword from './types/io/trustanchor/admin/setAccountPassword.js'
 import * as IoTrustanchorAdminSetThreadViewPreferences from './types/io/trustanchor/admin/setThreadViewPreferences.js'
 import * as IoTrustanchorAdminSubscribeToLists from './types/io/trustanchor/admin/subscribeToLists.js'
 import * as IoTrustanchorAdminUpdateInvitationEmailStatus from './types/io/trustanchor/admin/updateInvitationEmailStatus.js'
@@ -3357,6 +3359,18 @@ export class IoTrustanchorAdminNS {
     return this._server.xrpc.method(nsid, cfg)
   }
 
+  createAccountSession<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorAdminCreateAccountSession.QueryParams,
+      IoTrustanchorAdminCreateAccountSession.HandlerInput,
+      IoTrustanchorAdminCreateAccountSession.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.admin.createAccountSession' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
   createBotAccount<A extends Auth = void>(
     cfg: MethodConfigOrHandler<
       A,
@@ -3462,6 +3476,18 @@ export class IoTrustanchorAdminNS {
     >,
   ) {
     const nsid = 'io.trustanchor.admin.purgeInvitations' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  setAccountPassword<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorAdminSetAccountPassword.QueryParams,
+      IoTrustanchorAdminSetAccountPassword.HandlerInput,
+      IoTrustanchorAdminSetAccountPassword.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.admin.setAccountPassword' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 
