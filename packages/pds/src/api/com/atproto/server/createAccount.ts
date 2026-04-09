@@ -225,10 +225,14 @@ const validateInputsForLocalPds = async (
     throw new InvalidRequestError('Unsupported input: "plcOp"')
   }
 
-  // SECURITY: Block password-based account creation when invitations are disabled
-  // Bot accounts should only be created by admins via dedicated endpoint
-  // Human accounts should use WID/QuickLogin authentication
-  if (!ctx.cfg.invites.required) {
+  // SECURITY: Block password-based account creation when invitations are disabled.
+  // Bot accounts should only be created by admins via dedicated endpoint.
+  // Human accounts should use WID/QuickLogin authentication.
+  // Exception: account migrations carry a service JWT from the source PDS, which
+  // sets `requester` to the migrating DID. Only the legitimate DID owner can
+  // produce such a JWT, so this is a cryptographically proven ownership assertion.
+  const isMigration = input.did != null && requester === input.did
+  if (!ctx.cfg.invites.required && !isMigration) {
     throw new InvalidRequestError(
       'Password-based account creation is disabled. Please use WID authentication via QuickLogin.',
       'PasswordAccountCreationDisabled',

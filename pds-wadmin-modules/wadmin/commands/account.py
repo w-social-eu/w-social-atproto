@@ -3,6 +3,9 @@ Account management commands.
 """
 
 import click
+import os
+import shutil
+import sys
 from typing import Optional
 from ..api import PDSClient
 from ..config import Config
@@ -334,7 +337,7 @@ def create_session(ctx, did_or_handle: str):
   s.session.accounts.unshift(acct);
   s.session.currentAccount = acct;
   localStorage.setItem('BSKY_STORAGE', JSON.stringify(s));
-  location.reload();
+  location.href = '/';
 }})();"""
 
     console.print(f"  [dim]{snippet}[/dim]")
@@ -479,4 +482,91 @@ def set_thread_prefs(ctx, did: str, layout: str, sort: str):
     console.print(f"  Layout:       {layout} (lab_treeViewEnabled: {tree_view_enabled})")
     console.print(f"  Sort Order:   {sort}")
     console.print()
+
+
+@account.command()
+@click.argument("bsky_handle")
+@click.option("--new-handle", required=True, help="Handle on this PDS (e.g. alice.pds-dev.wsocial.dev)")
+@click.option("--new-email", required=True, help="Email address for the migrated account")
+@click.option("--plc-token", required=True, help="PLC operation token from the email sent by bsky.social")
+@click.option("--invite-code", default=None, help="Invite code (auto-generated if omitted)")
+@click.option("--new-password", default=None, help="Temporary password (random if omitted, will be removed after migration)")
+@click.pass_context
+def migrate(ctx, bsky_handle: str, new_handle: str, new_email: str, plc_token: str,
+            invite_code: Optional[str], new_password: Optional[str]):
+    """Migrate a bsky.social account to this PDS.
+
+    BSKY_HANDLE is the user's current handle on bsky.social (e.g. alice.bsky.social).
+
+    Steps performed by goat:
+      1. Log in to bsky.social as the user
+      2. Create a deactivated account shell on this PDS with the original DID
+      3. Import the repo (CAR) from bsky.social
+      4. Transfer blobs
+      5. Rotate the DID document to point to this PDS (using --plc-token)
+      6. Activate the account
+      7. Deactivate the account on bsky.social
+
+    After migration, use 'wid update <did> <jid>' to attach a W ID, and
+    'account set-main-password' or 'account delete-password' as needed.
+    """
+    goat_path = shutil.which("goat")
+    if not goat_path:
+        print_error(
+            "'goat' not found in PATH",
+            "Install goat: https://github.com/bluesky-social/goat",
+        )
+        raise click.Abort()
+
+    config: Config = ctx.obj["config"]
+
+    # Generate a random temporary password if none supplied
+    if new_password is None:
+        import secrets
+        import string
+        alphabet = string.ascii_letters + string.digits
+        new_password = ''.join(secrets.choice(alphabet) for _ in range(24))
+        console.print(f"  [dim]Using temporary password (will be removed after migration)[/dim]")
+
+    # Generate an invite code via the admin API if none was supplied
+    if invite_code is None:
+        client: PDSClient = ctx.obj["client"]
+        console.print("  Generating invite code...")
+        resp = client.call(
+            "POST",
+            "com.atproto.server.createInviteCode",
+            data={"useCount": 1},
+        )
+        if not resp.success or not resp.data:
+            print_error("Failed to generate invite code", resp.error or "Unknown error")
+            raise click.Abort()
+        invite_code = resp.data.get("code")
+        if not invite_code:
+            print_error("No invite code returned by API")
+            raise click.Abort()
+        console.print(f"  [dim]Invite code: {invite_code}[/dim]")
+
+    console.print()
+    console.print(f"Migrating [bold]{bsky_handle}[/bold] → [bold]{new_handle}[/bold]")
+    console.print(f"Target PDS: {config.pds_host}")
+    console.print()
+
+    # Build goat args
+    goat_args = [
+        "goat", "account", "migrate",
+        "--pds-host", config.pds_host,
+        "--new-handle", new_handle,
+        "--new-email", new_email,
+        "--new-password", new_password,
+        "--plc-token", plc_token,
+        "--invite-code", invite_code,
+    ]
+
+    # Propagate the PDS env vars for goat's own HTTP client
+    env = os.environ.copy()
+    env["PDS_HOST"] = config.pds_host
+    env["PDS_ADMIN_PASSWORD"] = config.admin_password
+
+    # exec — replaces this process; goat handles all interactive output from here
+    os.execvpe(goat_path, goat_args, env)
 

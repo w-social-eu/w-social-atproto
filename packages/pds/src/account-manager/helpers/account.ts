@@ -126,6 +126,8 @@ export const registerActor = async (
   }
 }
 
+export const WID_AUTH_ACCT_MARKER = '__WID_AUTH_ACCT__'
+
 export const registerAccount = async (
   db: AccountDb,
   opts: {
@@ -142,7 +144,7 @@ export const registerAccount = async (
         did,
         email: email.toLowerCase(),
         // WID-authenticated accounts use marker instead of password hash
-        passwordScrypt: passwordScrypt ?? '__WID_AUTH_ACCT__',
+        passwordScrypt: passwordScrypt ?? WID_AUTH_ACCT_MARKER,
       })
       .onConflict((oc) => oc.doNothing())
       .returning('did'),
@@ -287,6 +289,14 @@ export const activateAccount = async (db: AccountDb, did: string) => {
         deactivatedAt: null,
         deleteAfter: null,
       })
+      .where('did', '=', did),
+  )
+  // Always remove any temporary migration password on activation.
+  // Accounts on this PDS use WID/QuickLogin; no password should persist.
+  await db.executeWithRetry(
+    db.db
+      .updateTable('account')
+      .set({ passwordScrypt: WID_AUTH_ACCT_MARKER })
       .where('did', '=', did),
   )
 }
