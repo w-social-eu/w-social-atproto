@@ -72,7 +72,7 @@ from .commands.admin import admin
 cli.add_command(admin)
 
 
-@cli.command()
+@cli.command(context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def goat(ctx, args):

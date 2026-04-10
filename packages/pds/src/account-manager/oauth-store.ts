@@ -44,7 +44,7 @@ import { ActorStore } from '../actor-store/actor-store'
 import { BackgroundQueue } from '../background'
 import { fromDateISO } from '../db'
 import { ImageUrlBuilder } from '../image/image-url-builder'
-import { dbLogger } from '../logger'
+import { dbLogger, oauthLogger } from '../logger'
 import { ServerMailer } from '../mailer'
 import {
   Sequencer,
@@ -150,22 +150,49 @@ export class OAuthStore
 
     // WID QUICKLOGIN AUTHENTICATION FLOW
     if (!password && this.quickloginBridge) {
+      oauthLogger.info(
+        { identifier, hasEmailOtp: !!emailOtp },
+        'OAuth sign-in: QuickLogin branch entered',
+      )
+
       if (emailOtp) {
         // Second submit — emailOtp is the sessionToken proving the browser initiated this session
         const did = await this.quickloginBridge.getCompletedDid(emailOtp)
         if (!did) {
+          oauthLogger.warn(
+            { identifier },
+            'OAuth sign-in: QuickLogin session not yet completed or expired',
+          )
           throw new InvalidRequestError(
             'WID authentication not yet completed or expired. Please scan the QR code first.',
           )
         }
         const account = await accountHelper.getAccount(this.db, did)
         if (!account) throw new InvalidRequestError('Account not found')
+        oauthLogger.info(
+          { identifier, did },
+          'OAuth sign-in: QuickLogin second-factor verified, account resolved',
+        )
         return this.buildAccount(account)
       }
 
       // First submit — initiate QuickLogin session and show QR
-      const { sessionId, sessionToken, qrCodeUrl } =
-        await this.quickloginBridge.initiateSession()
+      const { sessionId, sessionToken, qrCodeUrl } = await this.quickloginBridge
+        .initiateSession()
+        .catch((err) => {
+          oauthLogger.error(
+            { err, identifier },
+            'OAuth sign-in: QuickLogin initiateSession failed',
+          )
+          throw new InvalidRequestError(
+            'WID authentication service is temporarily unavailable. Please try again.',
+            err,
+          )
+        })
+      oauthLogger.info(
+        { identifier, sessionId, hasQrUrl: !!qrCodeUrl },
+        'OAuth sign-in: QuickLogin QR session created, sending 2FA challenge to browser',
+      )
       throw new SecondAuthenticationFactorRequiredError(
         'emailOtp',
         'Scan the QR code with your WID app.',

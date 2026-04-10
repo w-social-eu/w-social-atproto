@@ -2,6 +2,7 @@ import { randomStr } from '@atproto/crypto'
 import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppPassword } from '../../lexicon/types/com/atproto/server/createAppPassword'
 import { AccountDb } from '../db'
+import { WID_AUTH_ACCT_MARKER } from './account'
 import * as scrypt from './scrypt'
 
 export type AppPassDescript = {
@@ -19,8 +20,13 @@ export const verifyAccountPassword = async (
     .selectAll()
     .where('did', '=', did)
     .executeTakeFirst()
-  // Neuro accounts have null password and cannot use password auth
-  if (!found || found.passwordScrypt === null) return false
+  // WID-only accounts have a sentinel marker and cannot use password auth
+  if (
+    !found ||
+    found.passwordScrypt === null ||
+    found.passwordScrypt === WID_AUTH_ACCT_MARKER
+  )
+    return false
   return await scrypt.verify(password, found.passwordScrypt)
 }
 

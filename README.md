@@ -1,7 +1,5 @@
 # AT Protocol Reference Implementation (TypeScript) / WSocial
 
-Welcome friends!
-
 This repository contains Bluesky's reference implementation of AT Protocol, and of the `app.bsky` microblogging application service backend.
 
 ## What is in here?
