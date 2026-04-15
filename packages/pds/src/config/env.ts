@@ -189,6 +189,13 @@ export function readEnv() {
       'PDS_NEURO_CALLBACK_SIGNATURE_REQUIRED',
     ),
 
+    // Email branding (overrides per environment)
+    emailAppName: envStr('PDS_EMAIL_APP_NAME'),
+    emailAppUrl: envStr('PDS_EMAIL_APP_URL'),
+    emailLogoUrl: envStr('PDS_EMAIL_LOGO_URL'),
+    emailIconUrl: envStr('PDS_EMAIL_ICON_URL'),
+    emailTagline: envStr('PDS_EMAIL_TAGLINE'),
+
     // W Social extensions
     wsocialOrganizationDids: envList('PDS_WSOCIAL_ORGANIZATION_DIDS'),
     wsocialDefaultSubscribeLists: envList(

@@ -405,6 +405,13 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
     debugNeuro: env.debugNeuro ?? false,
     allowTestUserLogin: env.allowTestUserLogin ?? false, // DEFAULT: false (fail-safe)
     neuroCallbackSignatureRequired: env.neuroCallbackSignatureRequired ?? false, // WP2 feature-flagged pending signature contract
+    emailBranding: {
+      appName: env.emailAppName ?? env.serviceName ?? 'W Social',
+      appUrl: env.emailAppUrl ?? env.homeUrl ?? publicUrl,
+      logoUrl: env.emailLogoUrl ?? env.logoUrl ?? '',
+      iconUrl: env.emailIconUrl ?? '',
+      tagline: env.emailTagline ?? '',
+    },
     wsocial: {
       organizationDids: env.wsocialOrganizationDids || [],
       defaultSubscribeLists: env.wsocialDefaultSubscribeLists || [],
@@ -434,6 +441,7 @@ export type ServerConfig = {
   proxy: ProxyConfig
   oauth: OAuthConfig
   lexicon: LexiconResolverConfig
+  emailBranding: EmailBrandingConfig
   neuro: NeuroConfig | null
   quicklogin: QuickLoginConfig | null
   debugNeuro: boolean
@@ -612,6 +620,14 @@ export type QuickLoginConfig = {
   attachmentFilter?: string
   purposeTextLogin?: string
   hostnameSuffixes: string[] // Allowed Neuro server hostname suffixes (e.g., ['.example.tld', '.example.dev']). Empty array = accept any domain (dev mode)
+}
+
+export type EmailBrandingConfig = {
+  appName: string // Display name in emails (e.g. "W Social")
+  appUrl: string // Link in email footer (e.g. "https://wsocial.eu")
+  logoUrl: string // Header logo image URL
+  iconUrl: string // Small footer icon URL
+  tagline: string // Footer tagline (e.g. "your social network")
 }
 
 export type WSocialConfig = {
