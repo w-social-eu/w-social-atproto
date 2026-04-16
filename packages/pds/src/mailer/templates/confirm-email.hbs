@@ -41,11 +41,11 @@
             >
               <tbody>
                 <tr>
-                  <td><img
-                      alt="Bluesky"
-                      src="https://bsky.social/about/images/email/email_logo_default.png"
+                  <td>{{#if config.logoUrl}}<img
+                      alt="{{config.appName}}"
+                      src="{{config.logoUrl}}"
                       style="display:block;outline:none;border:none;text-decoration:none;width:110px;margin:0 auto"
-                    /></td>
+                    />{{else}}<p style="text-align:center;font-size:22px;font-weight:700;font-family:-apple-system,BlinkMacSystemFont,'Roboto','Helvetica Neue',sans-serif;color:#000;margin:0">{{config.appName}}</p>{{/if}}</td>
                 </tr>
               </tbody>
             </table>
@@ -69,7 +69,7 @@
                     >To confirm this email for your account, please enter the
                       code below in the app or<!-- -->
                       <a
-                        href="https://bsky.app/intent/verify-email?code={{token}}"
+                        href="{{config.appUrl}}/intent/verify-email?code={{token}}"
                         style="color:#067df7;text-decoration:none;text-decoration-line:underline;font-size:16px;letter-spacing:0.25px"
                         target="_blank"
                       >click here.</a></p><code
@@ -109,19 +109,19 @@
                                     <p
                                       style="font-size:14px;line-height:1.4;margin:0px 0px;color:hsl(211, 20%, 53%);font-family:-apple-system, BlinkMacSystemFont, &#x27;Roboto&#x27;, &#x27;Oxygen&#x27;, &#x27;Ubuntu&#x27;, &#x27;Cantarell&#x27;, &#x27;Fira Sans&#x27;, &#x27;Droid Sans&#x27;, &#x27;Helvetica Neue&#x27;, sans-serif;letter-spacing:0.25px"
                                     ><a
-                                        href="https://bsky.app"
+                                        href="{{config.appUrl}}"
                                         style="color:hsl(211, 20%, 53%);text-decoration:none;text-decoration-line:underline;font-family:-apple-system, BlinkMacSystemFont, &#x27;Roboto&#x27;, &#x27;Oxygen&#x27;, &#x27;Ubuntu&#x27;, &#x27;Cantarell&#x27;, &#x27;Fira Sans&#x27;, &#x27;Droid Sans&#x27;, &#x27;Helvetica Neue&#x27;, sans-serif;margin:0px 0px;line-height:1.0;font-size:14px;letter-spacing:0.25px"
                                         target="_blank"
-                                      >Bluesky</a>, the social internet</p>
+                                      >{{config.appName}}</a>{{#if config.tagline}}, {{config.tagline}}{{/if}}</p>
                                   </td>
                                   <td
                                     data-id="__react-email-column"
                                     style="width:24px"
-                                  ><img
-                                      alt="🦋"
-                                      src="https://bsky.social/about/images/email/email_mark_dark.png"
+                                  >{{#if config.iconUrl}}<img
+                                      alt=""
+                                      src="{{config.iconUrl}}"
                                       style="display:block;outline:none;border:none;text-decoration:none;width:24px"
-                                    /></td>
+                                    />{{/if}}</td>
                                 </tr>
                               </tbody>
                             </table>
