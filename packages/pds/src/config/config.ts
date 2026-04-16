@@ -411,6 +411,7 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
       logoUrl: env.emailLogoUrl ?? env.logoUrl ?? '',
       iconUrl: env.emailIconUrl ?? '',
       tagline: env.emailTagline ?? '',
+      accentColor: env.emailAccentColor ?? '#1DF2BA',
     },
     wsocial: {
       organizationDids: env.wsocialOrganizationDids || [],
@@ -628,6 +629,7 @@ export type EmailBrandingConfig = {
   logoUrl: string // Header logo image URL
   iconUrl: string // Small footer icon URL
   tagline: string // Footer tagline (e.g. "your social network")
+  accentColor: string // Accent color for links and highlights (e.g. "#1DF2BA")
 }
 
 export type WSocialConfig = {

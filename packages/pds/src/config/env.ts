@@ -195,6 +195,7 @@ export function readEnv() {
     emailLogoUrl: envStr('PDS_EMAIL_LOGO_URL'),
     emailIconUrl: envStr('PDS_EMAIL_ICON_URL'),
     emailTagline: envStr('PDS_EMAIL_TAGLINE'),
+    emailAccentColor: envStr('PDS_EMAIL_ACCENT_COLOR'),
 
     // W Social extensions
     wsocialOrganizationDids: envList('PDS_WSOCIAL_ORGANIZATION_DIDS'),
