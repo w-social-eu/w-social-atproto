@@ -24,6 +24,7 @@ export class ServerMailer {
       logoUrl: config.emailBranding.logoUrl,
       iconUrl: config.emailBranding.iconUrl,
       tagline: config.emailBranding.tagline,
+      accentColor: config.emailBranding.accentColor,
     }
   }
 
