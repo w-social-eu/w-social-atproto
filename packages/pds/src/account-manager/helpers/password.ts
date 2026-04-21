@@ -1,6 +1,7 @@
 import { randomStr } from '@atproto/crypto'
+import { DatetimeString, currentDatetimeString } from '@atproto/lex'
 import { InvalidRequestError } from '@atproto/xrpc-server'
-import { AppPassword } from '../../lexicon/types/com/atproto/server/createAppPassword'
+import { com } from '../../lexicons/index.js'
 import { AccountDb } from '../db'
 import { WID_AUTH_ACCT_MARKER } from './account'
 import * as scrypt from './scrypt'
@@ -69,7 +70,7 @@ export const createAppPassword = async (
   did: string,
   name: string,
   privileged: boolean,
-): Promise<AppPassword> => {
+): Promise<com.atproto.server.createAppPassword.AppPassword> => {
   // create an app password with format:
   // 1234-abcd-5678-efgh
   const str = randomStr(16, 'base32').slice(0, 16)
@@ -88,7 +89,7 @@ export const createAppPassword = async (
         did,
         name,
         passwordScrypt,
-        createdAt: new Date().toISOString(),
+        createdAt: currentDatetimeString(),
         privileged: privileged ? 1 : 0,
       })
       .returningAll(),
@@ -107,7 +108,9 @@ export const createAppPassword = async (
 export const listAppPasswords = async (
   db: AccountDb,
   did: string,
-): Promise<{ name: string; createdAt: string; privileged: boolean }[]> => {
+): Promise<
+  { name: string; createdAt: DatetimeString; privileged: boolean }[]
+> => {
   const res = await db.db
     .selectFrom('app_password')
     .select(['name', 'createdAt', 'privileged'])

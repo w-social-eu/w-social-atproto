@@ -3,6 +3,13 @@ import { Client, createOp as _createPlcOp } from '@did-plc/lib'
 import { Selectable } from 'kysely'
 import { Keypair, Secp256k1Keypair as _Secp256k1Keypair } from '@atproto/crypto'
 import {
+  HandleString,
+  asAtIdentifierString,
+  getBlobCidString,
+  isDidString,
+  isHandleString,
+} from '@atproto/lex'
+import {
   Account,
   AccountStore,
   AuthenticateAccountData,
@@ -16,6 +23,7 @@ import {
   DeviceStore,
   FoundRequestResult,
   HandleUnavailableError,
+  InvalidCredentialsError,
   InvalidInviteCodeError,
   InvalidRequestError,
   LexiconData,
@@ -48,10 +56,12 @@ import { dbLogger, oauthLogger } from '../logger'
 import { ServerMailer } from '../mailer'
 import {
   Sequencer,
+  // Unused in W Social — our createAccount is stubbed out. Kept as _-aliased
+  // import to preserve diff against upstream (which uses these during signup).
   syncEvtDataFromCommit as _syncEvtDataFromCommit,
 } from '../sequencer'
 import { sendIdentityEventWithRetry as _sendIdentityEventWithRetry } from '../sequencer/identity-event-helper'
-import { AccountManager } from './account-manager'
+import { AccountManager, InvalidPasswordError } from './account-manager'
 import * as schemas from './db/schema'
 import * as accountHelper from './helpers/account'
 import { AccountStatus as _AccountStatus } from './helpers/account'
@@ -130,9 +140,11 @@ export class OAuthStore
     password: _password,
     emailOtp: _emailOtp,
   }: SignUpData & { emailOtp?: string }): Promise<Account> {
-    // SECURITY: OAuth account creation disabled
-    // All account creation should use QuickLogin callback endpoint
-    // This method is kept as a stub in case OAuth needs to be re-enabled
+    // W Social SECURITY: OAuth account creation is disabled. All account
+    // creation must go through the QuickLogin / WID callback endpoint.
+    // This method is kept as a stub in case OAuth signup needs to be
+    // re-enabled in the future. Upstream Bluesky's full implementation lives
+    // in the git history — see commit 84eb5ed95 on bluesky-social/atproto.
     throw new InvalidRequestError(
       'OAuth account creation is disabled. Please use WID authentication via QuickLogin.',
       'OAuthAccountCreationDisabled',
@@ -221,8 +233,15 @@ export class OAuthStore
 
       return this.buildAccount(user)
     } catch (err) {
+      // `InvalidPasswordError` is a subclass of `XrpcAuthRequiredError`,
+      // so it must be checked first. Surfacing the matched `did` as the
+      // `sub` lets the oauth-provider's `onSignInFailed` hook distinguish
+      // "identifier known, credentials wrong" from "identifier unknown".
+      if (err instanceof InvalidPasswordError) {
+        throw new InvalidCredentialsError(err.message, err.did, err)
+      }
       if (err instanceof XrpcAuthRequiredError) {
-        throw new InvalidRequestError(err.message, err)
+        throw new InvalidCredentialsError(err.message, undefined, err)
       }
       throw err
     }
@@ -240,9 +259,12 @@ export class OAuthStore
     account: Account
     authorizedClients: AuthorizedClients
   }> {
-    const accountRow = await accountHelper.getAccount(this.db, sub, {
-      includeDeactivated: true,
-    })
+    const accountRow = await accountHelper.getAccount(
+      this.db,
+      // @TODO @atproto/oauth-provider should strongly type `Sub` as `DidString`
+      asAtIdentifierString(sub),
+      { includeDeactivated: true },
+    )
 
     assert(accountRow, 'Account not found')
 
@@ -369,7 +391,7 @@ export class OAuthStore
     }
   }
 
-  async verifyHandleAvailability(handle: string): Promise<void> {
+  async verifyHandleAvailability(handle: HandleString): Promise<void> {
     // @NOTE Handle validity & normalization already enforced by the OAuthProvider
     try {
       const normalized =
@@ -616,7 +638,7 @@ export class OAuthStore
 
         account.name ||= displayName
         account.picture ||= avatar
-          ? this.imageUrlBuilder.build('avatar', did, avatar.ref.toString())
+          ? this.imageUrlBuilder.build('avatar', did, getBlobCidString(avatar))
           : undefined
       }
     }

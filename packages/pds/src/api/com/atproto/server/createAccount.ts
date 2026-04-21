@@ -4,25 +4,33 @@ import { isDisposableEmail } from 'disposable-email-domains-js'
 import { DidDocument, MINUTE, check } from '@atproto/common'
 import { ExportableKeypair, Keypair, Secp256k1Keypair } from '@atproto/crypto'
 import { AtprotoData, ensureAtpDocument } from '@atproto/identity'
-import { AuthRequiredError, InvalidRequestError } from '@atproto/xrpc-server'
+import { DidString } from '@atproto/syntax'
+import {
+  AuthRequiredError,
+  InvalidRequestError,
+  Server,
+} from '@atproto/xrpc-server'
 import { AccountStatus } from '../../../../account-manager/account-manager'
 import { NEW_PASSWORD_MAX_LENGTH } from '../../../../account-manager/helpers/scrypt'
 import { AppContext } from '../../../../context'
 import { baseNormalizeAndValidate } from '../../../../handle'
-import { Server } from '../../../../lexicon'
-import { InputSchema as CreateAccountInput } from '../../../../lexicon/types/com/atproto/server/createAccount'
+import { com } from '../../../../lexicons/index.js'
 import { syncEvtDataFromCommit } from '../../../../sequencer'
 import { sendIdentityEventWithRetry } from '../../../../sequencer/identity-event-helper'
 import { safeResolveDidDoc } from './util'
 
 export default function (server: Server, ctx: AppContext) {
-  server.com.atproto.server.createAccount({
+  server.add(com.atproto.server.createAccount, {
     rateLimit: {
       durationMs: 5 * MINUTE,
       points: 100,
     },
     auth: ctx.authVerifier.userServiceAuthOptional,
-    handler: async ({ input, auth, req }) => {
+    handler: async ({
+      input,
+      auth,
+      req,
+    }): Promise<com.atproto.server.createAccount.$Output> => {
       // @NOTE Until this code and the OAuthStore's `createAccount` are
       // refactored together, any change made here must be reflected over there.
 
@@ -36,7 +44,7 @@ export default function (server: Server, ctx: AppContext) {
         signingKey,
         plcOp,
         deactivated,
-      } = ctx.entrywayAgent
+      } = ctx.entrywayClient
         ? await validateInputsForEntrywayPds(ctx, input.body)
         : await validateInputsForLocalPds(ctx, input.body, requester)
 
@@ -143,10 +151,11 @@ export default function (server: Server, ctx: AppContext) {
       }
 
       return {
-        encoding: 'application/json',
+        encoding: 'application/json' as const,
         body: {
           handle,
           did: did,
+          // @ts-expect-error https://github.com/bluesky-social/atproto/pull/4406
           didDoc,
           accessJwt: creds.accessJwt,
           refreshJwt: creds.refreshJwt,
@@ -158,7 +167,7 @@ export default function (server: Server, ctx: AppContext) {
 
 const validateInputsForEntrywayPds = async (
   ctx: AppContext,
-  input: CreateAccountInput,
+  input: com.atproto.server.createAccount.$InputBody,
 ) => {
   const { did, plcOp } = input
   const handle = baseNormalizeAndValidate(input.handle)
@@ -217,7 +226,7 @@ const validateInputsForEntrywayPds = async (
 
 const validateInputsForLocalPds = async (
   ctx: AppContext,
-  input: CreateAccountInput,
+  input: com.atproto.server.createAccount.$InputBody,
   requester: string | null,
 ) => {
   const { email, password, inviteCode } = input
@@ -286,7 +295,7 @@ const validateInputsForLocalPds = async (
   // if the provided did document is poorly setup, we throw
   const signingKey = await Secp256k1Keypair.create({ exportable: true })
 
-  let did: string
+  let did: DidString
   let plcOp: plc.Operation | null
   let deactivated = false
   if (input.did) {
@@ -300,7 +309,7 @@ const validateInputsForLocalPds = async (
     deactivated = true
   } else {
     const formatted = await formatDidAndPlcOp(ctx, handle, input, signingKey)
-    did = formatted.did
+    did = formatted.did as DidString
     plcOp = formatted.plcOp
   }
 
@@ -319,7 +328,7 @@ const validateInputsForLocalPds = async (
 const formatDidAndPlcOp = async (
   ctx: AppContext,
   handle: string,
-  input: CreateAccountInput,
+  input: com.atproto.server.createAccount.$InputBody,
   signingKey: Keypair,
 ): Promise<{
   did: string

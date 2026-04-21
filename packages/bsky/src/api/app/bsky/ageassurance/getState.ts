@@ -1,29 +1,37 @@
-import { UpstreamFailureError } from '@atproto/xrpc-server'
+import { DatetimeString } from '@atproto/syntax'
+import { Server, UpstreamFailureError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { Server } from '../../../../lexicon'
+import { app } from '../../../../lexicons/index.js'
 import { ActorInfo } from '../../../../proto/bsky_pb'
 
 export default function (server: Server, ctx: AppContext) {
-  server.app.bsky.ageassurance.getState({
+  server.add(app.bsky.ageassurance.getState, {
     auth: ctx.authVerifier.standard,
-    handler: async ({ auth }) => {
+    handler: async ({
+      auth,
+    }): Promise<app.bsky.ageassurance.getState.$Output> => {
       const viewer = auth.credentials.iss
       const actor = await getActorInfo(ctx, viewer)
+
+      const lastInitiatedAt = actor.ageAssuranceStatus?.lastInitiatedAt
 
       return {
         encoding: 'application/json',
         body: {
           state: {
-            lastInitiatedAt:
-              actor.ageAssuranceStatus?.lastInitiatedAt
-                ?.toDate()
-                .toISOString() || undefined,
-            status: 'assured', // actor.ageAssuranceStatus?.status || 'unknown',
-            access: 'full', // actor.ageAssuranceStatus?.access || 'unknown',
+            lastInitiatedAt: lastInitiatedAt
+              ? (lastInitiatedAt.toDate().toISOString() as DatetimeString)
+              : undefined,
+            // W Social: age assurance is always treated as complete. Everyone
+            // is assured and gets full access. Upstream reads these from
+            // actor.ageAssuranceStatus (defaulting to 'unknown').
+            status: 'assured',
+            access: 'full',
           },
           metadata: {
-            accountCreatedAt:
-              actor.createdAt?.toDate().toISOString() || undefined,
+            accountCreatedAt: actor.createdAt
+              ? (actor.createdAt.toDate().toISOString() as DatetimeString)
+              : undefined,
           },
         },
       }

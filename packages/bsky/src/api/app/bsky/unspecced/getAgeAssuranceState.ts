@@ -1,23 +1,26 @@
-import { UpstreamFailureError } from '@atproto/xrpc-server'
+import { DatetimeString } from '@atproto/syntax'
+import { Server, UpstreamFailureError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { Server } from '../../../../lexicon'
+import { app } from '../../../../lexicons/index.js'
 import { ActorInfo } from '../../../../proto/bsky_pb'
 
 export default function (server: Server, ctx: AppContext) {
-  server.app.bsky.unspecced.getAgeAssuranceState({
+  server.add(app.bsky.unspecced.getAgeAssuranceState, {
     auth: ctx.authVerifier.standard,
     handler: async ({ auth }) => {
       const viewer = auth.credentials.iss
       const actorInfo = await getAgeVerificationState(ctx, viewer)
 
+      const lastInitiatedAt = actorInfo.ageAssuranceStatus?.lastInitiatedAt
+
       return {
         encoding: 'application/json',
         body: {
-          lastInitiatedAt:
-            actorInfo.ageAssuranceStatus?.lastInitiatedAt
-              ?.toDate()
-              .toISOString() ?? undefined,
-          status: 'assured', // actorInfo.ageAssuranceStatus?.status ?? 'unknown',
+          lastInitiatedAt: lastInitiatedAt
+            ? (lastInitiatedAt.toDate().toISOString() as DatetimeString)
+            : undefined,
+          // W Social: everyone is always age-assured.
+          status: 'assured',
         },
       }
     },
