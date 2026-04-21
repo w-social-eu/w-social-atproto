@@ -1,14 +1,16 @@
+import { Server } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { Server } from '../../../../lexicon'
+import { app } from '../../../../lexicons/index.js'
 
 export default function (server: Server, ctx: AppContext) {
-  server.app.bsky.ageassurance.getConfig({
+  server.add(app.bsky.ageassurance.getConfig, {
     auth: ctx.authVerifier.standardOptional,
     handler: async () => {
       return {
         encoding: 'application/json',
         body: {
-          // Empty regions list — everyone gets full access (all users treated as adults)
+          // W Social: empty regions list — everyone gets full access (all
+          // users treated as adults). Upstream Bluesky uses AGE_ASSURANCE_CONFIG.
           regions: [],
         },
       }
