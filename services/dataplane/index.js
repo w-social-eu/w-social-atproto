@@ -19,6 +19,11 @@ const main = async () => {
   const poolSize = parseInt(process.env.DATAPLANE_DB_POOL_SIZE || '10', 10)
   const runMigrations = process.env.DATAPLANE_DB_MIGRATE !== '0'
 
+  // When true, start from the current tail of the firehose instead of cursor 0.
+  // Required for high-volume relays (bsky.network) to avoid OOM on historical backfill.
+  // Set DATAPLANE_START_FROM_LATEST=true when connecting to bsky.network.
+  const startFromLatest = process.env.DATAPLANE_START_FROM_LATEST === 'true'
+
   assert(dbUrl, 'DATAPLANE_DB_POSTGRES_URL is required')
   assert(subscriptionEndpoint, 'DATAPLANE_SUBSCRIPTION_ENDPOINT is required')
 
@@ -40,6 +45,14 @@ const main = async () => {
     db,
     idResolver: dataplane.idResolver,
   })
+
+  if (startFromLatest) {
+    // RepoSubscription hardcodes startCursor: 0 which backfills all history.
+    // Setting runner.cursor = undefined makes Firehose start from current tail.
+    sub.runner.cursor = undefined
+    console.log('dataplane: starting from current firehose tail (no historical backfill)')
+  }
+
   sub.start()
   console.log(`dataplane: subscribed to firehose at ${subscriptionEndpoint}`)
 
