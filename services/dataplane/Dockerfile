@@ -74,7 +74,7 @@ ENV DATAPLANE_PORT=3001
 ENV NODE_ENV=production
 
 USER node
-CMD ["node", "--heapsnapshot-signal=SIGUSR2", "--enable-source-maps", "index.js"]
+CMD ["node", "--heapsnapshot-signal=SIGUSR2", "--enable-source-maps", "--max-old-space-size=3072", "index.js"]
 
 LABEL org.opencontainers.image.source=https://github.com/w-social-eu/w-social-atproto
 LABEL org.opencontainers.image.description="Bsky DataPlane Service"
