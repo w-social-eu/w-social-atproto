@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - develop
-      - main
-    tags:
-      - 'v*'
     paths:
       - 'packages/bsky/**'
       - 'packages/bsync/**'
