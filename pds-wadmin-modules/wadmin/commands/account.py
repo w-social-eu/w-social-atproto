@@ -9,13 +9,61 @@ import sys
 from typing import Optional
 from ..api import PDSClient
 from ..config import Config
-from ..utils import console, print_success, print_error
+from ..utils import console, print_success, print_error, print_info
+from rich.console import Console
 
 
 @click.group()
 def account():
     """Account management commands."""
     pass
+
+
+@account.command(name="list")
+@click.pass_context
+def list_command(ctx):
+    """List all accounts."""
+    client: PDSClient = ctx.obj["client"]
+
+    response = client.call("GET", "com.atproto.admin.listNeuroAccounts", params={"limit": 1000})
+
+    if not response.success:
+        print_error(f"Failed to list accounts: {response.error}")
+        raise click.Abort()
+
+    if response.data is None:
+        print_error("No data returned from API")
+        raise click.Abort()
+
+    accounts = response.data.get("accounts", [])
+
+    if not accounts:
+        print_info("No accounts found")
+        return
+
+    headers = ["DID", "HANDLE", "EMAIL", "TYPE"]
+    header_parts = [
+        f"[bold cyan]{headers[0]}[/bold cyan]",
+        f"[bold green]{headers[1]}[/bold green]",
+        f"[bold yellow]{headers[2]}[/bold yellow]",
+        f"[bold blue]{headers[3]}[/bold blue]",
+    ]
+
+    wide = Console(width=32000)
+    wide.print("  ".join(header_parts), highlight=False)
+
+    for account in accounts:
+        did = account.get("did", "")
+        handle = account.get("handle", "?")
+        email = account.get("email", "N/A")
+        account_type = account.get("accountType", "organization")
+        row_parts = [
+            f"[cyan]{did}[/cyan]",
+            f"[green]{handle}[/green]",
+            f"[yellow]{email}[/yellow]",
+            f"[blue]{account_type}[/blue]",
+        ]
+        wide.print("  ".join(row_parts), highlight=False)
 
 
 @account.command()
@@ -253,9 +301,8 @@ def set_main_password(ctx, did_or_handle: str, password: Optional[str], remove_p
 def create_session(ctx, did_or_handle: str):
     """Create a legacy ATProto session (accessJwt + refreshJwt) for an account without needing its password (admin only).
 
-    Useful for getting bot accounts into apps that use the standard ATProto
-    session format. Paste the printed JS snippet into the browser DevTools
-    console while on the target app to inject the session.
+    Useful for scripted/programmatic access to an account — pipe the tokens
+    into goat, httpie, bot scripts, or other ATProto tooling.
     """
     client: PDSClient = ctx.obj["client"]
 
@@ -299,9 +346,6 @@ def create_session(ctx, did_or_handle: str):
     refresh_jwt = result.get("refreshJwt", "")
     handle = result.get("handle", did_or_handle)
 
-    # service URL must have a trailing slash (matches what the wsocial SPA stores)
-    pds_host = client.host.rstrip("/") + "/"
-
     print_success("Session created")
     console.print()
     console.print(f"  Handle:      {handle}")
@@ -309,45 +353,6 @@ def create_session(ctx, did_or_handle: str):
     console.print()
     console.print(f"  accessJwt:   {access_jwt}")
     console.print(f"  refreshJwt:  {refresh_jwt}")
-    console.print()
-    console.print("[bold]Browser injection snippet[/bold]")
-    console.print(
-        "Open DevTools on [bold cyan]stage.wsocial.dev[/bold cyan] and paste this in the Console:"
-    )
-    console.print()
-
-    # Build the account object that matches the shape in BSKY_STORAGE.session.accounts
-    snippet = f"""(function() {{
-  var s = JSON.parse(localStorage.getItem('BSKY_STORAGE') || '{{}}');
-  var acct = {{
-    service: "{pds_host}",
-    did: "{did}",
-    handle: "{handle}",
-    emailConfirmed: true,
-    emailAuthFactor: false,
-    accessJwt: "{access_jwt}",
-    refreshJwt: "{refresh_jwt}",
-    signupQueued: false,
-    active: true,
-    isSelfHosted: false
-  }};
-  if (!s.session) s.session = {{}};
-  if (!s.session.accounts) s.session.accounts = [];
-  s.session.accounts = s.session.accounts.filter(function(a) {{ return a.did !== acct.did; }});
-  s.session.accounts.unshift(acct);
-  s.session.currentAccount = acct;
-  localStorage.setItem('BSKY_STORAGE', JSON.stringify(s));
-  location.href = '/';
-}})();"""
-
-    console.print(f"  [dim]{snippet}[/dim]")
-    console.print()
-    console.print(
-        "  The snippet preserves all your existing accounts and app settings."
-    )
-    console.print(
-        "  The bot account will be added at the top of the account list and set as active."
-    )
 
 
 @account.command("create-bot-account")

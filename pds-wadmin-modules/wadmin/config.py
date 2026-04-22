@@ -57,74 +57,76 @@ class Config:
         env = parts[-1] if len(parts) > 1 and parts[-1] in ("dev", "stage", "prod") else None
 
         if env:
-            return cls._from_vault(env)
+            return cls._from_k8s(env)
         else:
             return cls._from_env_vars()
 
     @classmethod
-    def _from_vault(cls, env: str) -> "Config":
+    def _from_k8s(cls, env: str) -> "Config":
         """
-        Fetch all secrets from Vault in one batch operation.
+        Fetch all secrets from the Kubernetes 'pds' secret via kubectl.
 
         Args:
             env: Environment name (dev, stage, prod)
 
         Returns:
-            Config instance with Vault-sourced credentials
+            Config instance with k8s-sourced credentials
 
         Raises:
-            RuntimeError: If Vault authentication fails
+            SystemExit: If kubectl fails or the kubeconfig is missing
         """
-        try:
-            import hvac
-        except ImportError:
-            raise RuntimeError(
-                "ERROR: hvac library not installed.\n"
-                "Install with: pip install hvac\n"
-                "Or run: cd pds-wadmin-modules && .venv/bin/pip install -r requirements.txt"
-            )
+        import subprocess
+        import base64
+        import json
 
-        vault_addr = "https://vault.wsocial.cloud"
-        client = hvac.Client(url=vault_addr)
-
-        # Check for existing token
-        token_file = Path.home() / ".vault-token"
-        if token_file.exists():
-            client.token = token_file.read_text().strip()
-
-        # Validate authentication
-        if not client.is_authenticated():
-            print("ERROR: Vault authentication required", file=sys.stderr)
-            print("Run: vault login -method=github -path=github", file=sys.stderr)
+        kubeconfig = Path.home() / ".wsocial" / "kube" / f"{env}.yaml"
+        if not kubeconfig.exists():
+            print(f"ERROR: kubeconfig not found: {kubeconfig}", file=sys.stderr)
             sys.exit(1)
 
-        # Batch fetch all secrets for environment
-        pds_path = f"pds/{env}"
         try:
-            response = client.secrets.kv.v2.read_secret_version(
-                path=pds_path,
-                mount_point="secret"
+            result = subprocess.run(
+                [
+                    "kubectl",
+                    "--kubeconfig", str(kubeconfig),
+                    "get", "secret", "pds",
+                    "-n", K8S_NAMESPACE,
+                    "-o", "jsonpath={.data}",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
             )
-            secrets = response["data"]["data"]
-        except Exception as e:
-            raise RuntimeError(f"Failed to fetch secrets from Vault path '{pds_path}': {e}")
+        except subprocess.CalledProcessError as e:
+            print(f"ERROR: kubectl failed: {e.stderr.strip()}", file=sys.stderr)
+            sys.exit(1)
+        except FileNotFoundError:
+            print("ERROR: kubectl not found — install kubectl and ensure it is on your PATH", file=sys.stderr)
+            sys.exit(1)
+
+        raw: dict[str, str] = json.loads(result.stdout)
+        secrets: dict[str, str] = {
+            k: base64.b64decode(v).decode() for k, v in raw.items()
+        }
+
+        def get(key: str) -> str | None:
+            return secrets.get(key) or None
 
         # Construct config from secrets
         return cls(
-            pds_host=f"https://{secrets['HOSTNAME']}",
-            admin_password=secrets["ADMIN_PASSWORD"],
+            pds_host=f"https://{secrets['PDS_HOSTNAME']}",
+            admin_password=secrets["PDS_ADMIN_PASSWORD"],
             environment=env,
-            brevo_api_key=secrets.get("BREVO_API_KEY"),
-            brevo_template_id=int(secrets["BREVO_INVITATION_TEMPLATE_ID"]) if "BREVO_INVITATION_TEMPLATE_ID" in secrets else None,
-            invitation_email_from=secrets.get("INVITATION_EMAIL_FROM"),
-            invitation_mail_from_name=secrets.get("INVITATION_MAIL_FROM_NAME"),
-            invitation_email_hash_salt=secrets.get("INVITATION_EMAIL_HASH_SALT"),
-            bsky_app_view_url=secrets.get("BSKY_APP_VIEW_URL"),
-            bsky_app_view_did=secrets.get("BSKY_APP_VIEW_DID"),
-            nomad_addr="https://nomad.wsocial.cloud",
-            nomad_job_name=f"pds-{env}",
+            brevo_api_key=get("PDS_BREVO_API_KEY"),
+            brevo_template_id=int(secrets["PDS_BREVO_INVITATION_TEMPLATE_ID"]) if "PDS_BREVO_INVITATION_TEMPLATE_ID" in secrets else None,
+            invitation_email_from=get("PDS_INVITATION_EMAIL_FROM"),
+            invitation_mail_from_name=get("PDS_INVITATION_EMAIL_FROM_NAME"),
+            invitation_email_hash_salt=get("PDS_INVITATION_EMAIL_HASH_SALT"),
+            bsky_app_view_url=get("PDS_BSKY_APP_VIEW_URL"),
+            bsky_app_view_did=get("PDS_BSKY_APP_VIEW_DID"),
+            nomad_addr=None,
+            nomad_job_name=None,
             k8s_cluster_id=env,
-            # Nomad token handled separately (login on demand)
         )
 
     @classmethod

@@ -161,6 +161,7 @@ export class AccountManager {
     inviteCode,
     deactivated,
     refreshJwt,
+    accountType,
   }: {
     did: string
     handle: string
@@ -171,6 +172,7 @@ export class AccountManager {
     inviteCode?: string
     deactivated?: boolean
     refreshJwt?: string
+    accountType?: import('./db/schema/actor').AccountType
   }) {
     if (password && password.length > scrypt.NEW_PASSWORD_MAX_LENGTH) {
       throw new InvalidRequestError('Password too long')
@@ -186,7 +188,7 @@ export class AccountManager {
         await invite.ensureInviteIsAvailable(dbTxn, inviteCode)
       }
       await Promise.all([
-        account.registerActor(dbTxn, { did, handle, deactivated }),
+        account.registerActor(dbTxn, { did, handle, deactivated, accountType }),
         email
           ? account.registerAccount(dbTxn, { did, email, passwordScrypt })
           : Promise.resolve(),

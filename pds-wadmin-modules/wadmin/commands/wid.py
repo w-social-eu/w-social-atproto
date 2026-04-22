@@ -4,7 +4,6 @@ import json
 import os
 import re
 import subprocess
-from datetime import datetime
 from typing import Optional
 
 import click
@@ -168,75 +167,49 @@ def list_command(ctx):
         print_info("No accounts found")
         return
 
-    # Process accounts and normalize neuroLinks
+    # Process accounts
     table_data = []
     for account in accounts:
         did = account.get("did", "")
         handle = account.get("handle", "?")
         email = account.get("email", "N/A")
-
-        # Normalize neuroLinks - handle both array format and flat scalar format
+        account_type = account.get("accountType", "organization")
         neuro_links = account.get("neuroLinks", [])
-        if not isinstance(neuro_links, (list, tuple)):
-            # Old API format with flat scalars
-            neuro_links = [{
-                "jid": account.get("jid"),
-                "isTestUser": account.get("isTestUser", 0),
-                "linkedAt": account.get("linkedAt"),
-                "lastLoginAt": account.get("lastLoginAt"),
-            }]
 
-        # Check for duplicates
-        has_duplicates = len(neuro_links) > 1
+        if not neuro_links:
+            table_data.append([did, handle, email, account_type, "—", "—"])
+        else:
+            for i, link in enumerate(neuro_links):
+                jid = link.get("jid", "—")
+                last_login = link.get("lastLoginAt", "—") or "—"
+                if i == 0:
+                    table_data.append([did, handle, email, account_type, jid, last_login])
+                else:
+                    table_data.append(["", "", "", "", jid, last_login])
 
-        # Process each neuro link
-        for i, link in enumerate(neuro_links):
-            jid = link.get("jid", "—")
-            linked_at = link.get("linkedAt", "N/A")
-            is_test = link.get("isTestUser", 0)
+    headers = ["DID", "HANDLE", "EMAIL", "TYPE", "JID", "LAST_LOGIN"]
 
-            # Format flags
-            flags = []
-            if is_test:
-                flags.append("TEST")
-            if has_duplicates:
-                flags.append("DUP")
+    header_parts = [
+        f"[bold cyan]{headers[0]}[/bold cyan]",
+        f"[bold green]{headers[1]}[/bold green]",
+        f"[bold yellow]{headers[2]}[/bold yellow]",
+        f"[bold blue]{headers[3]}[/bold blue]",
+        f"[bold magenta]{headers[4]}[/bold magenta]",
+        f"[bold white]{headers[5]}[/bold white]",
+    ]
 
-            flags_str = " ".join(flags) if flags else ""
-
-            # For duplicate entries, only show DID/handle/email on first row
-            if i == 0:
-                table_data.append([did, handle, email, jid, linked_at, flags_str])
-            else:
-                table_data.append(["", "", "", jid, linked_at, flags_str])
-
-    # Display table with column-specific colors for readability
-    headers = ["DID", "HANDLE", "EMAIL", "JID", "LINKED_AT", "FLAGS"]
-
-    # Print header
-    header_parts = []
-    header_parts.append(f"[bold cyan]{headers[0]}[/bold cyan]")       # DID - cyan
-    header_parts.append(f"[bold green]{headers[1]}[/bold green]")     # HANDLE - green
-    header_parts.append(f"[bold yellow]{headers[2]}[/bold yellow]")   # EMAIL - yellow
-    header_parts.append(f"[bold magenta]{headers[3]}[/bold magenta]") # JID - magenta
-    header_parts.append(f"[bold blue]{headers[4]}[/bold blue]")       # LINKED_AT - blue
-    header_parts.append(f"[bold red]{headers[5]}[/bold red]")         # FLAGS - red
-
-    # Use an unbounded-width console so each row is always a single line —
-    # no wrapping, no truncation — making grep / piping work correctly.
     wide = Console(width=32000)
     wide.print("  ".join(header_parts), highlight=False)
 
-    # Print rows with colors
     for row in table_data:
-        row_parts = []
-        row_parts.append(f"[cyan]{row[0]}[/cyan]")         # DID - cyan
-        row_parts.append(f"[green]{row[1]}[/green]")       # HANDLE - green
-        row_parts.append(f"[yellow]{row[2]}[/yellow]")     # EMAIL - yellow
-        row_parts.append(f"[magenta]{row[3]}[/magenta]")   # JID - magenta
-        row_parts.append(f"[blue]{row[4]}[/blue]")         # LINKED_AT - blue
-        row_parts.append(f"[red]{row[5]}[/red]" if row[5] else "")  # FLAGS - red (only if present)
-
+        row_parts = [
+            f"[cyan]{row[0]}[/cyan]",
+            f"[green]{row[1]}[/green]",
+            f"[yellow]{row[2]}[/yellow]",
+            f"[blue]{row[3]}[/blue]",
+            f"[magenta]{row[4]}[/magenta]",
+            f"[white]{row[5]}[/white]",
+        ]
         wide.print("  ".join(row_parts), highlight=False)
 
 
@@ -259,38 +232,29 @@ def show(ctx, did: str):
 
     data = response.data
 
-    # Normalize neuroLinks - support both old and new API formats
     neuro_links = data.get("neuroLinks", [])
-    if not isinstance(neuro_links, (list, tuple)):
-        # Old API format with flat scalars
-        neuro_links = [{
-            "jid": data.get("jid"),
-            "isTestUser": data.get("isTestUser", 0),
-            "linkedAt": data.get("linkedAt"),
-            "lastLoginAt": data.get("lastLoginAt"),
-        }]
-
-    has_duplicates = len(neuro_links) > 1
 
     # Display basic info
     console.print(f"\n[bold cyan]DID:[/bold cyan] {data.get('did', 'N/A')}")
     console.print(f"[bold cyan]Handle:[/bold cyan] {data.get('handle', 'N/A')}")
     console.print(f"[bold cyan]Email:[/bold cyan] {data.get('email', 'N/A')}")
-    console.print(f"[bold cyan]Duplicate links:[/bold cyan] {has_duplicates}")
+    console.print(f"[bold cyan]Account type:[/bold cyan] {data.get('accountType', 'organization')}")
+    console.print(f"[bold cyan]JID links:[/bold cyan] {len(neuro_links)}")
 
     # Display neuro links
-    console.print(f"\n[bold cyan]Neuro links:[/bold cyan]")
-    for link in neuro_links:
-        jid = link.get("jid", "—")
-        is_test = link.get("isTestUser", 0)
-        linked_at = link.get("linkedAt", "N/A")
-        last_login = link.get("lastLoginAt", "N/A")
+    if neuro_links:
+        console.print(f"\n[bold cyan]Linked JIDs:[/bold cyan]")
+        for link in neuro_links:
+            jid = link.get("jid", "—")
+            linked_at = link.get("linkedAt", "N/A")
+            last_login = link.get("lastLoginAt", "N/A")
 
-        console.print(f"  [bold]JID (W ID):[/bold] {jid}")
-        console.print(f"  [bold]Test user:[/bold] {is_test}")
-        console.print(f"  [bold]Linked at:[/bold] {linked_at}")
-        console.print(f"  [bold]Last login:[/bold] {last_login}")
-        console.print()
+            console.print(f"  [bold]JID (W ID):[/bold] {jid}")
+            console.print(f"  [bold]Linked at:[/bold] {linked_at}")
+            console.print(f"  [bold]Last login:[/bold] {last_login}")
+            console.print()
+    else:
+        console.print("\n[dim]No JIDs linked to this account.[/dim]")
 
 
 @wid.command()
@@ -298,7 +262,11 @@ def show(ctx, did: str):
 @click.argument("new_jid")
 @click.pass_context
 def update(ctx, did: str, new_jid: str):
-    """Update the W ID (JID) for an account."""
+    """[DEPRECATED] Update the W ID (JID) for an account (replaces oldest link).
+
+    Prefer 'wid unlink <did> <jid>' + 'wid link <did> <jid>' instead.
+    """
+    print_warning("'wid update' is deprecated. Use 'wid unlink' + 'wid link' for explicit control.")
     client: PDSClient = ctx.obj["client"]
 
     # Validate JID format
@@ -329,106 +297,96 @@ def update(ctx, did: str, new_jid: str):
     console.print(f"[bold]Old W ID:[/bold] {result.get('oldJid', 'None')}")
     console.print(f"[bold]New W ID:[/bold] {result.get('newJid', 'N/A')}")
     console.print(f"[bold]Updated At:[/bold] {result.get('updatedAt', 'N/A')}")
+    if result.get("deprecated"):
+        print_warning(result["deprecated"])
 
 
-@wid.command()
-@click.argument("did1")
-@click.argument("did2")
+@wid.command(name="link")
+@click.argument("did")
+@click.argument("jid")
 @click.pass_context
-def swap(ctx, did1: str, did2: str):
-    """Swap W IDs between two accounts."""
+def link_command(ctx, did: str, jid: str):
+    """Link a JID (W ID) to an account."""
     client: PDSClient = ctx.obj["client"]
 
-    if did1 == did2:
-        print_error("Cannot swap a DID with itself")
+    response = client.call("POST", "com.atproto.admin.addNeuroLink", data={"jid": jid, "did": did})
+
+    if not response.success:
+        print_error(f"Failed to link JID: {response.error}")
         raise click.Abort()
 
-    console.print("Fetching current JIDs...")
+    result = response.data or {}
+    print_success("Link created!")
+    console.print(f"[bold]JID:[/bold] {result.get('jid', jid)}")
+    console.print(f"[bold]DID:[/bold] {result.get('did', did)}")
+    console.print(f"[bold]Linked At:[/bold] {result.get('linkedAt', 'N/A')}")
 
-    # Get JID for did1
-    response1 = client.call("GET", "com.atproto.admin.getNeuroLink", params={"did": did1})
-    if not response1.success:
-        print_error(f"Failed to fetch details for {did1}: {response1.error}")
+
+@wid.command(name="unlink")
+@click.argument("did")
+@click.argument("jid")
+@click.pass_context
+def unlink_command(ctx, did: str, jid: str):
+    """Remove a JID (W ID) link from an account."""
+    client: PDSClient = ctx.obj["client"]
+
+    response = client.call("POST", "com.atproto.admin.removeNeuroLink", data={"jid": jid, "did": did})
+
+    if not response.success:
+        print_error(f"Failed to remove link: {response.error}")
         raise click.Abort()
 
-    if response1.data is None:
-        print_error(f"No data returned for {did1}")
-        raise click.Abort()
+    result = response.data or {}
+    print_success("Link removed!")
+    console.print(f"[bold]JID:[/bold] {result.get('jid', jid)}")
+    console.print(f"[bold]DID:[/bold] {result.get('did', did)}")
+    if result.get("warning"):
+        print_warning(result["warning"])
 
-    # Extract JID from response (handle both array and scalar formats)
-    neuro_links1 = response1.data.get("neuroLinks", [])
-    if not isinstance(neuro_links1, (list, tuple)):
-        jid1 = response1.data.get("jid")
+
+@wid.command(name="links")
+@click.argument("jid_or_did")
+@click.pass_context
+def links_command(ctx, jid_or_did: str):
+    """List all JID↔DID links for a given JID or DID."""
+    client: PDSClient = ctx.obj["client"]
+
+    if jid_or_did.startswith("did:"):
+        # Look up by DID via getNeuroLink
+        response = client.call("GET", "com.atproto.admin.getNeuroLink", params={"did": jid_or_did})
+        if not response.success:
+            print_error(f"Failed to fetch links: {response.error}")
+            raise click.Abort()
+        data = response.data or {}
+        neuro_links = data.get("neuroLinks", [])
+        console.print(f"\n[bold cyan]DID:[/bold cyan] {jid_or_did}  "
+                       f"[dim]({data.get('accountType', 'organization')})[/dim]")
+        if not neuro_links:
+            console.print("  [dim]No JIDs linked.[/dim]")
+        for link in neuro_links:
+            console.print(f"  [magenta]{link.get('jid', '?')}[/magenta]  "
+                          f"linked {link.get('linkedAt', '?')}  "
+                          f"last_login {link.get('lastLoginAt', '—') or '—'}")
     else:
-        jid1 = neuro_links1[0].get("jid") if neuro_links1 else None
-
-    if not jid1:
-        print_error(f"No JID found for {did1}")
-        raise click.Abort()
-
-    # Get JID for did2
-    response2 = client.call("GET", "com.atproto.admin.getNeuroLink", params={"did": did2})
-    if not response2.success:
-        print_error(f"Failed to fetch details for {did2}: {response2.error}")
-        raise click.Abort()
-
-    if response2.data is None:
-        print_error(f"No data returned for {did2}")
-        raise click.Abort()
-
-    # Extract JID from response (handle both array and scalar formats)
-    neuro_links2 = response2.data.get("neuroLinks", [])
-    if not isinstance(neuro_links2, (list, tuple)):
-        jid2 = response2.data.get("jid")
-    else:
-        jid2 = neuro_links2[0].get("jid") if neuro_links2 else None
-
-    if not jid2:
-        print_error(f"No JID found for {did2}")
-        raise click.Abort()
-
-    console.print("\nCurrent state:")
-    console.print(f"  {did1} → {jid1}")
-    console.print(f"  {did2} → {jid2}")
-    console.print("\nSwapping JIDs...")
-
-    # Generate temporary JID
-    timestamp = int(datetime.utcnow().timestamp())
-    temp_jid = f"{jid1.split('@')[0]}-temp-{timestamp}@auth.wsocial.dev"
-
-    # Step 1: Move did1 to temp JID
-    console.print("  [1/3] Parking {} at temporary JID...".format(did1))
-    response = client.call("POST", "com.atproto.admin.updateNeuroLink", data={"did": did1, "newJid": temp_jid})
-    if not response.success:
-        print_error(f"Failed to update {did1} to temporary JID: {response.error}")
-        raise click.Abort()
-
-    # Step 2: Move did2 to jid1
-    console.print(f"  [2/3] Moving {did2} to {jid1}...")
-    response = client.call("POST", "com.atproto.admin.updateNeuroLink", data={"did": did2, "newJid": jid1})
-    if not response.success:
-        print_error(f"Failed to update {did2} to {jid1}: {response.error}")
-        print_warning(f"WARNING: {did1} is still at temporary JID {temp_jid}")
-        console.print(f"To recover, run: pds-wadmin wid update {did1} {jid1}")
-        raise click.Abort()
-
-    # Step 3: Move did1 to jid2
-    console.print(f"  [3/3] Moving {did1} to {jid2}...")
-    response = client.call("POST", "com.atproto.admin.updateNeuroLink", data={"did": did1, "newJid": jid2})
-    if not response.success:
-        print_error(f"Failed to update {did1} to {jid2}: {response.error}")
-        print_warning("WARNING: Swap is incomplete!")
-        console.print(f"  {did1} is at: {temp_jid}")
-        console.print(f"  {did2} is at: {jid1}")
-        console.print("\nTo recover, run:")
-        console.print(f"  pds-wadmin wid update {did1} {jid2}")
-        raise click.Abort()
-
-    console.print()
-    print_success("Swap completed successfully!")
-    console.print("New state:")
-    console.print(f"  {did1} → {jid2}")
-    console.print(f"  {did2} → {jid1}")
+        # Look up by JID — search via listNeuroAccounts (no direct JID endpoint)
+        response = client.call("GET", "com.atproto.admin.listNeuroAccounts", params={"limit": 1000})
+        if not response.success:
+            print_error(f"Failed to fetch accounts: {response.error}")
+            raise click.Abort()
+        accounts = (response.data or {}).get("accounts", [])
+        matches = [a for a in accounts
+                   if any(l.get("jid") == jid_or_did for l in a.get("neuroLinks", []))]
+        if not matches:
+            print_info(f"No account found with JID: {jid_or_did}")
+            return
+        for account in matches:
+            console.print(f"\n[bold cyan]DID:[/bold cyan] {account.get('did')}  "
+                           f"[dim]({account.get('accountType', 'organization')})[/dim]")
+            for link in account.get("neuroLinks", []):
+                active = " [green](this JID)[/green]" if link.get("jid") == jid_or_did else ""
+                console.print(f"  [magenta]{link.get('jid', '?')}[/magenta]{active}  "
+                              f"linked {link.get('linkedAt', '?')}  "
+                              f"last_login {link.get('lastLoginAt', '—') or '—'}")
 
 
 @wid.command()

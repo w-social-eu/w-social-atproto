@@ -7,14 +7,13 @@ export default function (server: Server, ctx: AppContext) {
     handler: async ({ params }) => {
       const { limit = 100, cursor } = params
 
-      // Query all accounts using the selectAccountQB pattern from account helpers
-      const { ref } = ctx.accountManager.db.db.dynamic
       let query = ctx.accountManager.db.db
         .selectFrom('actor')
         .leftJoin('account', 'actor.did', 'account.did')
         .select([
           'actor.did as did',
           'actor.handle as handle',
+          'actor.accountType as accountType',
           'account.email as email',
         ])
         .where('actor.deactivatedAt', 'is', null)
@@ -33,16 +32,13 @@ export default function (server: Server, ctx: AppContext) {
         .limit(limit + 1)
         .execute()
 
-      // Query ALL neuro links (a DID may have multiple rows — e.g. one from the
-      // webhook with the real legalId and one from the first QuickLogin with the
-      // JID stored as legalId by the old code).
       const dids = accounts.map((acc) => acc.did)
       const allNeuroLinks = dids.length
         ? await ctx.accountManager.db.db
             .selectFrom('neuro_identity_link')
-            .selectAll()
+            .select(['jid', 'did', 'linkedAt', 'lastLoginAt'])
             .where('did', 'in', dids)
-            .orderBy('linkedAt', 'asc')
+            .orderBy('lastLoginAt', 'desc')
             .execute()
         : []
 
@@ -66,24 +62,20 @@ export default function (server: Server, ctx: AppContext) {
         body: {
           accounts: accountsToReturn.map((account) => {
             const links = neuroLinksByDid.get(account.did) ?? []
-            const primary = links[0] // oldest row (from webhook) is the canonical one
+            const primary = links[0] // most recently used
             return {
               did: account.did,
               handle: account.handle || '',
               email: account.email || undefined,
-              // Unified JID field for both real and test users
-              jid: primary?.userJid || primary?.testUserJid || undefined,
-              isTestUser: primary ? Boolean(primary.isTestUser) : undefined,
+              accountType: account.accountType,
+              jid: primary?.jid || undefined,
               linkedAt: primary?.linkedAt || undefined,
               lastLoginAt: primary?.lastLoginAt || undefined,
-              // Full list of all rows — includes duplicates when present
               neuroLinks: links.map((l) => ({
-                jid: l.userJid || l.testUserJid || undefined,
-                isTestUser: Boolean(l.isTestUser),
+                jid: l.jid,
                 linkedAt: l.linkedAt || undefined,
                 lastLoginAt: l.lastLoginAt || undefined,
               })),
-              duplicateLinks: links.length > 1,
             }
           }),
           cursor: nextCursor || undefined,

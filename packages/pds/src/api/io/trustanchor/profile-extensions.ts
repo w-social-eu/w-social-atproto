@@ -29,34 +29,21 @@ export async function addWSocialExtensions(
       return profile
     }
 
-    // Query neuro_identity_link to determine account type
-    const neuroLink = await ctx.accountManager.db.db
-      .selectFrom('neuro_identity_link')
-      .select(['userJid', 'testUserJid'])
+    // Read accountType directly from actor table (set at creation, managed via admin API)
+    const actorRow = await ctx.accountManager.db.db
+      .selectFrom('actor')
+      .select(['accountType'])
       .where('did', '=', profile.did)
       .executeTakeFirst()
 
-    // Determine account type based on neuro link and configuration
-    let accountType: string
-
-    if (neuroLink?.userJid) {
-      // Has a real user JID - verified human
-      accountType = 'human'
-    } else if (neuroLink?.testUserJid) {
-      // Has a test user JID - test account
-      accountType = 'test'
-    } else if (ctx.cfg.wsocial.organizationDids.includes(profile.did)) {
-      // DID is in the organization list
-      accountType = 'organization'
-    } else {
-      // Local account with no neuro link - bot account
-      accountType = 'bot'
-    }
+    // Map 'personal' -> 'human' for external API backward compatibility
+    const rawType = actorRow?.accountType ?? 'bot'
+    const wsocialAccountType = rawType === 'personal' ? 'human' : rawType
 
     // Return profile with W Social extensions
     return {
       ...profile,
-      wsocialAccountType: accountType,
+      wsocialAccountType,
       wsocialVerified: true,
     }
   } catch (error) {

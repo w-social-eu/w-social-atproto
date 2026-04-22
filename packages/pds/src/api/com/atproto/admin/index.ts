@@ -1,5 +1,6 @@
 import { AppContext } from '../../../../context'
 import { Server } from '../../../../lexicon'
+import addNeuroLink from './addNeuroLink'
 import deleteAccount from './deleteAccount'
 import disableAccountInvites from './disableAccountInvites'
 import disableInviteCodes from './disableInviteCodes'
@@ -12,6 +13,7 @@ import getSubjectStatus from './getSubjectStatus'
 import importAccount from './importAccount'
 import listNeuroAccounts from './listNeuroAccounts'
 import migrateAccount from './migrateAccount'
+import removeNeuroLink from './removeNeuroLink'
 import sendEmail from './sendEmail'
 import updateAccountEmail from './updateAccountEmail'
 import updateAccountHandle from './updateAccountHandle'
@@ -36,6 +38,8 @@ export default function (server: Server, ctx: AppContext) {
   deleteAccount(server, ctx)
   getNeuroLink(server, ctx)
   listNeuroAccounts(server, ctx)
+  addNeuroLink(server, ctx)
+  removeNeuroLink(server, ctx)
   updateNeuroLink(server, ctx)
   validateMigrationTarget(server, ctx)
   importAccount(server, ctx)

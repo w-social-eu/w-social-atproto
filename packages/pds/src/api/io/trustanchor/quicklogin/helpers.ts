@@ -3,13 +3,13 @@ import { Secp256k1Keypair } from '@atproto/crypto'
 import { isValidTld } from '@atproto/syntax'
 import { AccountStatus } from '../../../../account-manager/account-manager'
 import { AppContext } from '../../../../context'
-import { prepareCreate } from '../../../../repo/prepare'
 import {
   baseNormalizeAndValidate,
   ensureHandleServiceConstraints,
   isServiceDomain,
 } from '../../../../handle'
 import { hasExplicitSlur } from '../../../../handle/explicit-slurs'
+import { prepareCreate } from '../../../../repo/prepare'
 import { sendIdentityEventWithRetry } from '../../../../sequencer/identity-event-helper'
 import { subscribeToLists } from '../../../../services/list-subscription'
 import { setThreadViewPreferences } from '../../../../services/thread-preferences'
@@ -207,6 +207,7 @@ export async function createAccountViaQuickLogin(
     password: undefined, // WID accounts locked to WID authentication
     repoCid: commit.cid,
     repoRev: commit.rev,
+    accountType: isTestUser === 1 ? 'test' : 'personal',
   })
 
   // Email verified by WID identity system
@@ -218,20 +219,15 @@ export async function createAccountViaQuickLogin(
     .execute()
 
   // Link Neuro identity (WP3: atomic create)
-  // Store only pseudonymous JID key; no identity attributes from callback
-  const linkData = {
-    did,
-    isTestUser,
-    linkedAt: new Date().toISOString(),
-    lastLoginAt: new Date().toISOString(),
-    ...(isTestUser === 1
-      ? { testUserJid: jid, userJid: null } // Test user: testUserJid
-      : { userJid: jid, testUserJid: null }), // Real user: userJid
-  }
-
+  // Store only pseudonymous JID key; many-to-many join table
   await ctx.accountManager.db.db
     .insertInto('neuro_identity_link')
-    .values(linkData as any)
+    .values({
+      jid,
+      did,
+      linkedAt: new Date().toISOString(),
+      lastLoginAt: new Date().toISOString(),
+    } as any)
     .execute()
 
   if (log && sessionId) {
