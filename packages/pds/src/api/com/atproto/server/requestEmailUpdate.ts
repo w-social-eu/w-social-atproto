@@ -1,12 +1,12 @@
 import { DAY, HOUR } from '@atproto/common'
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { ids } from '../../../../lexicon/lexicons'
+import { resultPassthru } from '../../../proxy'
 
 export default function (server: Server, ctx: AppContext) {
-  const { entrywayClient } = ctx
-
-  server.add(com.atproto.server.requestEmailUpdate, {
+  server.com.atproto.server.requestEmailUpdate({
     rateLimit: [
       {
         durationMs: DAY,
@@ -35,15 +35,17 @@ export default function (server: Server, ctx: AppContext) {
         throw new InvalidRequestError('account not found')
       }
 
-      if (entrywayClient) {
-        const { headers } = await ctx.entrywayAuthHeaders(
-          req,
-          auth.credentials.did,
-          com.atproto.server.requestEmailUpdate.$lxm,
+      if (ctx.entrywayAgent) {
+        return resultPassthru(
+          await ctx.entrywayAgent.com.atproto.server.requestEmailUpdate(
+            undefined,
+            await ctx.entrywayAuthHeaders(
+              req,
+              auth.credentials.did,
+              ids.ComAtprotoServerRequestEmailUpdate,
+            ),
+          ),
         )
-        return entrywayClient.xrpc(com.atproto.server.requestEmailUpdate, {
-          headers,
-        })
       }
 
       if (!account.email) {
@@ -65,7 +67,7 @@ export default function (server: Server, ctx: AppContext) {
       }
 
       return {
-        encoding: 'application/json' as const,
+        encoding: 'application/json',
         body: {
           tokenRequired,
         },

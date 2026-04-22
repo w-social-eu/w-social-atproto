@@ -1,5 +1,6 @@
-import { AtpAgent, ids } from '@atproto/api'
+import { AtpAgent } from '@atproto/api'
 import { SeedClient, TestNetwork } from '@atproto/dev-env'
+import { ids } from '../../src/lexicon/lexicons'
 import { knownFollowersSeed } from '../seed/known-followers'
 
 describe('known followers (social proof)', () => {
@@ -14,8 +15,8 @@ describe('known followers (social proof)', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'bsky_known_followers',
     })
-    agent = network.bsky.getAgent()
-    pdsAgent = network.pds.getAgent()
+    agent = network.bsky.getClient()
+    pdsAgent = network.pds.getClient()
     seedClient = network.getSeedClient()
 
     await knownFollowersSeed(seedClient)

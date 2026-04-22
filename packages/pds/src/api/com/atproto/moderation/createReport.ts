@@ -1,41 +1,41 @@
-import { xrpc } from '@atproto/lex'
-import { Server } from '@atproto/xrpc-server'
+import { AtpAgent } from '@atproto/api'
 import { AuthScope } from '../../../../auth-scope'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { ids } from '../../../../lexicon/lexicons'
 import { computeProxyTo, parseProxyInfo } from '../../../../pipethrough'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.moderation.createReport, {
+  server.com.atproto.moderation.createReport({
     auth: ctx.authVerifier.authorization({
       additional: [AuthScope.Takendown],
       authorize: (permissions, { req }) => {
-        const lxm = com.atproto.moderation.createReport.$lxm
+        const lxm = ids.ComAtprotoModerationCreateReport
         const aud = computeProxyTo(ctx, req, lxm)
         permissions.assertRpc({ aud, lxm })
       },
     }),
-    handler: async ({ auth, params, input: { body }, req }) => {
+    handler: async ({ auth, input, req }) => {
       const { url, did: aud } = await parseProxyInfo(
         ctx,
         req,
-        com.atproto.moderation.createReport.$lxm,
+        ids.ComAtprotoModerationCreateReport,
       )
-
-      const { headers } = await ctx.serviceAuthHeaders(
+      const agent = new AtpAgent({ service: url })
+      const serviceAuth = await ctx.serviceAuthHeaders(
         auth.credentials.did,
         aud,
-        com.atproto.moderation.createReport.$lxm,
+        ids.ComAtprotoModerationCreateReport,
       )
-
-      return xrpc(url, com.atproto.moderation.createReport, {
-        validateRequest: ctx.cfg.service.devMode,
-        validateResponse: ctx.cfg.service.devMode,
-        strictResponseProcessing: ctx.cfg.service.devMode,
-        headers,
-        params,
-        body,
+      const res = await agent.com.atproto.moderation.createReport(input.body, {
+        ...serviceAuth,
+        encoding: 'application/json',
       })
+
+      return {
+        encoding: 'application/json',
+        body: res.data,
+      }
     },
   })
 }

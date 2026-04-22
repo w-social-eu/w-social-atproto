@@ -1,6 +1,4 @@
 import { mapDefined } from '@atproto/common'
-import { AtUriString } from '@atproto/lex'
-import { Server } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
 import {
   HydrateCtx,
@@ -8,7 +6,8 @@ import {
   Hydrator,
 } from '../../../../hydration/hydrator'
 import { parseString } from '../../../../hydration/util'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { QueryParams } from '../../../../lexicon/types/app/bsky/feed/getRepostedBy'
 import { createPipeline } from '../../../../pipeline'
 import { uriToDid as creatorFromUri } from '../../../../util/uris'
 import { Views } from '../../../../views'
@@ -21,17 +20,15 @@ export default function (server: Server, ctx: AppContext) {
     noBlocks,
     presentation,
   )
-  server.add(app.bsky.feed.getRepostedBy, {
+  server.app.bsky.feed.getRepostedBy({
     auth: ctx.authVerifier.standardOptional,
     handler: async ({ params, auth, req }) => {
-      const { viewer, includeTakedowns, skipViewerBlocks } =
-        ctx.authVerifier.parseCreds(auth)
+      const { viewer, includeTakedowns } = ctx.authVerifier.parseCreds(auth)
       const labelers = ctx.reqLabelers(req)
       const hydrateCtx = await ctx.hydrator.createContext({
         labelers,
         viewer,
         includeTakedowns,
-        skipViewerBlocks,
       })
       const result = await getRepostedBy({ ...params, hydrateCtx }, ctx)
 
@@ -58,7 +55,7 @@ const skeleton = async (inputs: {
     limit: params.limit,
   })
   return {
-    reposts: res.uris as AtUriString[],
+    reposts: res.uris,
     cursor: parseString(res.cursor),
   }
 }
@@ -113,9 +110,9 @@ type Context = {
   views: Views
 }
 
-type Params = app.bsky.feed.getRepostedBy.$Params & { hydrateCtx: HydrateCtx }
+type Params = QueryParams & { hydrateCtx: HydrateCtx }
 
 type Skeleton = {
-  reposts: AtUriString[]
+  reposts: string[]
   cursor?: string
 }

@@ -1,19 +1,21 @@
 import { Selectable } from 'kysely'
-import { Cid } from '@atproto/lex'
+import { CID } from 'multiformats/cid'
 import { AtUri, normalizeDatetimeAlways } from '@atproto/syntax'
-import { app } from '../../../../lexicons'
+import * as lex from '../../../../lexicon/lexicons'
+import * as StarterPack from '../../../../lexicon/types/app/bsky/graph/starterpack'
 import { BackgroundQueue } from '../../background'
 import { Database } from '../../db'
 import { DatabaseSchema, DatabaseSchemaType } from '../../db/database-schema'
 import { RecordProcessor } from '../processor'
 
+const lexId = lex.ids.AppBskyGraphStarterpack
 type IndexedStarterPack = Selectable<DatabaseSchemaType['starter_pack']>
 
 const insertFn = async (
   db: DatabaseSchema,
   uri: AtUri,
-  cid: Cid,
-  obj: app.bsky.graph.starterpack.Main,
+  cid: CID,
+  obj: StarterPack.Record,
   timestamp: string,
 ): Promise<IndexedStarterPack | null> => {
   const inserted = await db
@@ -56,10 +58,14 @@ const notifsForDelete = () => {
   return { notifs: [], toDelete: [] }
 }
 
-export type PluginType = ReturnType<typeof makePlugin>
-export const makePlugin = (db: Database, background: BackgroundQueue) => {
+export type PluginType = RecordProcessor<StarterPack.Record, IndexedStarterPack>
+
+export const makePlugin = (
+  db: Database,
+  background: BackgroundQueue,
+): PluginType => {
   return new RecordProcessor(db, background, {
-    schema: app.bsky.graph.starterpack.main,
+    lexId,
     insertFn,
     findDuplicate,
     deleteFn,

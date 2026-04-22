@@ -1,10 +1,11 @@
 import { DAY, HOUR } from '@atproto/common'
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { ids } from '../../../../lexicon/lexicons'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.server.requestEmailConfirmation, {
+  server.com.atproto.server.requestEmailConfirmation({
     rateLimit: [
       {
         durationMs: DAY,
@@ -33,18 +34,15 @@ export default function (server: Server, ctx: AppContext) {
         throw new InvalidRequestError('account not found')
       }
 
-      if (ctx.entrywayClient) {
-        const { headers } = await ctx.entrywayAuthHeaders(
-          req,
-          auth.credentials.did,
-          com.atproto.server.requestEmailConfirmation.$lxm,
+      if (ctx.entrywayAgent) {
+        await ctx.entrywayAgent.com.atproto.server.requestEmailConfirmation(
+          undefined,
+          await ctx.entrywayAuthHeaders(
+            req,
+            auth.credentials.did,
+            ids.ComAtprotoServerRequestEmailConfirmation,
+          ),
         )
-
-        await ctx.entrywayClient.xrpc(
-          com.atproto.server.requestEmailConfirmation,
-          { headers },
-        )
-
         return
       }
 

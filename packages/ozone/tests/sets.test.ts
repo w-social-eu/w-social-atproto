@@ -90,7 +90,7 @@ describe('ozone-sets', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'ozone_sets',
     })
-    agent = network.ozone.getAgent()
+    agent = network.ozone.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     await network.processAll()

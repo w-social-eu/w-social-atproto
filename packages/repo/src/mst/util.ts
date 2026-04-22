@@ -1,24 +1,9 @@
+import { CID } from 'multiformats'
+import * as uint8arrays from 'uint8arrays'
+import { cidForCbor } from '@atproto/common'
 import { sha256 } from '@atproto/crypto'
-import { cidForLex } from '@atproto/lex-cbor'
-import { Cid } from '@atproto/lex-data'
 import { ReadableBlockstore } from '../storage'
 import { Leaf, MST, MstOpts, NodeData, NodeEntry } from './mst'
-
-function toAscii(bytes: Uint8Array): string {
-  let string = ''
-  for (let i = 0; i < bytes.length; i++) {
-    string += String.fromCharCode(bytes[i])
-  }
-  return string
-}
-
-function fromAscii(str: string): Uint8Array {
-  const bytes = new Uint8Array(str.length)
-  for (let i = 0; i < str.length; i++) {
-    bytes[i] = str.charCodeAt(i)
-  }
-  return bytes
-}
 
 export const leadingZerosOnHash = async (key: string | Uint8Array) => {
   const hash = await sha256(key)
@@ -61,8 +46,8 @@ export const deserializeNodeData = async (
   }
   let lastKey = ''
   for (const entry of data.e) {
-    const keyStr = toAscii(entry.k)
-    const key = `${lastKey.slice(0, entry.p)}${keyStr}`
+    const keyStr = uint8arrays.toString(entry.k, 'ascii')
+    const key = lastKey.slice(0, entry.p) + keyStr
     ensureValidMstKey(key)
     entries.push(new Leaf(key, entry.v))
     lastKey = key
@@ -95,7 +80,7 @@ export const serializeNodeData = (entries: NodeEntry[]): NodeData => {
       throw new Error('Not a valid node: two subtrees next to each other')
     }
     i++
-    let subtree: Cid | null = null
+    let subtree: CID | null = null
     if (next?.isTree()) {
       subtree = next.pointer
       i++
@@ -104,7 +89,7 @@ export const serializeNodeData = (entries: NodeEntry[]): NodeData => {
     const prefixLen = countPrefixLen(lastKey, leaf.key)
     data.e.push({
       p: prefixLen,
-      k: fromAscii(leaf.key.slice(prefixLen)),
+      k: uint8arrays.fromString(leaf.key.slice(prefixLen), 'ascii'),
       v: leaf.value,
       t: subtree,
     })
@@ -124,9 +109,9 @@ export const countPrefixLen = (a: string, b: string): number => {
   return i
 }
 
-export const cidForEntries = async (entries: NodeEntry[]): Promise<Cid> => {
+export const cidForEntries = async (entries: NodeEntry[]): Promise<CID> => {
   const data = serializeNodeData(entries)
-  return cidForLex(data)
+  return cidForCbor(data)
 }
 
 export const isValidMstKey = (str: string): boolean => {

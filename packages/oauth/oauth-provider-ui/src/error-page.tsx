@@ -2,10 +2,9 @@ import './style.css'
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { ErrorView } from '#/components/error-view.tsx'
-import { CustomizationProvider } from '#/contexts/customization'
-import type { HydrationData } from '#/hydration-data.d.ts'
-import { LocaleProvider } from '#/locales/locale-provider.tsx'
+import type { HydrationData } from './hydration-data.d.ts'
+import { LocaleProvider } from './locales/locale-provider.tsx'
+import { ErrorView } from './views/error/error-view.tsx'
 
 const {
   //
@@ -17,10 +16,8 @@ const container = document.getElementById('root')!
 
 createRoot(container).render(
   <StrictMode>
-    <CustomizationProvider value={customizationData}>
-      <LocaleProvider>
-        <ErrorView error={errorData} />
-      </LocaleProvider>
-    </CustomizationProvider>
+    <LocaleProvider>
+      <ErrorView error={errorData} customizationData={customizationData} />
+    </LocaleProvider>
   </StrictMode>,
 )

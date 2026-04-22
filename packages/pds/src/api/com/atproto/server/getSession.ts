@@ -1,14 +1,15 @@
-import { DidString, HandleString, INVALID_HANDLE } from '@atproto/syntax'
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { ComAtprotoServerGetSession } from '@atproto/api'
+import { INVALID_HANDLE } from '@atproto/syntax'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { formatAccountStatus } from '../../../../account-manager/account-manager'
 import { AccessOutput, OAuthOutput } from '../../../../auth-output'
 import { AuthScope } from '../../../../auth-scope'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 import { didDocForSession } from './util'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.server.getSession, {
+  server.com.atproto.server.getSession({
     auth: ctx.authVerifier.authorization({
       additional: [AuthScope.SignupQueued],
       authorize: () => {
@@ -16,21 +17,21 @@ export default function (server: Server, ctx: AppContext) {
       },
     }),
     handler: async ({ auth, req }) => {
-      if (ctx.entrywayClient) {
-        const { headers } = await ctx.entrywayAuthHeaders(
+      if (ctx.entrywayAgent) {
+        const headers = await ctx.entrywayAuthHeaders(
           req,
           auth.credentials.did,
           'com.atproto.server.getSession',
         )
 
-        const { body } = await ctx.entrywayClient.xrpc(
-          com.atproto.server.getSession,
-          { headers },
+        const res = await ctx.entrywayAgent.com.atproto.server.getSession(
+          undefined,
+          headers,
         )
 
         return {
-          encoding: 'application/json' as const,
-          body: output(auth, body),
+          encoding: 'application/json',
+          body: output(auth, res.data),
         }
       }
 
@@ -48,12 +49,11 @@ export default function (server: Server, ctx: AppContext) {
       const { status, active } = formatAccountStatus(user)
 
       return {
-        encoding: 'application/json' as const,
+        encoding: 'application/json',
         body: output(auth, {
-          did: user.did as DidString,
-          // @ts-expect-error https://github.com/bluesky-social/atproto/pull/4406
+          did: user.did,
           didDoc,
-          handle: (user.handle ?? INVALID_HANDLE) as HandleString,
+          handle: user.handle ?? INVALID_HANDLE,
           email: user.email ?? undefined,
           emailConfirmed: !!user.emailConfirmedAt,
           active,
@@ -66,8 +66,8 @@ export default function (server: Server, ctx: AppContext) {
 
 function output(
   { credentials }: OAuthOutput | AccessOutput,
-  data: com.atproto.server.getSession.$OutputBody,
-): com.atproto.server.getSession.$OutputBody {
+  data: ComAtprotoServerGetSession.OutputSchema,
+): ComAtprotoServerGetSession.OutputSchema {
   if (
     credentials.type === 'oauth' &&
     !credentials.permissions.allowsAccount({ attr: 'email', action: 'read' })

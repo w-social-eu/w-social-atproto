@@ -1,10 +1,8 @@
-import { DatetimeString } from '@atproto/lex'
-
 export interface AppPassword {
   did: string
   name: string
   passwordScrypt: string
-  createdAt: DatetimeString
+  createdAt: string
   privileged: 0 | 1
 }
 

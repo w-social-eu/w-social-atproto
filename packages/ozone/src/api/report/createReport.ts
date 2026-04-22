@@ -24,8 +24,10 @@ export default function (server: Server, ctx: AppContext) {
 
       const db = ctx.db
 
-      await ctx.moderationServiceProfile().validateReasonType(reasonType)
-      await assertValidReporter(ctx.modService(db), reasonType, requester)
+      await Promise.all([
+        assertValidReporter(ctx.modService(db), reasonType, requester),
+        ctx.moderationServiceProfile().validateReasonType(reasonType),
+      ])
 
       const report = await db.transaction(async (dbTxn) => {
         const moderationTxn = ctx.modService(dbTxn)

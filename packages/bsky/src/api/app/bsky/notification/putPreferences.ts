@@ -1,9 +1,8 @@
-import { Server } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(app.bsky.notification.putPreferences, {
+  server.app.bsky.notification.putPreferences({
     auth: ctx.authVerifier.standard,
     handler: async ({ input, auth }) => {
       const { priority } = input.body

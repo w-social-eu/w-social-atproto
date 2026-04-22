@@ -1,44 +1,36 @@
-import { Server } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { ids } from '../../../../lexicon/lexicons'
+import { OutputSchema } from '../../../../lexicon/types/app/bsky/feed/getTimeline'
 import { computeProxyTo } from '../../../../pipethrough'
 import {
-  MungeFn,
+  LocalRecords,
+  LocalViewer,
   pipethroughReadAfterWrite,
 } from '../../../../read-after-write'
 
 export default function (server: Server, ctx: AppContext) {
   if (!ctx.bskyAppView) return
 
-  server.add(app.bsky.feed.getTimeline, {
+  server.app.bsky.feed.getTimeline({
     auth: ctx.authVerifier.authorization({
       authorize: (permissions, { req }) => {
-        const lxm = app.bsky.feed.getTimeline.$lxm
+        const lxm = ids.AppBskyFeedGetTimeline
         const aud = computeProxyTo(ctx, req, lxm)
         permissions.assertRpc({ aud, lxm })
       },
     }),
-    opts: {
-      // @TODO remove after grace period has passed, behavior is non-standard.
-      // temporarily added for compat w/ previous version of xrpc-server to avoid breakage of a few specified parties.
-      paramsParseLoose: true,
-    },
     handler: async (reqCtx) => {
-      return pipethroughReadAfterWrite(
-        ctx,
-        reqCtx,
-        app.bsky.feed.getTimeline,
-        getTimelineMunge,
-      )
+      return pipethroughReadAfterWrite(ctx, reqCtx, getTimelineMunge)
     },
   })
 }
 
-const getTimelineMunge: MungeFn<app.bsky.feed.getTimeline.$OutputBody> = async (
-  localViewer,
-  original,
-  local,
-) => {
+const getTimelineMunge = async (
+  localViewer: LocalViewer,
+  original: OutputSchema,
+  local: LocalRecords,
+): Promise<OutputSchema> => {
   const feed = await localViewer.formatAndInsertPostsInFeed(
     [...original.feed],
     local.posts,

@@ -1,16 +1,14 @@
 import { mapDefined } from '@atproto/common'
-import { AtUriString } from '@atproto/syntax'
-import { Server } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
 import { parseString } from '../../../../hydration/util'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 import { clearlyBadCursor, resHeaders } from '../../../util'
 
 // THIS IS A TEMPORARY UNSPECCED ROUTE
 // @TODO currently mirrors getSuggestedFeeds and ignores the "query" param.
 // In the future may take into consideration popularity via likes w/ its own dataplane endpoint.
 export default function (server: Server, ctx: AppContext) {
-  server.add(app.bsky.unspecced.getPopularFeedGenerators, {
+  server.app.bsky.unspecced.getPopularFeedGenerators({
     auth: ctx.authVerifier.standardOptional,
     handler: async ({ auth, params, req }) => {
       const viewer = auth.credentials.iss
@@ -24,7 +22,7 @@ export default function (server: Server, ctx: AppContext) {
         }
       }
 
-      let uris: AtUriString[]
+      let uris: string[]
       let cursor: string | undefined
 
       const query = params.query?.trim() ?? ''
@@ -33,14 +31,14 @@ export default function (server: Server, ctx: AppContext) {
           query,
           limit: params.limit,
         })
-        uris = res.uris as AtUriString[]
+        uris = res.uris
       } else {
         const res = await ctx.dataplane.getSuggestedFeeds({
           actorDid: viewer ?? undefined,
           limit: params.limit,
           cursor: params.cursor,
         })
-        uris = res.uris as AtUriString[]
+        uris = res.uris
         cursor = parseString(res.cursor)
       }
 

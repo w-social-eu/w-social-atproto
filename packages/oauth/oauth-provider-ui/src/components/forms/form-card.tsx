@@ -1,6 +1,5 @@
-import { clsx } from 'clsx'
 import { JSX, ReactNode } from 'react'
-import { Override } from '#/lib/util.ts'
+import { Override } from '../../lib/util.ts'
 
 export type FormCardProps = Override<
   JSX.IntrinsicElements['form'],
@@ -23,15 +22,10 @@ export function FormCard({
 
   // form
   inert = disabled,
-  className,
   ...props
 }: FormCardProps) {
   return (
-    <form
-      inert={inert}
-      className={clsx('flex flex-col gap-4', className)}
-      {...props}
-    >
+    <form {...props} inert={inert} className="flex flex-col gap-4">
       {prepend && <div key="prepend">{prepend}</div>}
 
       <div key="children" className="space-y-4">

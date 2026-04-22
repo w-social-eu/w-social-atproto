@@ -7,7 +7,7 @@ import {
   mockNetworkUtilities,
 } from '@atproto/dev-env'
 import { readCar } from '@atproto/repo'
-import { DidString } from '@atproto/syntax'
+import { ids } from '../src/lexicon/lexicons'
 
 describe('account migration', () => {
   let network: TestNetworkNoAppView
@@ -17,7 +17,7 @@ describe('account migration', () => {
   let oldAgent: AtpAgent
   let newAgent: AtpAgent
 
-  let alice: DidString
+  let alice: string
 
   beforeAll(async () => {
     network = await TestNetworkNoAppView.create({
@@ -29,8 +29,8 @@ describe('account migration', () => {
     mockNetworkUtilities(newPds)
 
     sc = network.getSeedClient()
-    oldAgent = network.pds.getAgent()
-    newAgent = newPds.getAgent()
+    oldAgent = network.pds.getClient()
+    newAgent = newPds.getClient()
 
     await sc.createAccount('alice', {
       email: 'alice@test.com',
@@ -81,7 +81,7 @@ describe('account migration', () => {
 
     const serviceJwtRes = await oldAgent.com.atproto.server.getServiceAuth({
       aud: newServerDid,
-      lxm: 'com.atproto.server.createAccount',
+      lxm: ids.ComAtprotoServerCreateAccount,
     })
     const serviceJwt = serviceJwtRes.data.token
 

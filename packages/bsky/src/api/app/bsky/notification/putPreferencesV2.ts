@@ -1,14 +1,16 @@
 import assert from 'node:assert'
-import { Un$Typed } from '@atproto/lex'
-import { Server, UpstreamFailureError } from '@atproto/xrpc-server'
+import { Un$Typed } from '@atproto/api'
+import { UpstreamFailureError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { Preferences } from '../../../../lexicon/types/app/bsky/notification/defs'
+import { HandlerInput } from '../../../../lexicon/types/app/bsky/notification/putPreferencesV2'
 import { GetNotificationPreferencesResponse } from '../../../../proto/bsky_pb'
 import { Namespaces } from '../../../../stash'
 import { protobufToLex } from './util'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(app.bsky.notification.putPreferencesV2, {
+  server.app.bsky.notification.putPreferencesV2({
     auth: ctx.authVerifier.standard,
     handler: async ({ auth, input }) => {
       const actorDid = auth.credentials.iss
@@ -35,8 +37,8 @@ export default function (server: Server, ctx: AppContext) {
 const computePreferences = async (
   ctx: AppContext,
   actorDid: string,
-  input: app.bsky.notification.putPreferencesV2.$Input,
-): Promise<Un$Typed<app.bsky.notification.defs.Preferences>> => {
+  input: HandlerInput,
+): Promise<Un$Typed<Preferences>> => {
   let res: GetNotificationPreferencesResponse
   try {
     res = await ctx.dataplane.getNotificationPreferences({

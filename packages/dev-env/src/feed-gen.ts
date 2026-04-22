@@ -1,11 +1,11 @@
 import events from 'node:events'
 import http from 'node:http'
 import * as plc from '@did-plc/lib'
+import express from 'express'
 import getPort from 'get-port'
 import { Secp256k1Keypair } from '@atproto/crypto'
-import { SkeletonHandler, app } from '@atproto/pds'
-import { AtUriString, DidString } from '@atproto/syntax'
-import { InvalidRequestError, createServer } from '@atproto/xrpc-server'
+import { SkeletonHandler, createLexiconServer } from '@atproto/pds'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 
 export class TestFeedGen {
   destroyed = false
@@ -22,9 +22,10 @@ export class TestFeedGen {
   ): Promise<TestFeedGen> {
     const port = await getPort()
     const did = await createFgDid(plcUrl, port)
-    const xrpcServer = createServer()
+    const app = express()
+    const lexServer = createLexiconServer()
 
-    xrpcServer.add(app.bsky.feed.getFeedSkeleton, async (args) => {
+    lexServer.app.bsky.feed.getFeedSkeleton(async (args) => {
       const handler = feeds[args.params.feed]
       if (!handler) {
         throw new InvalidRequestError('unknown feed', 'UnknownFeed')
@@ -32,21 +33,22 @@ export class TestFeedGen {
       return handler(args)
     })
 
-    xrpcServer.add(app.bsky.feed.describeFeedGenerator, async () => {
+    lexServer.app.bsky.feed.describeFeedGenerator(async () => {
       return {
-        encoding: 'application/json' as const,
+        encoding: 'application/json',
         body: {
-          did: did as DidString,
-          feeds: (Object.keys(feeds) as AtUriString[]).map((uri) => ({
+          did,
+          feeds: Object.keys(feeds).map((uri) => ({
             uri,
           })),
         },
       }
     })
 
-    const httpServer = xrpcServer.listen(port)
-    await events.once(httpServer, 'listening')
-    return new TestFeedGen(port, httpServer, did)
+    app.use(lexServer.xrpc.router)
+    const server = app.listen(port)
+    await events.once(server, 'listening')
+    return new TestFeedGen(port, server, did)
   }
 
   close(): Promise<void> {
@@ -61,10 +63,7 @@ export class TestFeedGen {
   }
 }
 
-const createFgDid = async (
-  plcUrl: string,
-  port: number,
-): Promise<DidString> => {
+const createFgDid = async (plcUrl: string, port: number): Promise<string> => {
   const keypair = await Secp256k1Keypair.create()
   const plcClient = new plc.Client(plcUrl)
   const op = await plc.signOperation(
@@ -87,5 +86,5 @@ const createFgDid = async (
   )
   const did = await plc.didForCreateOp(op)
   await plcClient.sendOperation(did, op)
-  return did as DidString
+  return did
 }

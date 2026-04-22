@@ -1,5 +1,6 @@
-import { AppBskyEmbedRecord, AtpAgent, ids } from '@atproto/api'
+import AtpAgent, { AppBskyEmbedRecord } from '@atproto/api'
 import { SeedClient, TestNetwork } from '@atproto/dev-env'
+import { ids } from '../src/lexicon/lexicons'
 import { Users, postgatesSeed } from './seed/postgates'
 
 describe('postgates', () => {
@@ -13,8 +14,8 @@ describe('postgates', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'bsky_tests_postgates',
     })
-    agent = network.bsky.getAgent()
-    pdsAgent = network.pds.getAgent()
+    agent = network.bsky.getClient()
+    pdsAgent = network.pds.getClient()
     sc = network.getSeedClient()
 
     const result = await postgatesSeed(sc)

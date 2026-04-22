@@ -1,6 +1,11 @@
-import { app } from '../../lexicons/index.js'
 import { ActorDb } from '../db'
-import { PrefAllowedOptions, getAgeFromDatestring, prefAllowed } from './util'
+import {
+  DECLARED_AGE_PREF,
+  PERSONAL_DETAILS_PREF,
+  PrefAllowedOptions,
+  getAgeFromDatestring,
+  prefAllowed,
+} from './util'
 
 export class PreferenceReader {
   constructor(public db: ActorDb) {}
@@ -19,25 +24,27 @@ export class PreferenceReader {
       .filter((pref) => !namespace || prefMatchNamespace(namespace, pref.name))
       .map((pref) => JSON.parse(pref.valueJson) as AccountPreference)
     const personalDetailsPref = prefs.find(
-      app.bsky.actor.defs.personalDetailsPref.$isTypeOf,
+      (pref) => pref.$type === PERSONAL_DETAILS_PREF,
     )
 
-    if (personalDetailsPref?.birthDate) {
-      const age = getAgeFromDatestring(personalDetailsPref.birthDate)
-      prefs.push(
-        app.bsky.actor.defs.declaredAgePref.$build({
+    if (personalDetailsPref) {
+      if (typeof personalDetailsPref.birthDate === 'string') {
+        const age = getAgeFromDatestring(personalDetailsPref.birthDate)
+        const declaredAgePref: AccountPreference = {
+          $type: DECLARED_AGE_PREF,
           isOverAge13: age >= 13,
           isOverAge16: age >= 16,
           isOverAge18: age >= 18,
-        }),
-      )
+        }
+        prefs.push(declaredAgePref)
+      }
     }
 
     return prefs.filter((pref) => prefAllowed(pref.$type, opts))
   }
 }
 
-export type AccountPreference = app.bsky.actor.defs.Preferences[number]
+export type AccountPreference = Record<string, unknown> & { $type: string }
 
 export const prefMatchNamespace = (namespace: string, fullname: string) => {
   return fullname === namespace || fullname.startsWith(`${namespace}.`)

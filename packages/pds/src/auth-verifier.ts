@@ -4,7 +4,6 @@ import * as jose from 'jose'
 import KeyEncoder from 'key-encoder'
 import { getVerificationMaterial } from '@atproto/common'
 import { IdResolver, getDidKeyFromMultibase } from '@atproto/identity'
-import { AtIdentifierString, DidString, isDidString } from '@atproto/lex'
 import {
   OAuthError,
   OAuthVerifier,
@@ -83,7 +82,7 @@ export type VerifyBearerJwtOptions<S extends AuthScope = AuthScope> =
   >
 
 export type VerifyBearerJwtResult<S extends AuthScope = AuthScope> = {
-  sub: DidString
+  sub: string
   aud: string
   jti: string | undefined
   scope: S
@@ -383,7 +382,7 @@ export class AuthVerifier {
           throw err
         })
 
-      if (!isDidString(did)) {
+      if (typeof did !== 'string' || !did.startsWith('did:')) {
         throw new InvalidRequestError('Malformed token', 'InvalidToken')
       }
 
@@ -412,7 +411,7 @@ export class AuthVerifier {
   }
 
   protected async verifyStatus(
-    did: DidString,
+    did: string,
     options: VerifiedOptions,
   ): Promise<void> {
     if (options.checkDeactivated || options.checkTakedown) {
@@ -426,7 +425,7 @@ export class AuthVerifier {
    * `options.checkTakedown` are set to true, respectively).
    */
   public async findAccount(
-    handleOrDid: AtIdentifierString,
+    handleOrDid: string,
     options: VerifiedOptions,
   ): Promise<ActorAccount> {
     const account = await this.accountManager.getAccount(handleOrDid, {
@@ -504,7 +503,7 @@ export class AuthVerifier {
       // https://www.rfc-editor.org/rfc/rfc7800.html
       throw new InvalidRequestError('Malformed token', 'InvalidToken')
     }
-    if (typeof sub !== 'string' || !isDidString(sub)) {
+    if (typeof sub !== 'string' || !sub.startsWith('did:')) {
       throw new InvalidRequestError('Malformed token', 'InvalidToken')
     }
     if (typeof aud !== 'string' || !aud.startsWith('did:')) {
@@ -524,38 +523,37 @@ export class AuthVerifier {
     req: IncomingMessage,
     opts?: { iss?: string[] },
   ) {
+    const getSigningKey = async (
+      iss: string,
+      forceRefresh: boolean,
+    ): Promise<string> => {
+      if (opts?.iss && !opts.iss.includes(iss)) {
+        throw new AuthRequiredError('Untrusted issuer', 'UntrustedIss')
+      }
+      const [did, serviceId] = iss.split('#')
+      const keyId =
+        serviceId === 'atproto_labeler' ? 'atproto_label' : 'atproto'
+      const didDoc = await this.idResolver.did.resolve(did, forceRefresh)
+      if (!didDoc) {
+        throw new AuthRequiredError('could not resolve iss did')
+      }
+      const parsedKey = getVerificationMaterial(didDoc, keyId)
+      if (!parsedKey) {
+        throw new AuthRequiredError('missing or bad key in did doc')
+      }
+      const didKey = getDidKeyFromMultibase(parsedKey)
+      if (!didKey) {
+        throw new AuthRequiredError('missing or bad key in did doc')
+      }
+      return didKey
+    }
+
     const jwtStr = bearerTokenFromReq(req)
     if (!jwtStr) {
       throw new AuthRequiredError('missing jwt', 'MissingJwt')
     }
-
     const nsid = parseReqNsid(req)
-    const payload = await verifyServiceJwt(
-      jwtStr,
-      null,
-      nsid,
-      async (iss, forceRefresh) => {
-        if (opts?.iss && !opts.iss.includes(iss)) {
-          throw new AuthRequiredError('Untrusted issuer', 'UntrustedIss')
-        }
-        const [did, serviceId] = iss.split('#')
-        const keyId =
-          serviceId === 'atproto_labeler' ? 'atproto_label' : 'atproto'
-        const didDoc = await this.idResolver.did.resolve(did, forceRefresh)
-        if (!didDoc) {
-          throw new AuthRequiredError('could not resolve iss did')
-        }
-        const parsedKey = getVerificationMaterial(didDoc, keyId)
-        if (!parsedKey) {
-          throw new AuthRequiredError('missing or bad key in did doc')
-        }
-        const didKey = getDidKeyFromMultibase(parsedKey)
-        if (!didKey) {
-          throw new AuthRequiredError('missing or bad key in did doc')
-        }
-        return didKey
-      },
-    )
+    const payload = await verifyServiceJwt(jwtStr, null, nsid, getSigningKey)
     if (
       payload.aud !== this.dids.pds &&
       (!this.dids.entryway || payload.aud !== this.dids.entryway)

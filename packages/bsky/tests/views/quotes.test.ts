@@ -1,5 +1,6 @@
-import { AtpAgent, ids } from '@atproto/api'
+import AtpAgent from '@atproto/api'
 import { SeedClient, TestNetwork, quotesSeed } from '@atproto/dev-env'
+import { ids } from '../../src/lexicon/lexicons'
 import { forSnapshot } from '../_util'
 
 describe('pds quote views', () => {
@@ -17,7 +18,7 @@ describe('pds quote views', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'bsky_views_quotes',
     })
-    agent = network.bsky.getAgent()
+    agent = network.bsky.getClient()
     sc = network.getSeedClient()
     await quotesSeed(sc)
     await network.processAll()

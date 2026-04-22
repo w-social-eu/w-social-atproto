@@ -3,7 +3,6 @@ import { wait } from '@atproto/common'
 import { Keypair } from '@atproto/crypto'
 import { TestNetworkNoAppView } from '@atproto/dev-env'
 import { readCarWithRoot, verifyRepo } from '@atproto/repo'
-import { DidString } from '@atproto/syntax'
 import { AppContext } from '../src/context'
 import { PreparedCreate, prepareCreate } from '../src/repo'
 
@@ -11,7 +10,7 @@ describe('races', () => {
   let network: TestNetworkNoAppView
   let ctx: AppContext
   let agent: AtpAgent
-  let did: DidString
+  let did: string
   let signingKey: Keypair
 
   beforeAll(async () => {
@@ -20,7 +19,7 @@ describe('races', () => {
     })
     // @ts-expect-error Error due to circular dependency with the dev-env package
     ctx = network.pds.ctx
-    agent = network.pds.getAgent()
+    agent = network.pds.getClient()
     await agent.createAccount({
       email: 'alice@test.com',
       handle: 'alice.test',

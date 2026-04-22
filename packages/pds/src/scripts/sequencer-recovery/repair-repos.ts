@@ -1,4 +1,3 @@
-import { DidString } from '@atproto/syntax'
 import { parseRepoSeqRows } from '../../sequencer'
 import { rebuildRepo } from '../rebuild-repo'
 import {
@@ -27,7 +26,7 @@ export const repairRepos = async (ctx: RecovererContextNoDb) => {
   }
 }
 
-const recoverFromSequencer = async (ctx: RecovererContext, did: DidString) => {
+const recoverFromSequencer = async (ctx: RecovererContext, did: string) => {
   const didEvts = await ctx.sequencer.db.db
     .selectFrom('repo_seq')
     .selectAll()

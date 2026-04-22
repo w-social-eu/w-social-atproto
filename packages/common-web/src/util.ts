@@ -167,7 +167,7 @@ export const range = (num: number): number[] => {
   return nums
 }
 
-export const dedupeStrs = <T extends string>(strs: Iterable<T>): T[] => {
+export const dedupeStrs = (strs: string[]): string[] => {
   return [...new Set(strs)]
 }
 

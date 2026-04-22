@@ -1,29 +1,22 @@
 import { format } from 'node:util'
-import { Client } from '@atproto/lex'
+import { AtpAgent } from '@atproto/api'
 
 export type AppViewOptions = {
   url: string
   did: string
   cdnUrlPattern?: string
-  validateResponse?: boolean
 }
 
 export class BskyAppView {
   public did: string
   public url: string
-  public client: Client
+  public agent: AtpAgent
   private cdnUrlPattern?: string
 
   constructor(options: AppViewOptions) {
     this.did = options.did
     this.url = options.url
-    this.client = new Client(
-      { service: options.url },
-      {
-        strictResponseProcessing: false,
-        validateResponse: options.validateResponse ?? false,
-      },
-    )
+    this.agent = new AtpAgent({ service: options.url })
     this.cdnUrlPattern = options.cdnUrlPattern
   }
 

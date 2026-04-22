@@ -1,4 +1,10 @@
-import { app } from '../../../../lexicons/index.js'
+import { Un$Typed } from '@atproto/api'
+import {
+  ChatPreference,
+  FilterablePreference,
+  Preference,
+  Preferences,
+} from '../../../../lexicon/types/app/bsky/notification/defs'
 import {
   ChatNotificationInclude,
   ChatNotificationPreference,
@@ -16,8 +22,8 @@ type DeepPartial<T> = T extends object
   : T
 
 const ensureChatPreference = (
-  p?: DeepPartial<app.bsky.notification.defs.ChatPreference>,
-): app.bsky.notification.defs.ChatPreference => {
+  p?: DeepPartial<ChatPreference>,
+): ChatPreference => {
   const includeValues = ['all', 'accepted']
   return {
     include:
@@ -29,8 +35,8 @@ const ensureChatPreference = (
 }
 
 const ensureFilterablePreference = (
-  p?: DeepPartial<app.bsky.notification.defs.FilterablePreference>,
-): app.bsky.notification.defs.FilterablePreference => {
+  p?: DeepPartial<FilterablePreference>,
+): FilterablePreference => {
   const includeValues = ['all', 'follows']
   return {
     include:
@@ -42,9 +48,7 @@ const ensureFilterablePreference = (
   }
 }
 
-const ensurePreference = (
-  p?: DeepPartial<app.bsky.notification.defs.Preference>,
-): app.bsky.notification.defs.Preference => {
+const ensurePreference = (p?: DeepPartial<Preference>): Preference => {
   return {
     list: p?.list ?? true,
     push: p?.push ?? true,
@@ -52,8 +56,8 @@ const ensurePreference = (
 }
 
 const ensurePreferences = (
-  p: DeepPartial<app.bsky.notification.defs.Preferences>,
-): app.bsky.notification.defs.Preferences => {
+  p: DeepPartial<Preferences>,
+): Un$Typed<Preferences> => {
   return {
     chat: ensureChatPreference(p.chat),
     follow: ensureFilterablePreference(p.follow),
@@ -73,7 +77,7 @@ const ensurePreferences = (
 
 const protobufChatPreferenceToLex = (
   p?: DeepPartial<ChatNotificationPreference>,
-): Partial<app.bsky.notification.defs.ChatPreference> => {
+): DeepPartial<ChatPreference> => {
   return {
     include:
       p?.include === ChatNotificationInclude.ACCEPTED ? 'accepted' : 'all',
@@ -83,7 +87,7 @@ const protobufChatPreferenceToLex = (
 
 const protobufFilterablePreferenceToLex = (
   p?: DeepPartial<FilterableNotificationPreference>,
-): Partial<app.bsky.notification.defs.FilterablePreference> => {
+): DeepPartial<FilterablePreference> => {
   return {
     include: p?.include === NotificationInclude.FOLLOWS ? 'follows' : 'all',
     list: p?.list?.enabled,
@@ -93,7 +97,7 @@ const protobufFilterablePreferenceToLex = (
 
 const protobufPreferenceToLex = (
   p?: DeepPartial<NotificationPreference>,
-): Partial<app.bsky.notification.defs.Preference> => {
+): DeepPartial<Preference> => {
   return {
     list: p?.list?.enabled,
     push: p?.push?.enabled,
@@ -102,7 +106,7 @@ const protobufPreferenceToLex = (
 
 export const protobufToLex = (
   res: DeepPartial<NotificationPreferences>,
-): app.bsky.notification.defs.Preferences => {
+): Un$Typed<Preferences> => {
   return ensurePreferences({
     chat: protobufChatPreferenceToLex(res.chat),
     follow: protobufFilterablePreferenceToLex(res.follow),

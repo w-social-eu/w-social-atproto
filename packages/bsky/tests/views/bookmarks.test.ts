@@ -2,14 +2,15 @@ import assert from 'node:assert'
 import {
   $Typed,
   AppBskyBookmarkCreateBookmark,
-  AppBskyBookmarkDefs,
   AppBskyBookmarkDeleteBookmark,
-  AppBskyBookmarkGetBookmarks,
   AppBskyFeedDefs,
   AtpAgent,
-  ids,
 } from '@atproto/api'
 import { RecordRef, SeedClient, TestNetwork, basicSeed } from '@atproto/dev-env'
+import { ids } from '../../src/lexicon/lexicons'
+import { BookmarkView } from '../../src/lexicon/types/app/bsky/bookmark/defs'
+import { OutputSchema as GetBookmarksOutputSchema } from '../../src/lexicon/types/app/bsky/bookmark/getBookmarks'
+import { PostView } from '../../src/lexicon/types/app/bsky/feed/defs'
 import { forSnapshot, paginateAll } from '../_util'
 
 type Database = TestNetwork['bsky']['db']
@@ -31,7 +32,7 @@ describe('appview bookmarks views', () => {
       dbPostgresSchema: 'bsky_views_bookmarks',
     })
     db = network.bsky.db
-    agent = network.bsky.getAgent()
+    agent = network.bsky.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     await network.processAll()
@@ -223,7 +224,7 @@ describe('appview bookmarks views', () => {
       await create(alice, sc.posts[dan][0].ref)
       await create(alice, sc.posts[dan][1].ref)
 
-      const results = (out: AppBskyBookmarkGetBookmarks.OutputSchema[]) =>
+      const results = (out: GetBookmarksOutputSchema[]) =>
         out.flatMap((res) => res.bookmarks)
 
       const paginator = async (cursor?: string) => {
@@ -247,8 +248,8 @@ describe('appview bookmarks views', () => {
 
       // Check items are the same.
       const sort = (
-        a: { item: $Typed<AppBskyFeedDefs.PostView> },
-        b: { item: $Typed<AppBskyFeedDefs.PostView> },
+        a: { item: $Typed<PostView> },
+        b: { item: $Typed<PostView> },
       ) => (a.item.uri > b.item.uri ? 1 : -1)
       expect([...paginated].sort(sort)).toEqual([...full].sort(sort))
 
@@ -303,10 +304,8 @@ const clearBookmarks = async (db: Database) => {
 }
 
 function assertPostViews(
-  bookmarks: AppBskyBookmarkGetBookmarks.OutputSchema['bookmarks'],
-): asserts bookmarks is (AppBskyBookmarkDefs.BookmarkView & {
-  item: $Typed<AppBskyFeedDefs.PostView>
-})[] {
+  bookmarks: GetBookmarksOutputSchema['bookmarks'],
+): asserts bookmarks is (BookmarkView & { item: $Typed<PostView> })[] {
   bookmarks.forEach((b) => {
     assert(
       AppBskyFeedDefs.isPostView(b.item),

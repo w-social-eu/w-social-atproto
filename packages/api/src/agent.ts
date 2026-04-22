@@ -1,6 +1,6 @@
 import AwaitLock from 'await-lock'
 import { TID, retry } from '@atproto/common-web'
-import { AtUri, DidString, ensureValidDidRegex } from '@atproto/syntax'
+import { AtUri, ensureValidDid } from '@atproto/syntax'
 import {
   FetchHandler,
   FetchHandlerOptions,
@@ -63,7 +63,7 @@ const THREAD_VIEW_PREF_DEFAULTS = {
   sort: 'hotness',
 }
 
-export type { DidString, FetchHandler }
+export type { FetchHandler }
 
 /**
  * An {@link Agent} is an {@link AtpBaseClient} with the following
@@ -207,11 +207,8 @@ export class Agent extends XrpcClient {
   /**
    * Get the authenticated user's DID, if any.
    */
-  get did(): DidString | undefined {
-    const { did } = this.sessionManager
-    if (!did) return undefined
-    ensureValidDidRegex(did)
-    return did
+  get did() {
+    return this.sessionManager.did
   }
 
   /** @deprecated Use {@link Agent.assertDid} instead */
@@ -222,7 +219,7 @@ export class Agent extends XrpcClient {
   /**
    * Get the authenticated user's DID, or throw an error if not authenticated.
    */
-  get assertDid(): DidString {
+  get assertDid(): string {
     this.assertAuthenticated()
     return this.did
   }
@@ -230,7 +227,7 @@ export class Agent extends XrpcClient {
   /**
    * Assert that the user is authenticated.
    */
-  public assertAuthenticated(): asserts this is { did: DidString } {
+  public assertAuthenticated(): asserts this is { did: string } {
     if (!this.did) throw new Error('Not logged in')
   }
 
@@ -893,7 +890,7 @@ export class Agent extends XrpcClient {
     labelerDid?: string,
   ) {
     if (labelerDid) {
-      ensureValidDidRegex(labelerDid)
+      ensureValidDid(labelerDid)
     }
     await this.updatePreferences((prefs) => {
       const labelPref = prefs

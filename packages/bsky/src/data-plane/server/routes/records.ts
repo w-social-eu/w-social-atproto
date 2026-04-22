@@ -2,42 +2,40 @@ import { Timestamp } from '@bufbuild/protobuf'
 import { ServiceImpl } from '@connectrpc/connect'
 import * as ui8 from 'uint8arrays'
 import { keyBy } from '@atproto/common'
-import { l } from '@atproto/lex'
 import { AtUri } from '@atproto/syntax'
-import { app, chat, com } from '../../../lexicons/index.js'
+import { ids } from '../../../lexicon/lexicons'
 import { Service } from '../../../proto/bsky_connect'
 import { PostRecordMeta, Record } from '../../../proto/bsky_pb'
 import { Database } from '../db'
 
 export default (db: Database): Partial<ServiceImpl<typeof Service>> => ({
-  getBlockRecords: getRecords(db, app.bsky.graph.block),
-  getFeedGeneratorRecords: getRecords(db, app.bsky.feed.generator),
-  getFollowRecords: getRecords(db, app.bsky.graph.follow),
-  getLikeRecords: getRecords(db, app.bsky.feed.like),
-  getListBlockRecords: getRecords(db, app.bsky.graph.listblock),
-  getListItemRecords: getRecords(db, app.bsky.graph.listitem),
-  getListRecords: getRecords(db, app.bsky.graph.list),
+  getBlockRecords: getRecords(db, ids.AppBskyGraphBlock),
+  getFeedGeneratorRecords: getRecords(db, ids.AppBskyFeedGenerator),
+  getFollowRecords: getRecords(db, ids.AppBskyGraphFollow),
+  getLikeRecords: getRecords(db, ids.AppBskyFeedLike),
+  getListBlockRecords: getRecords(db, ids.AppBskyGraphListblock),
+  getListItemRecords: getRecords(db, ids.AppBskyGraphListitem),
+  getListRecords: getRecords(db, ids.AppBskyGraphList),
   getPostRecords: getPostRecords(db),
-  getProfileRecords: getRecords(db, app.bsky.actor.profile),
-  getRepostRecords: getRecords(db, app.bsky.feed.repost),
-  getThreadGateRecords: getRecords(db, app.bsky.feed.threadgate),
-  getPostgateRecords: getRecords(db, app.bsky.feed.postgate),
-  getLabelerRecords: getRecords(db, app.bsky.labeler.service),
-  getActorChatDeclarationRecords: getRecords(db, chat.bsky.actor.declaration),
+  getProfileRecords: getRecords(db, ids.AppBskyActorProfile),
+  getRepostRecords: getRecords(db, ids.AppBskyFeedRepost),
+  getThreadGateRecords: getRecords(db, ids.AppBskyFeedThreadgate),
+  getPostgateRecords: getRecords(db, ids.AppBskyFeedPostgate),
+  getLabelerRecords: getRecords(db, ids.AppBskyLabelerService),
+  getActorChatDeclarationRecords: getRecords(db, ids.ChatBskyActorDeclaration),
   getNotificationDeclarationRecords: getRecords(
     db,
-    app.bsky.notification.declaration,
+    ids.AppBskyNotificationDeclaration,
   ),
-  getGermDeclarationRecords: getRecords(db, com.germnetwork.declaration),
-  getStarterPackRecords: getRecords(db, app.bsky.graph.starterpack),
-  getVerificationRecords: getRecords(db, app.bsky.graph.verification),
-  getStatusRecords: getRecords(db, app.bsky.actor.status),
+  getGermDeclarationRecords: getRecords(db, ids.ComGermnetworkDeclaration),
+  getStarterPackRecords: getRecords(db, ids.AppBskyGraphStarterpack),
+  getVerificationRecords: getRecords(db, ids.AppBskyGraphVerification),
+  getStatusRecords: getRecords(db, ids.AppBskyActorStatus),
 })
 
-export const getRecords = (db: Database, ns?: l.Main<l.RecordSchema>) => {
-  const collection = ns ? l.getMain(ns).$type : undefined
-
-  return async (req: { uris: string[] }): Promise<{ records: Record[] }> => {
+export const getRecords =
+  (db: Database, collection?: string) =>
+  async (req: { uris: string[] }): Promise<{ records: Record[] }> => {
     const validUris = collection
       ? req.uris.filter((uri) => new AtUri(uri).collection === collection)
       : req.uris
@@ -73,10 +71,9 @@ export const getRecords = (db: Database, ns?: l.Main<l.RecordSchema>) => {
     })
     return { records }
   }
-}
 
 export const getPostRecords = (db: Database) => {
-  const getBaseRecords = getRecords(db, app.bsky.feed.post)
+  const getBaseRecords = getRecords(db, ids.AppBskyFeedPost)
   return async (req: {
     uris: string[]
   }): Promise<{ records: Record[]; meta: PostRecordMeta[] }> => {

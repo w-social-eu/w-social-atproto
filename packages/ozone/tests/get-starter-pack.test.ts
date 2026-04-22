@@ -23,7 +23,7 @@ describe('admin get starter pack view', () => {
     })
     ozone = network.ozone
     AtpAgent.configure({ appLabelers: [ozone.ctx.cfg.service.did] })
-    agent = ozone.getAgent()
+    agent = ozone.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     await network.processAll()
@@ -59,7 +59,7 @@ describe('admin get starter pack view', () => {
 
     it('gets a starterpack while taken down', async () => {
       // Validate that appview returns starterpacks before takedown
-      const appviewAgent = network.bsky.getAgent()
+      const appviewAgent = network.bsky.getClient()
       const beforeTakedownFromAppview =
         await appviewAgent.api.app.bsky.graph.getStarterPack(
           { starterPack: sp1.uriStr },

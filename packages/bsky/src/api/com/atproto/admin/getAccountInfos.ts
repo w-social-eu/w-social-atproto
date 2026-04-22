@@ -1,11 +1,10 @@
 import { mapDefined } from '@atproto/common'
-import { DatetimeString, INVALID_HANDLE } from '@atproto/syntax'
-import { Server } from '@atproto/xrpc-server'
+import { INVALID_HANDLE } from '@atproto/syntax'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.admin.getAccountInfos, {
+  server.com.atproto.admin.getAccountInfos({
     auth: ctx.authVerifier.optionalStandardOrRole,
     handler: async ({ params, auth }) => {
       const { dids } = params
@@ -16,27 +15,22 @@ export default function (server: Server, ctx: AppContext) {
         skipCacheForDids: dids,
       })
 
-      const infos = mapDefined(
-        dids,
-        (did): com.atproto.admin.defs.$defs.AccountView | undefined => {
-          const info = actors.get(did)
-          if (!info) return
-          if (info.takedownRef && !includeTakedowns) return
-          const profileRecord =
-            !info.profileTakedownRef || includeTakedowns
-              ? info.profile
-              : undefined
+      const infos = mapDefined(dids, (did) => {
+        const info = actors.get(did)
+        if (!info) return
+        if (info.takedownRef && !includeTakedowns) return
+        const profileRecord =
+          !info.profileTakedownRef || includeTakedowns
+            ? info.profile
+            : undefined
 
-          return {
-            did,
-            handle: info.handle ?? INVALID_HANDLE,
-            relatedRecords: profileRecord ? [profileRecord] : undefined,
-            indexedAt: (
-              info.sortedAt ?? new Date(0)
-            ).toISOString() as DatetimeString,
-          }
-        },
-      )
+        return {
+          did,
+          handle: info.handle ?? INVALID_HANDLE,
+          relatedRecords: profileRecord ? [profileRecord] : undefined,
+          indexedAt: (info.sortedAt ?? new Date(0)).toISOString(),
+        }
+      })
 
       return {
         encoding: 'application/json',

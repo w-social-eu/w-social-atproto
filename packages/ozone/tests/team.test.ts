@@ -15,7 +15,7 @@ describe('team management', () => {
         dbTeamProfileRefreshIntervalMs: 100,
       },
     })
-    adminAgent = network.pds.getAgent()
+    adminAgent = network.pds.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     await network.processAll()
@@ -27,7 +27,7 @@ describe('team management', () => {
       identifier: sc.accounts[sc.dids.alice].handle,
       password: sc.accounts[sc.dids.alice].password,
     })
-    triageAgent = network.pds.getAgent()
+    triageAgent = network.pds.getClient()
     await triageAgent.login({
       identifier: sc.accounts[sc.dids.carol].handle,
       password: sc.accounts[sc.dids.carol].password,

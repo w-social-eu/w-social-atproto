@@ -34,7 +34,7 @@ export function useCurrentLocale(): string {
 }
 
 export function LocaleProvider({
-  userLocales = window.navigator.languages,
+  userLocales = [],
   children,
 }: {
   userLocales?: readonly string[]

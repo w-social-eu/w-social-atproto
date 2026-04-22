@@ -59,7 +59,7 @@ describe('strike expiry processor', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'ozone_strike_expiry_processor',
     })
-    agent = network.ozone.getAgent()
+    agent = network.ozone.getClient()
     sc = network.getSeedClient()
     modClient = network.ozone.getModClient()
     await basicSeed(sc)

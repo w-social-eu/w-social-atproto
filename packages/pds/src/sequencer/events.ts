@@ -1,14 +1,6 @@
 import assert from 'node:assert'
 import { z } from 'zod'
-import { schema } from '@atproto/common'
-import {
-  DatetimeString,
-  DidString,
-  HandleString,
-  isDidString,
-  isHandleString,
-} from '@atproto/lex'
-import { encode as cborEncode } from '@atproto/lex-cbor'
+import { cborEncode, schema } from '@atproto/common'
 import { BlockMap, blocksToCarFile } from '@atproto/repo'
 import { AccountStatus } from '../account-manager/account-manager'
 import { CommitDataWithOps, SyncEvtData } from '../repo'
@@ -45,7 +37,7 @@ export const formatSeqCommit = async (
 }
 
 export const formatSeqSyncEvt = async (
-  did: DidString,
+  did: string,
   data: SyncEvtData,
 ): Promise<RepoSeqInsert> => {
   const blocks = await blocksToCarFile(data.cid, data.blocks)
@@ -80,8 +72,8 @@ export const syncEvtDataFromCommit = (
 }
 
 export const formatSeqIdentityEvt = async (
-  did: DidString,
-  handle?: HandleString,
+  did: string,
+  handle?: string,
 ): Promise<RepoSeqInsert> => {
   const evt: IdentityEvt = {
     did,
@@ -98,7 +90,7 @@ export const formatSeqIdentityEvt = async (
 }
 
 export const formatSeqAccountEvt = async (
-  did: DidString,
+  did: string,
   status: AccountStatus,
 ): Promise<RepoSeqInsert> => {
   const evt: AccountEvt = {
@@ -123,19 +115,16 @@ export const commitEvtOp = z.object({
     z.literal('update'),
     z.literal('delete'),
   ]),
-  // @TODO should we validate that the "path" is a valid "<nsid>/<rkey>" ?
   path: z.string(),
   cid: schema.cid.nullable(),
   prev: schema.cid.optional(),
 })
 export type CommitEvtOp = z.infer<typeof commitEvtOp>
 
-// @TODO This runtime code is only used to generate "types". We should either
-// make use of it or only use types.
 export const commitEvt = z.object({
   rebase: z.boolean(),
   tooBig: z.boolean(),
-  repo: z.string().refine(isDidString),
+  repo: z.string(),
   commit: schema.cid,
   rev: z.string(),
   since: z.string().nullable(),
@@ -147,20 +136,20 @@ export const commitEvt = z.object({
 export type CommitEvt = z.infer<typeof commitEvt>
 
 export const syncEvt = z.object({
-  did: z.string().refine(isDidString),
+  did: z.string(),
   blocks: schema.bytes,
   rev: z.string(),
 })
 export type SyncEvt = z.infer<typeof syncEvt>
 
 export const identityEvt = z.object({
-  did: z.string().refine(isDidString),
-  handle: z.string().refine(isHandleString).optional(),
+  did: z.string(),
+  handle: z.string().optional(),
 })
 export type IdentityEvt = z.infer<typeof identityEvt>
 
 export const accountEvt = z.object({
-  did: z.string().refine(isDidString),
+  did: z.string(),
   active: z.boolean(),
   status: z
     .enum([
@@ -176,25 +165,25 @@ export type AccountEvt = z.infer<typeof accountEvt>
 type TypedCommitEvt = {
   type: 'commit'
   seq: number
-  time: DatetimeString
+  time: string
   evt: CommitEvt
 }
 type TypedSyncEvt = {
   type: 'sync'
   seq: number
-  time: DatetimeString
+  time: string
   evt: SyncEvt
 }
 type TypedIdentityEvt = {
   type: 'identity'
   seq: number
-  time: DatetimeString
+  time: string
   evt: IdentityEvt
 }
 type TypedAccountEvt = {
   type: 'account'
   seq: number
-  time: DatetimeString
+  time: string
   evt: AccountEvt
 }
 export type SeqEvt =

@@ -3,7 +3,7 @@ import { FormatEnum, OutputInfo } from 'sharp'
 export type ImageMime = `image/${string}`
 
 export type Options = Dimensions & {
-  format: 'jpeg' | 'webp'
+  format: 'jpeg' | 'png'
   // When 'cover' (default), scale to fill given dimensions, cropping if necessary.
   // When 'inside', scale to fit within given dimensions.
   fit?: 'cover' | 'inside'
@@ -35,7 +35,6 @@ export const formatsToMimes = new Map<keyof FormatEnum, ImageMime>([
   ['heif', 'image/heif'],
   ['jp2', 'image/jp2'],
   ['jxl', 'image/jxl'],
-  ['webp', 'image/webp'],
 ])
 
 export type SharpInfo = OutputInfo & { format: keyof FormatEnum }

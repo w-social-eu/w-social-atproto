@@ -1,11 +1,12 @@
-import { ForbiddenError, Server } from '@atproto/xrpc-server'
+import { ForbiddenError } from '@atproto/xrpc-server'
 import { AuthScope } from '../../../../auth-scope'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { resultPassthru } from '../../../proxy'
 
 // THIS IS A TEMPORARY UNSPECCED ROUTE
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.temp.checkSignupQueue, {
+  server.com.atproto.temp.checkSignupQueue({
     auth: ctx.authVerifier.authorization({
       additional: [AuthScope.SignupQueued],
       authorize: () => {
@@ -15,20 +16,20 @@ export default function (server: Server, ctx: AppContext) {
       },
     }),
     handler: async ({ req }) => {
-      if (!ctx.entrywayClient) {
+      if (!ctx.entrywayAgent) {
         return {
-          encoding: 'application/json' as const,
+          encoding: 'application/json',
           body: {
             activated: true,
           },
         }
       }
-
-      const { headers } = ctx.entrywayPassthruHeaders(req)
-
-      return ctx.entrywayClient.xrpc(com.atproto.temp.checkSignupQueue, {
-        headers,
-      })
+      return resultPassthru(
+        await ctx.entrywayAgent.com.atproto.temp.checkSignupQueue(
+          undefined,
+          ctx.entrywayPassthruHeaders(req),
+        ),
+      )
     },
   })
 }

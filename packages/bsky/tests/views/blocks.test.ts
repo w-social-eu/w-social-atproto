@@ -1,12 +1,9 @@
 import assert from 'node:assert'
-import {
-  AppBskyEmbedRecord,
-  AppBskyFeedDefs,
-  AtUri,
-  AtpAgent,
-  ids,
-} from '@atproto/api'
+import { AtUri, AtpAgent } from '@atproto/api'
 import { RecordRef, SeedClient, TestNetwork, basicSeed } from '@atproto/dev-env'
+import { ids } from '../../src/lexicon/lexicons'
+import { isView as isRecordEmbedView } from '../../src/lexicon/types/app/bsky/embed/record'
+import { isPostView } from '../../src/lexicon/types/app/bsky/feed/defs'
 import { assertIsThreadViewPost, forSnapshot } from '../_util'
 
 describe('pds views with blocking', () => {
@@ -28,8 +25,8 @@ describe('pds views with blocking', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'bsky_views_block',
     })
-    agent = network.bsky.getAgent()
-    pdsAgent = network.pds.getAgent()
+    agent = network.bsky.getClient()
+    pdsAgent = network.pds.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     alice = sc.dids.alice
@@ -174,7 +171,7 @@ describe('pds views with blocking', () => {
       {
         headers: await network.serviceHeaders(
           dan,
-          'app.bsky.feed.getPostThread',
+          ids.AppBskyFeedGetPostThread,
         ),
       },
     )
@@ -225,7 +222,7 @@ describe('pds views with blocking', () => {
       resCarol.data.feed.some(
         (post) =>
           post.post.author.did === dan ||
-          (AppBskyFeedDefs.isPostView(post.reply?.parent) &&
+          (isPostView(post.reply?.parent) &&
             post.reply.parent.author.did === dan) ||
           post.reply?.grandparentAuthor?.did === dan,
       ),
@@ -234,14 +231,14 @@ describe('pds views with blocking', () => {
     const resDan = await agent.api.app.bsky.feed.getTimeline(
       { limit: 100 },
       {
-        headers: await network.serviceHeaders(dan, 'app.bsky.feed.getTimeline'),
+        headers: await network.serviceHeaders(dan, ids.AppBskyFeedGetTimeline),
       },
     )
     expect(
       resDan.data.feed.some(
         (post) =>
           post.post.author.did === carol ||
-          (AppBskyFeedDefs.isPostView(post.reply?.parent) &&
+          (isPostView(post.reply?.parent) &&
             post.reply.parent.author.did === carol) ||
           post.reply?.grandparentAuthor?.did === carol,
       ),
@@ -665,7 +662,7 @@ describe('pds views with blocking', () => {
 
     assertIsThreadViewPost(embedThenBlock.thread)
 
-    assert(AppBskyEmbedRecord.isView(embedThenBlock.thread.post.embed))
+    assert(isRecordEmbedView(embedThenBlock.thread.post.embed))
     expect(embedThenBlock.thread.post.embed.record).toMatchObject({
       $type: 'app.bsky.embed.record#viewBlocked',
     })
@@ -688,7 +685,7 @@ describe('pds views with blocking', () => {
 
     assertIsThreadViewPost(unblock.thread)
 
-    assert(AppBskyEmbedRecord.isView(unblock.thread.post?.embed))
+    assert(isRecordEmbedView(unblock.thread.post?.embed))
     expect(unblock.thread.post?.embed.record).toMatchObject({
       $type: 'app.bsky.embed.record#viewRecord',
     })
@@ -718,7 +715,7 @@ describe('pds views with blocking', () => {
         },
       )
     assertIsThreadViewPost(blockThenEmbed.thread)
-    assert(AppBskyEmbedRecord.isView(blockThenEmbed.thread.post.embed))
+    assert(isRecordEmbedView(blockThenEmbed.thread.post.embed))
     expect(blockThenEmbed.thread.post.embed.record).toMatchObject({
       $type: 'app.bsky.embed.record#viewBlocked',
     })
@@ -762,7 +759,7 @@ describe('pds views with blocking', () => {
       (item) => item.post.uri === embedBlockedUri,
     )
     assert(embedBlockedPost)
-    assert(AppBskyEmbedRecord.isView(embedBlockedPost.post.embed))
+    assert(isRecordEmbedView(embedBlockedPost.post.embed))
     expect(embedBlockedPost.post.embed.record).toMatchObject({
       $type: 'app.bsky.embed.record#viewBlocked',
     })
@@ -816,74 +813,5 @@ describe('pds views with blocking', () => {
     const knownFollowers = carolForAlice.data.viewer?.knownFollowers
     expect(knownFollowers?.count).toBe(1)
     expect(knownFollowers?.followers).toHaveLength(0)
-  })
-
-  describe('mod service sees through blocks', () => {
-    let modServiceDid: string
-
-    beforeAll(async () => {
-      modServiceDid = network.bsky.ctx.cfg.modServiceDid
-      // alice blocks the mod service
-      await pdsAgent.app.bsky.graph.block.create(
-        { repo: alice },
-        { createdAt: new Date().toISOString(), subject: modServiceDid },
-        sc.getHeaders(alice),
-      )
-      await network.processAll()
-    })
-
-    it('mod service viewer preserves block state on getProfile', async () => {
-      // alice blocked the mod service, mod service views alice's profile
-      const res = await agent.app.bsky.actor.getProfile(
-        { actor: alice },
-        {
-          headers: await network.serviceHeaders(
-            modServiceDid,
-            ids.AppBskyActorGetProfile,
-          ),
-        },
-      )
-      // block state is still present on the viewer
-      expect(res.data.viewer?.blockedBy).toBe(true)
-      expect(res.data.viewer?.blocking).toBeUndefined()
-    })
-
-    it('mod service sees through blocks on getPostThread', async () => {
-      // alice has posts; mod service should see them even though alice blocked mod service
-      const { data } = await agent.app.bsky.feed.getPostThread(
-        { depth: 1, uri: sc.posts[alice][0].ref.uriStr },
-        {
-          headers: await network.serviceHeaders(
-            modServiceDid,
-            ids.AppBskyFeedGetPostThread,
-          ),
-        },
-      )
-      assertIsThreadViewPost(data.thread)
-      expect(data.thread.post.uri).toBe(sc.posts[alice][0].ref.uriStr)
-    })
-
-    it('mod service sees through blocks on getPostThreadV2', async () => {
-      const { data } = await agent.app.bsky.unspecced.getPostThreadV2(
-        { anchor: sc.posts[alice][0].ref.uriStr },
-        {
-          headers: await network.serviceHeaders(
-            modServiceDid,
-            ids.AppBskyUnspeccedGetPostThreadV2,
-          ),
-        },
-      )
-      expect(data.thread).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            uri: sc.posts[alice][0].ref.uriStr,
-            depth: 0,
-            value: expect.objectContaining({
-              $type: 'app.bsky.unspecced.defs#threadItemPost',
-            }),
-          }),
-        ]),
-      )
-    })
   })
 })

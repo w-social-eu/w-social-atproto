@@ -1,11 +1,10 @@
 import { Struct, Timestamp } from '@bufbuild/protobuf'
 import { v3 as murmurV3 } from 'murmurhash'
-import { Server } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(app.bsky.notification.updateSeen, {
+  server.app.bsky.notification.updateSeen({
     auth: ctx.authVerifier.standard,
     handler: async ({ input, auth }) => {
       const viewer = auth.credentials.iss

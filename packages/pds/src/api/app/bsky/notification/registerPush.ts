@@ -1,16 +1,17 @@
+import { AtpAgent } from '@atproto/api'
 import { getNotif } from '@atproto/identity'
-import { xrpc } from '@atproto/lex'
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AuthScope } from '../../../../auth-scope'
 import { AppContext } from '../../../../context'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { ids } from '../../../../lexicon/lexicons'
 import { getDidDoc } from '../util/resolver'
 
 export default function (server: Server, ctx: AppContext) {
   const { bskyAppView } = ctx
   if (!bskyAppView) return
 
-  server.add(app.bsky.notification.registerPush, {
+  server.app.bsky.notification.registerPush({
     auth: ctx.authVerifier.authorization({
       additional: [AuthScope.SignupQueued],
       authorize: () => {
@@ -20,40 +21,36 @@ export default function (server: Server, ctx: AppContext) {
         // assert permissions here.
       },
     }),
-    handler: async ({ auth, input: { body } }) => {
-      const { serviceDid } = body
+    handler: async ({ auth, input }) => {
+      const { serviceDid } = input.body
       const { did } = auth.credentials
 
       if (auth.credentials.type === 'oauth') {
         auth.credentials.permissions.assertRpc({
           aud: `${serviceDid}#bsky_notif`,
-          lxm: app.bsky.notification.registerPush.$lxm,
+          lxm: ids.AppBskyNotificationRegisterPush,
         })
       }
 
-      const { headers } = await ctx.serviceAuthHeaders(
+      const authHeaders = await ctx.serviceAuthHeaders(
         did,
         serviceDid,
-        app.bsky.notification.registerPush.$lxm,
+        ids.AppBskyNotificationRegisterPush,
       )
 
       if (bskyAppView.did === serviceDid) {
-        await bskyAppView.client.call(
-          app.bsky.notification.registerPush,
-          body,
-          { headers },
-        )
+        await bskyAppView.agent.app.bsky.notification.registerPush(input.body, {
+          ...authHeaders,
+          encoding: 'application/json',
+        })
         return
       }
 
       const notifEndpoint = await getEndpoint(ctx, serviceDid)
-
-      await xrpc(notifEndpoint, app.bsky.notification.registerPush, {
-        validateRequest: ctx.cfg.service.devMode,
-        validateResponse: ctx.cfg.service.devMode,
-        strictResponseProcessing: ctx.cfg.service.devMode,
-        body,
-        headers,
+      const agent = new AtpAgent({ service: notifEndpoint })
+      await agent.api.app.bsky.notification.registerPush(input.body, {
+        ...authHeaders,
+        encoding: 'application/json',
       })
     },
   })

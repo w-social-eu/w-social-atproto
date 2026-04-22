@@ -1,8 +1,8 @@
 import { useLingui } from '@lingui/react/macro'
-import { KeyIcon } from '@phosphor-icons/react'
 import { ChangeEvent, useCallback, useRef, useState } from 'react'
-import { mergeRefs } from '#/lib/ref.ts'
-import { Override } from '#/lib/util.ts'
+import { mergeRefs } from '../../lib/ref.ts'
+import { Override } from '../../lib/util.ts'
+import { LockIcon } from '../utils/icons.tsx'
 import { ButtonToggleVisibility } from './button-toggle-visibility.tsx'
 import { InputText, InputTextProps } from './input-text.tsx'
 
@@ -21,7 +21,7 @@ export function InputPassword({
   onChange,
   append,
   autoComplete = 'current-password',
-  icon = <KeyIcon className="w-5" weight="bold" />,
+  icon = <LockIcon className="w-5" />,
   value,
   defaultValue = value,
   ref,
@@ -73,7 +73,6 @@ export function InputPassword({
         <>
           <ButtonToggleVisibility
             className="m-1"
-            color="darkGrey"
             visible={visible}
             toggleVisible={() => {
               setVisible((prev) => !prev)

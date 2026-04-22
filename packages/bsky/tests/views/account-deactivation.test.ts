@@ -1,5 +1,6 @@
-import { AtpAgent, ids } from '@atproto/api'
+import { AtpAgent } from '@atproto/api'
 import { SeedClient, TestNetwork, basicSeed } from '@atproto/dev-env'
+import { ids } from '../../src/lexicon/lexicons'
 
 describe('bsky account deactivation', () => {
   let network: TestNetwork
@@ -12,11 +13,11 @@ describe('bsky account deactivation', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'bsky_views_account_deactivation',
     })
-    agent = network.bsky.getAgent()
+    agent = network.bsky.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     alice = sc.dids.alice
-    const pdsAgent = network.pds.getAgent()
+    const pdsAgent = network.pds.getClient()
     await pdsAgent.com.atproto.server.deactivateAccount(
       {},
       { encoding: 'application/json', headers: sc.getHeaders(alice) },

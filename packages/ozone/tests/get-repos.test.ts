@@ -26,8 +26,8 @@ describe('admin get multiple repos', () => {
       dbPostgresSchema: 'ozone_admin_get_repos',
     })
     ozone = network.ozone
-    agent = ozone.getAgent()
-    pdsAgent = network.pds.getAgent()
+    agent = ozone.getClient()
+    pdsAgent = network.pds.getClient()
     sc = network.getSeedClient()
     modClient = ozone.getModClient()
     await basicSeed(sc)

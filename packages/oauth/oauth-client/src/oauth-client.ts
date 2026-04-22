@@ -42,38 +42,36 @@ import { OAuthSession } from './oauth-session.js'
 import { RuntimeImplementation } from './runtime-implementation.js'
 import { Runtime } from './runtime.js'
 import {
+  SessionEventMap,
   SessionGetter,
-  SessionHooks,
   SessionStore,
-  isExpectedSessionError,
 } from './session-getter.js'
 import { InternalStateData, StateStore } from './state-store.js'
 import { AuthorizeOptions, CallbackOptions, ClientMetadata } from './types.js'
+import { CustomEventTarget } from './util.js'
 import { validateClientMetadata } from './validate-client-metadata.js'
 
 // Export all types needed to construct OAuthClientOptions
-export type {
-  AuthorizationServerMetadataCache,
-  CreateIdentityResolverOptions,
-  DidCache,
-  DpopNonceCache,
-  Fetch,
-  HandleCache,
-  HandleResolver,
-  InternalStateData,
-  OAuthClientMetadata,
-  OAuthClientMetadataInput,
-  OAuthResponseMode,
-  ProtectedResourceMetadataCache,
-  RuntimeImplementation,
-  SessionHooks,
-  SessionStore,
-  StateStore,
+export {
+  type AuthorizationServerMetadataCache,
+  type DidCache,
+  type DpopNonceCache,
+  type Fetch,
+  type HandleCache,
+  type HandleResolver,
+  type InternalStateData,
+  Key,
+  Keyset,
+  type OAuthClientMetadata,
+  type OAuthClientMetadataInput,
+  type OAuthResponseMode,
+  type ProtectedResourceMetadataCache,
+  type RuntimeImplementation,
+  type SessionStore,
+  type StateStore,
 }
 
-export { Key, Keyset }
-
-export type OAuthClientOptions = {
+export type OAuthClientOptions = CreateIdentityResolverOptions & {
   // Config
   responseMode: OAuthResponseMode
   clientMetadata: Readonly<OAuthClientMetadataInput>
@@ -104,8 +102,9 @@ export type OAuthClientOptions = {
   // Services
   runtimeImplementation: RuntimeImplementation
   fetch?: Fetch
-} & CreateIdentityResolverOptions &
-  SessionHooks
+}
+
+export type OAuthClientEventMap = SessionEventMap
 
 export type OAuthClientFetchMetadataOptions = {
   clientId: OAuthClientIdDiscoverable
@@ -113,7 +112,7 @@ export type OAuthClientFetchMetadataOptions = {
   signal?: AbortSignal
 }
 
-export class OAuthClient {
+export class OAuthClient extends CustomEventTarget<OAuthClientEventMap> {
   static async fetchMetadata({
     clientId,
     fetch = globalThis.fetch,
@@ -182,6 +181,8 @@ export class OAuthClient {
       keyset,
     } = options
 
+    super()
+
     this.keyset = keyset
       ? keyset instanceof Keyset
         ? keyset
@@ -214,13 +215,21 @@ export class OAuthClient {
       dpopNonceCache,
     )
 
-    this.stateStore = stateStore
     this.sessionGetter = new SessionGetter(
       sessionStore,
       this.serverFactory,
       this.runtime,
-      options,
     )
+    this.stateStore = stateStore
+
+    // Proxy sessionGetter events
+    for (const type of ['deleted', 'updated'] as const) {
+      this.sessionGetter.addEventListener(type, (event) => {
+        if (!this.dispatchCustomEvent(type, event.detail)) {
+          event.preventDefault()
+        }
+      })
+    }
   }
 
   // Exposed as public API for convenience
@@ -402,7 +411,8 @@ export class OAuthClient {
 
       const server = await this.serverFactory.fromIssuer(
         stateData.iss,
-        stateData.authMethod,
+        // Using the literal 'legacy' if the authMethod is not defined (because stateData was created through an old version of this lib)
+        stateData.authMethod ?? 'legacy',
         stateData.dpopKey,
       )
 
@@ -436,15 +446,6 @@ export class OAuthClient {
         stateData.verifier,
         options?.redirect_uri ?? server.clientMetadata.redirect_uris[0],
       )
-
-      // We revoke any existing session first to avoid leaving orphaned sessions
-      // on the AS.
-      try {
-        await this.revoke(tokenSet.sub)
-      } catch {
-        // No existing session, or failed to get it. This is fine.
-      }
-
       try {
         await this.sessionGetter.setStored(tokenSet.sub, {
           dpopKey: stateData.dpopKey,
@@ -471,7 +472,7 @@ export class OAuthClient {
    * Load a stored session. This will refresh the token only if needed (about to
    * expire) by default.
    *
-   * @see {@link SessionGetter.restore}
+   * @param refresh See {@link SessionGetter.getSession}
    */
   async restore(
     sub: string,
@@ -480,8 +481,11 @@ export class OAuthClient {
     // sub arg is lightly typed for convenience of library user
     assertAtprotoDid(sub)
 
-    const { dpopKey, authMethod, tokenSet } =
-      await this.sessionGetter.getSession(sub, refresh)
+    const {
+      dpopKey,
+      authMethod = 'legacy',
+      tokenSet,
+    } = await this.sessionGetter.getSession(sub, refresh)
 
     try {
       const server = await this.serverFactory.fromIssuer(
@@ -508,14 +512,13 @@ export class OAuthClient {
     // sub arg is lightly typed for convenience of library user
     assertAtprotoDid(sub)
 
-    const res = await this.sessionGetter.getSession(sub, false).catch((err) => {
-      if (isExpectedSessionError(err)) return null
-      throw err
+    const {
+      dpopKey,
+      authMethod = 'legacy',
+      tokenSet,
+    } = await this.sessionGetter.get(sub, {
+      allowStale: true,
     })
-
-    if (!res) return
-
-    const { dpopKey, authMethod, tokenSet } = res
 
     // NOT using `;(await this.restore(sub, false)).signOut()` because we want
     // the tokens to be deleted even if it was not possible to fetch the issuer

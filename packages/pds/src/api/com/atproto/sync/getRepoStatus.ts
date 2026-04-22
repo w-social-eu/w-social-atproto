@@ -1,11 +1,10 @@
-import { Server } from '@atproto/xrpc-server'
 import { formatAccountStatus } from '../../../../account-manager/account-manager'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 import { assertRepoAvailability } from './util'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.sync.getRepoStatus, {
+  server.com.atproto.sync.getRepoStatus({
     handler: async ({ params }) => {
       const { did } = params
       const account = await assertRepoAvailability(ctx, did, true)
@@ -21,7 +20,7 @@ export default function (server: Server, ctx: AppContext) {
       }
 
       return {
-        encoding: 'application/json' as const,
+        encoding: 'application/json',
         body: {
           did,
           active,

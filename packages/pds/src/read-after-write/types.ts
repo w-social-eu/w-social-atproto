@@ -1,23 +1,25 @@
-import { Cid } from '@atproto/lex-data'
-import { AtUri, DatetimeString } from '@atproto/syntax'
-import { app } from '../lexicons/index.js'
+import { CID } from 'multiformats/cid'
+import { AtUri } from '@atproto/syntax'
+import { Headers } from '@atproto/xrpc'
+import { Record as ProfileRecord } from '../lexicon/types/app/bsky/actor/profile'
+import { Record as PostRecord } from '../lexicon/types/app/bsky/feed/post'
 import { LocalViewer } from './viewer'
 
 export type LocalRecords = {
   count: number
-  profile: RecordDescript<app.bsky.actor.profile.Main> | null
-  posts: RecordDescript<app.bsky.feed.post.Main>[]
+  profile: RecordDescript<ProfileRecord> | null
+  posts: RecordDescript<PostRecord>[]
 }
 
 export type RecordDescript<T> = {
   uri: AtUri
-  cid: Cid
-  indexedAt: DatetimeString
+  cid: CID
+  indexedAt: string
   record: T
 }
 
 export type ApiRes<T> = {
-  headers: Record<string, string | undefined>
+  headers: Headers
   data: T
 }
 

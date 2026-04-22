@@ -1,60 +1,28 @@
 import assert from 'node:assert'
 import { IncomingMessage, OutgoingMessage } from 'node:http'
 import { Duplex, Readable, pipeline } from 'node:stream'
-import {
-  Request as ExpressRequest,
-  Response as ExpressResponse,
-  json,
-  text,
-} from 'express'
+import { Request, Response, json, text } from 'express'
 import { contentType } from 'mime-types'
 import { MaxSizeChecker, createDecoders } from '@atproto/common'
-import { jsonToLex } from '@atproto/lex-json'
-import { l } from '@atproto/lex-schema'
 import {
-  type LexXrpcBody,
-  type LexXrpcProcedure,
-  type LexXrpcQuery,
-  type LexXrpcSubscription,
+  LexXrpcBody,
+  LexXrpcProcedure,
+  LexXrpcQuery,
+  LexXrpcSubscription,
   Lexicons,
-  jsonToLex as jsonToLexWithBlobRef,
+  jsonToLex,
 } from '@atproto/lexicon'
 import { ResponseType } from '@atproto/xrpc'
+import { InternalServerError, InvalidRequestError, XRPCError } from './errors'
 import {
-  ErrorResult,
-  InternalServerError,
-  InvalidRequestError,
-  XRPCError,
-} from './errors'
-import {
-  Auth,
+  Awaitable,
+  HandlerSuccess,
   Input,
-  LexMethodInput,
-  LexMethodOutput,
-  LexMethodParams,
-  Output,
   Params,
   RouteOptions,
   UndecodedParams,
   handlerSuccess,
 } from './types'
-
-export type ParamsVerifierInternal<P extends Params = Params> = (
-  req: IncomingMessage | ExpressRequest,
-) => P
-
-export type AuthVerifierInternal<C, A extends Auth = Auth> = (
-  ctx: C,
-) => Promise<Exclude<A, ErrorResult>>
-
-export type InputVerifierInternal<I extends Input = Input> = (
-  req: ExpressRequest,
-  res: ExpressResponse,
-) => Promise<I>
-
-export type OutputVerifierInternal<O extends Output = Output> = (
-  handleOutput: O,
-) => void
 
 export const asArray = <T>(arr: T | T[]): T[] =>
   Array.isArray(arr) ? arr : [arr]
@@ -70,7 +38,7 @@ export function setHeaders(
   }
 }
 
-function decodeQueryParams(
+export function decodeQueryParams(
   def: LexXrpcProcedure | LexXrpcQuery | LexXrpcSubscription,
   params: UndecodedParams,
 ): Params {
@@ -122,69 +90,26 @@ export function decodeQueryParam(
   }
 }
 
-function getSearchParams(
-  url?: string,
-  opts?: { parseLoose?: boolean },
-): URLSearchParams | undefined {
-  if (!url) return undefined
+export type QueryParams = Record<string, undefined | string | string[]>
+export function getQueryParams(url = ''): QueryParams {
+  const result: QueryParams = Object.create(null)
 
   const queryStringIdx = url.indexOf('?')
-  if (queryStringIdx === -1) return undefined
+  if (queryStringIdx === -1) return result
 
   const queryString = url.slice(queryStringIdx + 1)
-  if (queryString.length === 0) return undefined
+  if (queryString === '') return result
 
-  const urlSearchParams = new URLSearchParams(queryString)
-
-  if (opts?.parseLoose) {
-    // @NOTE this is non-standard and should only be used for limited backwards-compatibility purposes.
-    // Converts "foo[]=bar&foo[0]=baz" syntax into "foo=bar&foo=baz"
-
-    // We cannot "delete()" while iterating. SO we'll first collect all keys
-    // that need to be changed, then apply the changes after
-    const toAppend = new URLSearchParams()
-    const toDelete = new Set<string>()
-
-    for (const [key, value] of urlSearchParams) {
-      const match = key.endsWith(']') ? key.match(/^([^[]*)\[\d*\]$/) : null
-      if (match) {
-        toAppend.append(match[1], value)
-        toDelete.add(key)
-      }
-    }
-
-    for (const key of toDelete) {
-      urlSearchParams.delete(key)
-    }
-
-    for (const [key, value] of toAppend) {
-      urlSearchParams.append(key, value)
-    }
-  }
-
-  return urlSearchParams
-}
-
-export function getQueryParams(
-  req: IncomingMessage | ExpressRequest,
-  opts?: { parseLoose?: boolean },
-): UndecodedParams {
-  if ('query' in req) return req.query
-
-  const result: UndecodedParams = Object.create(null)
-
-  const searchParams = getSearchParams(req.url, opts)
-  if (!searchParams) return result
-
-  if (searchParams.has('__proto__')) {
-    // Prevent prototype pollution
-    throw new InvalidRequestError(
-      `Invalid query parameter: __proto__`,
-      'InvalidQueryParameter',
-    )
-  }
-
+  const searchParams = new URLSearchParams(queryString)
   for (const key of searchParams.keys()) {
+    if (key === '__proto__') {
+      // Prevent prototype pollution
+      throw new InvalidRequestError(
+        `Invalid query parameter: ${key}`,
+        'InvalidQueryParameter',
+      )
+    }
+
     const values = searchParams.getAll(key)
     result[key] = values.length === 1 ? values[0] : values
   }
@@ -192,57 +117,14 @@ export function getQueryParams(
   return result
 }
 
-export function createLexiconParamsVerifier<P extends Params = Params>(
-  nsid: string,
-  def: LexXrpcQuery | LexXrpcProcedure | LexXrpcSubscription,
-  lexicons: Lexicons,
-): ParamsVerifierInternal<P> {
-  return (req) => {
-    const queryParams = getQueryParams(req)
-    const params = decodeQueryParams(def, queryParams)
-    try {
-      return lexicons.assertValidXrpcParams(nsid, params) as P
-    } catch (cause) {
-      // @NOTE WE historically did not check for specific error types here,
-      throw new InvalidRequestError(String(cause), undefined, { cause })
-    }
-  }
-}
-
-export function createSchemaParamsVerifier<
-  M extends l.Procedure | l.Query | l.Subscription,
->(
-  ns: l.Main<M>,
-  options?: RouteOptions,
-): ParamsVerifierInternal<LexMethodParams<M>> {
-  const schema = l.getMain(ns)
-  const queryOpts = { parseLoose: options?.paramsParseLoose }
-  return (req) => {
-    const urlSearchParams =
-      getSearchParams(req.url, queryOpts) ?? new URLSearchParams()
-    try {
-      const params = schema.parameters.fromURLSearchParams(urlSearchParams)
-      return params as LexMethodParams<M>
-    } catch (cause) {
-      if (cause instanceof l.LexValidationError) {
-        const message = `Invalid ${schema.nsid} params: ${cause.issues
-          .map((issue) => issue.message)
-          .join(', ')}`
-        throw new InvalidRequestError(message, undefined, { cause })
-      }
-      throw cause
-    }
-  }
-}
-
-export function createLexiconInputVerifier<I extends Input = Input>(
+export function createInputVerifier(
   nsid: string,
   def: LexXrpcProcedure | LexXrpcQuery,
   options: RouteOptions,
   lexicons: Lexicons,
-): InputVerifierInternal<I> {
+): (req: Request, res: Response) => Awaitable<Input> {
   if (def.type === 'query' || !def.input) {
-    return async (req) => {
+    return (req) => {
       // @NOTE We allow (and ignore) "empty" bodies
       if (getBodyPresence(req) === 'present') {
         throw new InvalidRequestError(
@@ -250,7 +132,7 @@ export function createLexiconInputVerifier<I extends Input = Input>(
         )
       }
 
-      return undefined as I
+      return undefined
     }
   }
 
@@ -286,78 +168,11 @@ export function createLexiconInputVerifier<I extends Input = Input>(
 
     if (input.schema) {
       try {
-        const lexBody = req.body ? jsonToLexWithBlobRef(req.body) : req.body
-        req.body = lexicons.assertValidXrpcInput(nsid, lexBody)
-      } catch (cause) {
-        throw new InvalidRequestError(
-          cause instanceof Error ? cause.message : String(cause),
-          undefined,
-          { cause },
-        )
-      }
-    }
-
-    // if middleware already got the body, we pass that along as input
-    // otherwise, we pass along a decoded readable stream
-    const body = req.readableEnded ? req.body : decodeBodyStream(req, blobLimit)
-
-    return { encoding: reqEncoding, body } as I
-  }
-}
-
-export function createSchemaInputVerifier<M extends l.Procedure | l.Query>(
-  ns: l.Main<M>,
-  options: RouteOptions,
-): InputVerifierInternal<LexMethodInput<M>> {
-  const schema = l.getMain(ns)
-  const { blobLimit } = options
-
-  const input: l.Payload | undefined =
-    'input' in schema ? schema.input : undefined
-
-  if (!input?.encoding) {
-    //
-    return async (req) => {
-      if (getBodyPresence(req) === 'present') {
-        // @NOTE we *could* also discard the body here instead of throwing an error
-        throw new InvalidRequestError(
-          `A request body was provided when none was expected`,
-        )
-      }
-
-      return undefined as LexMethodInput<M>
-    }
-  }
-
-  const bodyParser = createBodyParser(input.encoding, options)
-
-  return async (req, res) => {
-    if (getBodyPresence(req) === 'missing') {
-      throw new InvalidRequestError(
-        `A request body is expected but none was provided`,
-      )
-    }
-
-    const reqEncoding = parseReqEncoding(req)
-    if (!input.matchesEncoding(reqEncoding)) {
-      throw new InvalidRequestError(
-        `Wrong request encoding (Content-Type): ${reqEncoding}`,
-      )
-    }
-
-    if (bodyParser) {
-      await bodyParser(req, res)
-    }
-
-    if (input.schema) {
-      try {
         const lexBody = req.body ? jsonToLex(req.body) : req.body
-        req.body = input.schema.parse(lexBody)
-      } catch (cause) {
+        req.body = lexicons.assertValidXrpcInput(nsid, lexBody)
+      } catch (e) {
         throw new InvalidRequestError(
-          cause instanceof Error ? cause.message : String(cause),
-          undefined,
-          { cause },
+          e instanceof Error ? e.message : String(e),
         )
       }
     }
@@ -366,105 +181,54 @@ export function createSchemaInputVerifier<M extends l.Procedure | l.Query>(
     // otherwise, we pass along a decoded readable stream
     const body = req.readableEnded ? req.body : decodeBodyStream(req, blobLimit)
 
-    return { encoding: reqEncoding, body } as LexMethodInput<M>
+    return { encoding: reqEncoding, body }
   }
 }
 
-export function createLexiconOutputVerifier<O extends Output = Output>(
+export function validateOutput(
   nsid: string,
   def: LexXrpcProcedure | LexXrpcQuery,
+  output: HandlerSuccess | void,
   lexicons: Lexicons,
-): OutputVerifierInternal<O> {
-  const outputDef = def.output
-
-  // Expects no output
-  if (!outputDef) {
-    return (handlerOutput) => {
-      if (handlerOutput !== undefined) {
-        throw new InternalServerError(
-          `A response body was provided when none was expected`,
-        )
-      }
-    }
-  }
-
-  // An output is expected
-  return (handlerOutput) => {
-    if (handlerOutput === undefined) {
+): void {
+  if (def.output) {
+    // An output is expected
+    if (output === undefined) {
       throw new InternalServerError(
         `A response body is expected but none was provided`,
       )
     }
 
-    if (!('encoding' in handlerOutput)) {
-      // Ensure handlerOutput is valid ErrorResult
-      if ('status' in handlerOutput && handlerOutput.status >= 400) {
-        return
-      }
-
-      throw new InternalServerError(`Invalid handler output: missing encoding`)
-    }
-
-    if (!('body' in handlerOutput)) {
-      // Ensure handlerOutput is valid HandlerPipeThrough
-      if ('stream' in handlerOutput || 'buffer' in handlerOutput) {
-        return // Validation is ignored for pipe-through outputs
-      }
-
-      throw new InternalServerError(`Invalid handler output: missing body`)
-    }
-
     // Fool-proofing (should not be necessary due to type system)
-    const result = handlerSuccess.safeParse(handlerOutput)
+    const result = handlerSuccess.safeParse(output)
     if (!result.success) {
       throw new InternalServerError(`Invalid handler output`, undefined, {
-        cause: result.reason,
+        cause: result.error,
       })
     }
 
     // output mime
-    const { encoding } = handlerOutput
-    if (!isValidEncoding(outputDef, encoding)) {
+    const { encoding } = output
+    if (!encoding || !isValidEncoding(def.output, encoding)) {
       throw new InternalServerError(`Invalid response encoding: ${encoding}`)
     }
 
     // output schema
-    try {
-      lexicons.assertValidXrpcOutput(nsid, handlerOutput.body)
-      // @TODO Since the output verifier is typically enabled in dev/tests and
-      // disabled in production, we don't want to assign the (altered) output
-      // back to the handlerOutput object, as this would cause different
-      // behaviors between environments. Instead, we should compare the value
-      // returned by assertValidXrpcOutput with the original output and throw if
-      // they differ (indicating that the output was mutated during validation,
-      // e.g. due to default values being applied).
-    } catch (cause) {
-      const message =
-        cause instanceof Error ? cause.message : 'Output body validation failed'
-      throw new InternalServerError(message, undefined, { cause })
-    }
-  }
-}
-
-export function createSchemaOutputVerifier<M extends l.Procedure | l.Query>(
-  ns: l.Main<M>,
-): OutputVerifierInternal<LexMethodOutput<M>> {
-  const outputSchema = l.getMain(ns).output
-  return (handlerOutput) => {
-    // @NOTE If the user of the lib wants to return an output that doesn't
-    // conform to the schema, they can use HandlerPipeThrough return types
-    if (!outputSchema.matchesEncoding(handlerOutput?.encoding)) {
-      throw new InternalServerError('Output encoding mismatch')
-    }
-    if (outputSchema.schema) {
-      const result = outputSchema.schema.safeValidate(handlerOutput?.body)
-      if (!result.success) {
-        throw new InternalServerError(result.reason.message, undefined, {
-          cause: result.reason,
-        })
+    if (def.output.schema) {
+      try {
+        output.body = lexicons.assertValidXrpcOutput(nsid, output.body)
+      } catch (e) {
+        throw new InternalServerError(
+          e instanceof Error ? e.message : String(e),
+        )
       }
-    } else if (!outputSchema.encoding && handlerOutput?.body !== undefined) {
-      throw new InternalServerError('Output body not expected')
+    }
+  } else {
+    // Expects no output
+    if (output !== undefined) {
+      throw new InternalServerError(
+        `A response body was provided when none was expected`,
+      )
     }
   }
 }
@@ -496,29 +260,12 @@ function trimString(str: string): string {
   return str.trim()
 }
 
-function isValidEncoding(output: LexXrpcBody, encoding?: string) {
-  if (!encoding) return false
-
+function isValidEncoding(output: LexXrpcBody, encoding: string) {
   const normalized = normalizeMime(encoding)
   if (!normalized) return false
 
   const allowed = parseDefEncoding(output)
-  if (!allowed.length) return false
-
-  if (allowed.includes(ENCODING_ANY)) return true
-  if (allowed.includes(normalized)) return true
-
-  // Check for wildcard matches (e.g. normalized=application/json, allowed=application/*)
-  for (const allowedEnc of allowed) {
-    if (
-      allowedEnc.endsWith('/*') &&
-      normalized.startsWith(allowedEnc.slice(0, -1))
-    ) {
-      return true
-    }
-  }
-
-  return false
+  return allowed.includes(ENCODING_ANY) || allowed.includes(normalized)
 }
 
 type BodyPresence = 'missing' | 'empty' | 'present'
@@ -539,7 +286,7 @@ function createBodyParser(inputEncoding: string, options: RouteOptions) {
   const jsonParser = json({ limit: jsonLimit })
   const textParser = text({ limit: textLimit })
   // Transform json and text parser middlewares into a single function
-  return (req: ExpressRequest, res: ExpressResponse) => {
+  return (req: Request, res: Response) => {
     return new Promise<void>((resolve, reject) => {
       jsonParser(req, res, (err) => {
         if (err) return reject(XRPCError.fromError(err))
@@ -639,7 +386,7 @@ export interface ServerTiming {
   description?: string
 }
 
-export const parseReqNsid = (req: ExpressRequest | IncomingMessage) =>
+export const parseReqNsid = (req: Request | IncomingMessage) =>
   parseUrlNsid('originalUrl' in req ? req.originalUrl : req.url || '/')
 
 /**

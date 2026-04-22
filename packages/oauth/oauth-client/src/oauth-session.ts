@@ -58,7 +58,10 @@ export class OAuthSession {
    * if, and only if, they are (about to be) expired. Defaults to `undefined`.
    */
   protected async getTokenSet(refresh: boolean | 'auto'): Promise<TokenSet> {
-    const { tokenSet } = await this.sessionGetter.getSession(this.sub, refresh)
+    const { tokenSet } = await this.sessionGetter.get(this.sub, {
+      noCache: refresh === true,
+      allowStale: refresh === false,
+    })
 
     return tokenSet
   }

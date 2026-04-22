@@ -48,9 +48,9 @@ describe('scheduled action management', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'ozone_scheduled_action_test',
     })
-    adminAgent = network.ozone.getAgent()
-    modAgent = network.ozone.getAgent()
-    triageAgent = network.ozone.getAgent()
+    adminAgent = network.ozone.getClient()
+    modAgent = network.ozone.getClient()
+    triageAgent = network.ozone.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     await network.processAll()

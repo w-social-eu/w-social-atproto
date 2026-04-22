@@ -1,22 +1,16 @@
-import { DidString, HandleString, INVALID_HANDLE } from '@atproto/syntax'
-import {
-  AuthRequiredError,
-  InvalidRequestError,
-  Server,
-} from '@atproto/xrpc-server'
+import { INVALID_HANDLE } from '@atproto/syntax'
+import { AuthRequiredError, InvalidRequestError } from '@atproto/xrpc-server'
 import { formatAccountStatus } from '../../../../account-manager/account-manager'
 import { AppContext } from '../../../../context'
 import { softDeleted } from '../../../../db/util'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { resultPassthru } from '../../../proxy'
 import { didDocForSession } from './util'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.server.refreshSession, {
+  server.com.atproto.server.refreshSession({
     auth: ctx.authVerifier.refresh(),
-    handler: async ({
-      auth,
-      req,
-    }): Promise<com.atproto.server.refreshSession.$Output> => {
+    handler: async ({ auth, req }) => {
       const did = auth.credentials.did
       const user = await ctx.accountManager.getAccount(did, {
         includeDeactivated: true,
@@ -34,11 +28,13 @@ export default function (server: Server, ctx: AppContext) {
         )
       }
 
-      if (ctx.entrywayClient) {
-        const { headers } = ctx.entrywayPassthruHeaders(req)
-        return ctx.entrywayClient.xrpc(com.atproto.server.refreshSession, {
-          headers,
-        })
+      if (ctx.entrywayAgent) {
+        return resultPassthru(
+          await ctx.entrywayAgent.com.atproto.server.refreshSession(
+            undefined,
+            ctx.entrywayPassthruHeaders(req),
+          ),
+        )
       }
 
       const [didDoc, rotated] = await Promise.all([
@@ -52,15 +48,14 @@ export default function (server: Server, ctx: AppContext) {
       const { status, active } = formatAccountStatus(user)
 
       return {
-        encoding: 'application/json' as const,
+        encoding: 'application/json',
         body: {
           accessJwt: rotated.accessJwt,
           refreshJwt: rotated.refreshJwt,
 
-          did: user.did as DidString,
-          // @ts-expect-error https://github.com/bluesky-social/atproto/pull/4406
+          did: user.did,
           didDoc,
-          handle: (user.handle ?? INVALID_HANDLE) as HandleString,
+          handle: user.handle ?? INVALID_HANDLE,
           email: user.email ?? undefined,
           emailConfirmed: !!user.emailConfirmedAt,
           active,

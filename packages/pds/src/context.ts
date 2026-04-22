@@ -5,10 +5,10 @@ import { Redis } from 'ioredis'
 import * as nodemailer from 'nodemailer'
 import * as ui8 from 'uint8arrays'
 import * as undici from 'undici'
+import { AtpAgent } from '@atproto/api'
 import { KmsKeypair, S3BlobStore } from '@atproto/aws'
 import * as crypto from '@atproto/crypto'
 import { IdResolver } from '@atproto/identity'
-import { Client } from '@atproto/lex'
 import {
   AccessTokenMode,
   JoseKey,
@@ -67,10 +67,10 @@ export type AppContextOptions = {
   redisScratch?: Redis
   crawlers: Crawlers
   bskyAppView?: BskyAppView
-  moderationClient?: Client
-  reportingClient?: Client
-  entrywayClient?: Client
-  entrywayAdminClient?: Client
+  moderationAgent?: AtpAgent
+  reportingAgent?: AtpAgent
+  entrywayAgent?: AtpAgent
+  entrywayAdminAgent?: AtpAgent
   proxyAgent: undici.Dispatcher
   safeFetch: Fetch
   oauthProvider?: OAuthProvider
@@ -98,10 +98,10 @@ export class AppContext {
   public redisScratch?: Redis
   public crawlers: Crawlers
   public bskyAppView?: BskyAppView
-  public moderationClient: Client | undefined
-  public reportingClient: Client | undefined
-  public entrywayClient: Client | undefined
-  public entrywayAdminClient: Client | undefined
+  public moderationAgent: AtpAgent | undefined
+  public reportingAgent: AtpAgent | undefined
+  public entrywayAgent: AtpAgent | undefined
+  public entrywayAdminAgent: AtpAgent | undefined
   public proxyAgent: undici.Dispatcher
   public safeFetch: Fetch
   public authVerifier: AuthVerifier
@@ -128,10 +128,10 @@ export class AppContext {
     this.redisScratch = opts.redisScratch
     this.crawlers = opts.crawlers
     this.bskyAppView = opts.bskyAppView
-    this.moderationClient = opts.moderationClient
-    this.reportingClient = opts.reportingClient
-    this.entrywayClient = opts.entrywayClient
-    this.entrywayAdminClient = opts.entrywayAdminClient
+    this.moderationAgent = opts.moderationAgent
+    this.reportingAgent = opts.reportingAgent
+    this.entrywayAgent = opts.entrywayAgent
+    this.entrywayAdminAgent = opts.entrywayAdminAgent
     this.proxyAgent = opts.proxyAgent
     this.safeFetch = opts.safeFetch
     this.authVerifier = opts.authVerifier
@@ -196,9 +196,9 @@ export class AppContext {
 
     const backgroundQueue = new BackgroundQueue()
     const crawlers = new Crawlers(
-      backgroundQueue,
       cfg.service.hostname,
       cfg.crawlers,
+      backgroundQueue,
       cfg.service.devMode,
     )
     const sequencer = new Sequencer(
@@ -212,59 +212,26 @@ export class AppContext {
       : undefined
 
     const bskyAppView = cfg.bskyAppView
-      ? new BskyAppView({
-          ...cfg.bskyAppView,
-          validateResponse: cfg.service.devMode,
-        })
+      ? new BskyAppView(cfg.bskyAppView)
       : undefined
 
-    const moderationClient = cfg.modService
-      ? new Client(
-          { service: cfg.modService.url },
-          {
-            // Trust internal services to send us well-formed responses
-            strictResponseProcessing: false,
-            validateResponse: cfg.service.devMode,
-          },
-        )
+    const moderationAgent = cfg.modService
+      ? new AtpAgent({ service: cfg.modService.url })
       : undefined
-    const reportingClient = cfg.reportService
-      ? new Client(
-          { service: cfg.reportService.url },
-          {
-            // Trust internal services to send us well-formed responses
-            strictResponseProcessing: false,
-            validateResponse: cfg.service.devMode,
-          },
-        )
+    const reportingAgent = cfg.reportService
+      ? new AtpAgent({ service: cfg.reportService.url })
       : undefined
-    const entrywayClient = cfg.entryway
-      ? new Client(
-          { service: cfg.entryway.url },
-          {
-            // Trust internal services to send us well-formed responses
-            strictResponseProcessing: false,
-            validateResponse: cfg.service.devMode,
-          },
-        )
+    const entrywayAgent = cfg.entryway
+      ? new AtpAgent({ service: cfg.entryway.url })
       : undefined
-    const entrywayAdminClient =
-      cfg.entryway && secrets.entrywayAdminToken
-        ? new Client(
-            { service: cfg.entryway.url },
-            {
-              headers: {
-                authorization: basicAuthHeader(
-                  'admin',
-                  secrets.entrywayAdminToken,
-                ),
-              },
-              // Trust internal services to send us well-formed responses
-              strictResponseProcessing: false,
-              validateResponse: cfg.service.devMode,
-            },
-          )
-        : undefined
+    let entrywayAdminAgent: AtpAgent | undefined
+    if (cfg.entryway && secrets.entrywayAdminToken) {
+      entrywayAdminAgent = new AtpAgent({ service: cfg.entryway.url })
+      entrywayAdminAgent.api.setHeader(
+        'authorization',
+        basicAuthHeader('admin', secrets.entrywayAdminToken),
+      )
+    }
 
     const jwtSecretKey = createSecretKeyObject(secrets.jwtSecret)
     const jwtPublicKey = cfg.entryway
@@ -492,8 +459,8 @@ export class AppContext {
         })
       : undefined
 
-    const scopeRefGetter = entrywayClient
-      ? new ScopeReferenceGetter(entrywayClient, redisScratch)
+    const scopeRefGetter = entrywayAgent
+      ? new ScopeReferenceGetter(entrywayAgent, redisScratch)
       : undefined
 
     const oauthVerifier: OAuthVerifier =
@@ -567,10 +534,10 @@ export class AppContext {
       redisScratch,
       crawlers,
       bskyAppView,
-      moderationClient,
-      reportingClient,
-      entrywayClient,
-      entrywayAdminClient,
+      moderationAgent,
+      reportingAgent,
+      entrywayAgent,
+      entrywayAdminAgent,
       proxyAgent,
       safeFetch,
       authVerifier,

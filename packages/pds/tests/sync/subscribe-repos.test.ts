@@ -1,3 +1,4 @@
+import { CID } from 'multiformats/cid'
 import { WebSocket } from 'ws'
 import { AtpAgent } from '@atproto/api'
 import {
@@ -9,13 +10,17 @@ import {
 } from '@atproto/common'
 import { randomStr } from '@atproto/crypto'
 import { SeedClient, TestNetworkNoAppView } from '@atproto/dev-env'
-import { Cid } from '@atproto/lex-data'
 import * as repo from '@atproto/repo'
 import { readCar } from '@atproto/repo'
 import { ErrorFrame, Frame, MessageFrame, byFrame } from '@atproto/xrpc-server'
 import { AppContext } from '../../src'
 import { AccountStatus } from '../../src/account-manager/account-manager'
-import { com } from '../../src/lexicons.js'
+import {
+  Account as AccountEvt,
+  Commit as CommitEvt,
+  Identity as IdentityEvt,
+  Sync as SyncEvt,
+} from '../../src/lexicon/types/com/atproto/sync/subscribeRepos'
 import basicSeed from '../seeds/basic'
 
 describe('repo subscribe repos', () => {
@@ -41,7 +46,7 @@ describe('repo subscribe repos', () => {
     serverHost = network.pds.url.replace('http://', '')
     // @ts-expect-error Error due to circular dependency with the dev-env package
     ctx = network.pds.ctx
-    agent = network.pds.getAgent()
+    agent = network.pds.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     alice = sc.dids.alice
@@ -67,17 +72,13 @@ describe('repo subscribe repos', () => {
       if (frame instanceof MessageFrame) {
         if (
           (frame.header.t === '#commit' &&
-            (frame.body as com.atproto.sync.subscribeRepos.Commit).repo ===
-              userDid) ||
+            (frame.body as CommitEvt).repo === userDid) ||
           (frame.header.t === '#sync' &&
-            (frame.body as com.atproto.sync.subscribeRepos.Sync).did ===
-              userDid) ||
+            (frame.body as SyncEvt).did === userDid) ||
           (frame.header.t === '#identity' &&
-            (frame.body as com.atproto.sync.subscribeRepos.Identity).did ===
-              userDid) ||
+            (frame.body as IdentityEvt).did === userDid) ||
           (frame.header.t === '#account' &&
-            (frame.body as com.atproto.sync.subscribeRepos.Account).did ===
-              userDid)
+            (frame.body as AccountEvt).did === userDid)
         ) {
           types.push(frame.body)
         }
@@ -96,32 +97,24 @@ describe('repo subscribe repos', () => {
     return evts
   }
 
-  const getSyncEvts = (
-    frames: Frame[],
-  ): com.atproto.sync.subscribeRepos.Sync[] => {
+  const getSyncEvts = (frames: Frame[]): SyncEvt[] => {
     return getEventType(frames, '#sync')
   }
 
-  const getAccountEvts = (
-    frames: Frame[],
-  ): com.atproto.sync.subscribeRepos.Account[] => {
+  const getAccountEvts = (frames: Frame[]): AccountEvt[] => {
     return getEventType(frames, '#account')
   }
 
-  const getIdentityEvts = (
-    frames: Frame[],
-  ): com.atproto.sync.subscribeRepos.Identity[] => {
+  const getIdentityEvts = (frames: Frame[]): IdentityEvt[] => {
     return getEventType(frames, '#identity')
   }
 
-  const getCommitEvents = (
-    frames: Frame[],
-  ): com.atproto.sync.subscribeRepos.Commit[] => {
+  const getCommitEvents = (frames: Frame[]): CommitEvt[] => {
     return getEventType(frames, '#commit')
   }
 
   const verifyIdentityEvent = (
-    evt: com.atproto.sync.subscribeRepos.Identity,
+    evt: IdentityEvt,
     did: string,
     handle?: string,
   ) => {
@@ -132,7 +125,7 @@ describe('repo subscribe repos', () => {
   }
 
   const verifyAccountEvent = (
-    evt: com.atproto.sync.subscribeRepos.Account,
+    evt: AccountEvt,
     did: string,
     active: boolean,
     status?: AccountStatus,
@@ -145,9 +138,9 @@ describe('repo subscribe repos', () => {
   }
 
   const verifySyncEvent = async (
-    evt: com.atproto.sync.subscribeRepos.Sync,
+    evt: SyncEvt,
     did: string,
-    commit: Cid,
+    commit: CID,
     rev: string,
   ) => {
     expect(typeof evt.seq).toBe('number')
@@ -161,9 +154,8 @@ describe('repo subscribe repos', () => {
   }
 
   const verifyCommitEvents = async (frames: Frame[]) => {
-    const forUser =
-      (user: string) => (commit: com.atproto.sync.subscribeRepos.Commit) =>
-        commit.repo === user
+    const forUser = (user: string) => (commit: CommitEvt) =>
+      commit.repo === user
     const commits = getCommitEvents(frames)
     await verifyRepo(alice, commits.filter(forUser(alice)))
     await verifyRepo(bob, commits.filter(forUser(bob)))
@@ -171,12 +163,9 @@ describe('repo subscribe repos', () => {
     await verifyRepo(dan, commits.filter(forUser(dan)))
   }
 
-  const verifyRepo = async (
-    did: string,
-    evts: com.atproto.sync.subscribeRepos.Commit[],
-  ) => {
+  const verifyRepo = async (did: string, evts: CommitEvt[]) => {
     const fromRpc = await getRepo(did)
-    const contents = {} as Record<string, Record<string, Cid>>
+    const contents = {} as Record<string, Record<string, CID>>
     const allBlocks = new repo.BlockMap()
     for (const evt of evts) {
       const car = await readCar(evt.blocks)
@@ -353,10 +342,9 @@ describe('repo subscribe repos', () => {
     const seqSlice = seqs.slice(midPoint + 1)
     expect(evts.length).toBe(seqSlice.length)
     for (let i = 0; i < evts.length; i++) {
-      const evt = evts[i]
-        .body as unknown as com.atproto.sync.subscribeRepos.Commit
+      const evt = evts[i].body as unknown as CommitEvt
       const seq = seqSlice[i]
-      const seqEvt = cborDecode(seq.event) as { commit: Cid }
+      const seqEvt = cborDecode(seq.event) as { commit: CID }
       expect(evt.time).toEqual(seq.sequencedAt)
       expect(evt.commit.equals(seqEvt.commit)).toBeTruthy()
       expect(evt.repo).toEqual(seq.did)
@@ -623,7 +611,7 @@ describe('repo subscribe repos', () => {
     const didEvts = getAllEvents(baddie3, evts)
     expect(didEvts.length).toBe(1)
     verifyAccountEvent(
-      didEvts[0] as com.atproto.sync.subscribeRepos.Account,
+      didEvts[0] as AccountEvt,
       baddie3,
       false,
       AccountStatus.Deleted,

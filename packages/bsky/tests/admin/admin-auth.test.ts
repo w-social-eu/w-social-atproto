@@ -1,15 +1,21 @@
 import assert from 'node:assert'
-import { $Typed, AtpAgent, ComAtprotoAdminDefs, ids } from '@atproto/api'
+import { AtpAgent } from '@atproto/api'
 import { Secp256k1Keypair } from '@atproto/crypto'
 import { SeedClient, TestNetwork, usersSeed } from '@atproto/dev-env'
 import { createServiceAuthHeaders } from '@atproto/xrpc-server'
+import { ids } from '../../src/lexicon/lexicons'
+import {
+  RepoRef,
+  isRepoRef,
+} from '../../src/lexicon/types/com/atproto/admin/defs'
+import { $Typed } from '../../src/lexicon/util'
 
 describe('admin auth', () => {
   let network: TestNetwork
   let agent: AtpAgent
   let sc: SeedClient
 
-  let repoSubject: $Typed<ComAtprotoAdminDefs.RepoRef>
+  let repoSubject: $Typed<RepoRef>
 
   const modServiceDid = 'did:example:mod'
   const altModDid = 'did:example:alt'
@@ -53,7 +59,7 @@ describe('admin auth', () => {
       return origResolve.call(this, did, forceRefresh)
     }
 
-    agent = network.bsky.getAgent()
+    agent = network.bsky.getClient()
     sc = network.getSeedClient()
     await usersSeed(sc)
     await network.processAll()
@@ -95,7 +101,7 @@ describe('admin auth', () => {
       { did: repoSubject.did },
       getHeaders,
     )
-    assert(ComAtprotoAdminDefs.isRepoRef(res.data.subject))
+    assert(isRepoRef(res.data.subject))
     expect(res.data.subject.did).toBe(repoSubject.did)
     expect(res.data.takedown?.applied).toBe(true)
   })

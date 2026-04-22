@@ -11,7 +11,7 @@ help: ## Print info about all commands
 	@echo "NOTE: dependencies between commands are not automatic. Eg, you must run 'deps' and 'build' first, and after any changes"
 
 .PHONY: build
-build: codegen ## Compile all modules
+build: ## Compile all modules
 	pnpm build
 
 .PHONY: test

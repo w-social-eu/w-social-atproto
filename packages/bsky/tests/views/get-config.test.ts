@@ -10,7 +10,7 @@ describe('get config', () => {
       network = await TestNetwork.create({
         dbPostgresSchema: 'bsky_tests_live_now_config_off',
       })
-      agent = network.bsky.getAgent()
+      agent = network.bsky.getClient()
 
       await network.processAll()
     })
@@ -29,11 +29,11 @@ describe('get config', () => {
   describe('when live now is configured', () => {
     const liveNowConfig = [
       {
-        did: 'did:plc:asdf123' as const,
+        did: 'did:plc:asdf123',
         domains: ['example.com', 'atproto.com'],
       },
       {
-        did: 'did:plc:sdfg234' as const,
+        did: 'did:plc:sdfg234',
         domains: ['example.com'],
       },
     ]
@@ -48,7 +48,7 @@ describe('get config', () => {
           liveNowConfig,
         },
       })
-      agent = network.bsky.getAgent()
+      agent = network.bsky.getClient()
 
       await network.processAll()
     })

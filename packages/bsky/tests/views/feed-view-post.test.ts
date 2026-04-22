@@ -1,6 +1,7 @@
 import assert from 'node:assert'
-import { AppBskyFeedDefs, AtUri, AtpAgent, ids } from '@atproto/api'
+import { AppBskyFeedDefs, AtUri, AtpAgent } from '@atproto/api'
 import { SeedClient, TestNetwork, basicSeed } from '@atproto/dev-env'
+import { ids } from '../../src/lexicon/lexicons'
 
 /**
  * The frontend computes feed slices for display using at-most one
@@ -31,8 +32,8 @@ describe('pds thread views', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'bsky_views_feed_view_post',
     })
-    agent = network.bsky.getAgent()
-    pdsAgent = network.pds.getAgent()
+    agent = network.bsky.getClient()
+    pdsAgent = network.pds.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     alice = sc.dids.alice

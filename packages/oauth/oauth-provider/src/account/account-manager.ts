@@ -2,10 +2,8 @@ import {
   OAuthIssuerIdentifier,
   isOAuthClientIdLoopback,
 } from '@atproto/oauth-types'
-import { ClientId } from '../client/client-id.js'
 import { Client } from '../client/client.js'
 import { DeviceId } from '../device/device-id.js'
-import { InvalidCredentialsError } from '../errors/invalid-credentials-error.js'
 import { InvalidRequestError } from '../errors/invalid-request-error.js'
 import { SecondAuthenticationFactorRequiredError } from '../errors/second-authentication-factor-required-error.js'
 import { HCaptchaClient, HcaptchaVerifyResult } from '../lib/hcaptcha.js'
@@ -162,67 +160,26 @@ export class AccountManager {
     deviceId: DeviceId,
     deviceMetadata: RequestMetadata,
     data: SignInData,
-    clientId?: ClientId,
   ): Promise<Account> {
     try {
       await this.hooks.onSignInAttempt?.call(null, {
         data,
         deviceId,
         deviceMetadata,
-        clientId,
       })
 
-      let account: Account
-      try {
-        account = await constantTime(
-          TIMING_ATTACK_MITIGATION_DELAY,
-          async () => {
-            return this.store.authenticateAccount(data)
-          },
-        )
-      } catch (err) {
-        // Only notify for credential failures (e.g. unknown identifier, wrong
-        // password). Server errors and flows that require an additional factor
-        // (e.g. SecondAuthenticationFactorRequiredError) are not "failed
-        // sign-ins" and do not trigger the hook.
-        if (err instanceof InvalidRequestError) {
-          // Stores that throw the more specific `InvalidCredentialsError`
-          // can attach the matched subject identifier to distinguish
-          // "identifier known, password wrong" from "identifier unknown".
-          // This information is only exposed to the hook and is never
-          // surfaced to the client.
-          const isCredentialsError = err instanceof InvalidCredentialsError
-          const sub = isCredentialsError ? err.sub ?? null : null
-
-          // Swallow any error from the hook itself so that it does not mask
-          // the underlying authentication failure being reported.
-          try {
-            await this.hooks.onSignInFailed?.call(null, {
-              data,
-              error: err,
-              sub,
-              deviceId,
-              deviceMetadata,
-              clientId,
-            })
-          } catch {
-            // noop
-          }
-
-          if (isCredentialsError) {
-            // Defensively downgrade to a plain InvalidRequestError
-            throw new InvalidRequestError(err.error_description)
-          }
-        }
-        throw err
-      }
+      const account = await constantTime(
+        TIMING_ATTACK_MITIGATION_DELAY,
+        async () => {
+          return this.store.authenticateAccount(data)
+        },
+      )
 
       await this.hooks.onSignedIn?.call(null, {
         data,
         account,
         deviceId,
         deviceMetadata,
-        clientId,
       })
 
       return account

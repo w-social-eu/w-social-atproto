@@ -17,7 +17,7 @@ describe('proxies admin requests', () => {
         inviteRequired: true,
       },
     })
-    agent = network.pds.getAgent()
+    agent = network.pds.getClient()
     sc = network.getSeedClient()
     const { data: invite } =
       await agent.api.com.atproto.server.createInviteCode(

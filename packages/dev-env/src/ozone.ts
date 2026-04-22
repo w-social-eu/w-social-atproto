@@ -103,7 +103,7 @@ export class TestOzone {
     return this.server.ctx
   }
 
-  getAgent(): AtpAgent {
+  getClient(): AtpAgent {
     const agent = new AtpAgent({ service: this.url })
     agent.configureLabelers([EXAMPLE_LABELER])
     return agent

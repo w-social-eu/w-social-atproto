@@ -1,67 +1,61 @@
-import { AtUriString, DidString } from '@atproto/syntax'
 import { DataPlaneClient } from '../data-plane/client'
-import { app } from '../lexicons/index.js'
+import { Record as BlockRecord } from '../lexicon/types/app/bsky/graph/block'
+import { Record as FollowRecord } from '../lexicon/types/app/bsky/graph/follow'
+import { Record as ListRecord } from '../lexicon/types/app/bsky/graph/list'
+import { Record as ListItemRecord } from '../lexicon/types/app/bsky/graph/listitem'
+import { Record as StarterPackRecord } from '../lexicon/types/app/bsky/graph/starterpack'
+import { Record as VerificationRecord } from '../lexicon/types/app/bsky/graph/verification'
 import { FollowInfo } from '../proto/bsky_pb'
-import {
-  BlockRecord,
-  FollowRecord,
-  ListItemRecord,
-  ListRecord,
-  StarterPackRecord,
-  VerificationRecord,
-} from '../views/types.js'
 import { HydrationMap, ItemRef, RecordInfo, parseRecord } from './util'
 
 export type List = RecordInfo<ListRecord>
-export type Lists = HydrationMap<AtUriString, List>
+export type Lists = HydrationMap<List>
 
 export type ListItem = RecordInfo<ListItemRecord>
-export type ListItems = HydrationMap<AtUriString, ListItem>
+export type ListItems = HydrationMap<ListItem>
 
 export type ListViewerState = {
-  viewerMuted?: string // @TODO AtUriString ?
-  viewerListBlockUri?: AtUriString
-  viewerInList?: string // @TODO AtUriString ?
+  viewerMuted?: string
+  viewerListBlockUri?: string
+  viewerInList?: string
 }
 
-export type ListViewerStates = HydrationMap<AtUriString, ListViewerState>
+export type ListViewerStates = HydrationMap<ListViewerState>
 
 export type ListMembershipState = {
-  actorListItemUri?: AtUriString
+  actorListItemUri?: string
 }
-
 // list uri => actor did => state
 export type ListMembershipStates = HydrationMap<
-  AtUriString,
-  HydrationMap<DidString, ListMembershipState>
+  HydrationMap<ListMembershipState>
 >
 
 export type Follow = RecordInfo<FollowRecord>
-export type Follows = HydrationMap<AtUriString, Follow>
+export type Follows = HydrationMap<Follow>
 
 export type Block = RecordInfo<BlockRecord>
 
 export type StarterPack = RecordInfo<StarterPackRecord>
-export type StarterPacks = HydrationMap<AtUriString, StarterPack>
+export type StarterPacks = HydrationMap<StarterPack>
 
 export type Verification = RecordInfo<VerificationRecord>
-export type Verifications = HydrationMap<AtUriString, Verification>
+export type Verifications = HydrationMap<Verification>
 
 export type StarterPackAgg = {
   joinedWeek: number
   joinedAllTime: number
-  listItemSampleUris?: AtUriString[] // gets set during starter pack hydration (not for basic view)
+  listItemSampleUris?: string[] // gets set during starter pack hydration (not for basic view)
 }
 
-export type StarterPackAggs = HydrationMap<AtUriString, StarterPackAgg>
+export type StarterPackAggs = HydrationMap<StarterPackAgg>
 
 export type ListAgg = {
   listItems: number
 }
 
-export type ListAggs = HydrationMap<AtUriString, ListAgg>
+export type ListAggs = HydrationMap<ListAgg>
 
-export type RelationshipPair = [didA: DidString, didB: DidString]
+export type RelationshipPair = [didA: string, didB: string]
 
 const dedupePairs = (pairs: RelationshipPair[]): RelationshipPair[] => {
   const deduped = pairs.reduce((acc, pair) => {
@@ -100,60 +94,42 @@ export class Blocks {
 
 // No "blocking" vs. "blocked" directionality: only suitable for bidirectional block checks
 export type BlockEntry = {
-  blockUri: AtUriString | undefined
-  blockListUri: AtUriString | undefined
+  blockUri: string | undefined
+  blockListUri: string | undefined
 }
 
 export class GraphHydrator {
   constructor(public dataplane: DataPlaneClient) {}
 
-  async getLists(
-    uris: AtUriString[],
-    includeTakedowns = false,
-  ): Promise<Lists> {
-    const map: Lists = new HydrationMap()
-    if (!uris.length) return map
-
+  async getLists(uris: string[], includeTakedowns = false): Promise<Lists> {
+    if (!uris.length) return new HydrationMap<List>()
     const res = await this.dataplane.getListRecords({ uris })
-    for (let i = 0; i < uris.length; i++) {
-      const record = parseRecord(
-        app.bsky.graph.list.main,
-        res.records[i],
-        includeTakedowns,
-      )
-      map.set(uris[i], record ?? null)
-    }
-
-    return map
+    return uris.reduce((acc, uri, i) => {
+      const record = parseRecord<ListRecord>(res.records[i], includeTakedowns)
+      return acc.set(uri, record ?? null)
+    }, new HydrationMap<List>())
   }
 
   async getListItems(
-    uris: AtUriString[],
+    uris: string[],
     includeTakedowns = false,
   ): Promise<ListItems> {
-    const map: ListItems = new HydrationMap()
-    if (!uris.length) return map
-
+    if (!uris.length) return new HydrationMap<ListItem>()
     const res = await this.dataplane.getListItemRecords({ uris })
-    for (let i = 0; i < uris.length; i++) {
-      const record = parseRecord(
-        app.bsky.graph.listitem.main,
+    return uris.reduce((acc, uri, i) => {
+      const record = parseRecord<ListItemRecord>(
         res.records[i],
         includeTakedowns,
       )
-      map.set(uris[i], record ?? null)
-    }
-
-    return map
+      return acc.set(uri, record ?? null)
+    }, new HydrationMap<ListItem>())
   }
 
   async getListViewerStates(
-    uris: AtUriString[],
+    uris: string[],
     viewer: string,
   ): Promise<ListViewerStates> {
-    const map: ListViewerStates = new HydrationMap()
-    if (!uris.length) return map
-
+    if (!uris.length) return new HydrationMap<ListViewerState>()
     const mutesAndBlocks = await Promise.all(
       uris.map((uri) => this.getMutesAndBlocks(uri, viewer)),
     )
@@ -161,16 +137,13 @@ export class GraphHydrator {
       actorDid: viewer,
       listUris: uris,
     })
-    for (let i = 0; i < uris.length; i++) {
-      const uri = uris[i]
-      map.set(uri, {
+    return uris.reduce((acc, uri, i) => {
+      return acc.set(uri, {
         viewerMuted: mutesAndBlocks[i].muted ? uri : undefined,
         viewerListBlockUri: mutesAndBlocks[i].listBlockUri || undefined,
         viewerInList: listMemberships.listitemUris[i],
       })
-    }
-
-    return map
+    }, new HydrationMap<ListViewerState>())
   }
 
   private async getMutesAndBlocks(uri: string, viewer: string) {
@@ -186,7 +159,7 @@ export class GraphHydrator {
     ])
     return {
       muted: muted.subscribed,
-      listBlockUri: listBlockUri.listblockUri as AtUriString,
+      listBlockUri: listBlockUri.listblockUri,
     }
   }
 
@@ -199,82 +172,51 @@ export class GraphHydrator {
       const pair = deduped[i]
       const block = res.blocks[i]
       blocks.set(pair.a, pair.b, {
-        blockUri: (block.blockedBy || block.blocking || undefined) as
-          | AtUriString
-          | undefined,
-        blockListUri: (block.blockedByList ||
-          block.blockingByList ||
-          undefined) as AtUriString | undefined,
+        blockUri: block.blockedBy || block.blocking || undefined,
+        blockListUri: block.blockedByList || block.blockingByList || undefined,
       })
     }
     return blocks
   }
 
-  async getFollows(
-    uris: AtUriString[],
-    includeTakedowns = false,
-  ): Promise<Follows> {
-    const map: Follows = new HydrationMap()
-    if (!uris.length) return map
-
+  async getFollows(uris: string[], includeTakedowns = false): Promise<Follows> {
+    if (!uris.length) return new HydrationMap<Follow>()
     const res = await this.dataplane.getFollowRecords({ uris })
-    for (let i = 0; i < uris.length; i++) {
-      const uri = uris[i]
-      const record = parseRecord(
-        app.bsky.graph.follow.main,
-        res.records[i],
-        includeTakedowns,
-      )
-      map.set(uri, record ?? null)
-    }
-
-    return map
+    return uris.reduce((acc, uri, i) => {
+      const record = parseRecord<FollowRecord>(res.records[i], includeTakedowns)
+      return acc.set(uri, record ?? null)
+    }, new HydrationMap<Follow>())
   }
 
   async getVerifications(
-    uris: AtUriString[],
+    uris: string[],
     includeTakedowns = false,
   ): Promise<Verifications> {
-    const map: Verifications = new HydrationMap()
-    if (!uris.length) return map
-
+    if (!uris.length) return new HydrationMap<Verification>()
     const res = await this.dataplane.getVerificationRecords({ uris })
-    for (let i = 0; i < uris.length; i++) {
-      const uri = uris[i]
-      const record = parseRecord(
-        app.bsky.graph.verification.main,
+    return uris.reduce((acc, uri, i) => {
+      const record = parseRecord<VerificationRecord>(
         res.records[i],
         includeTakedowns,
       )
-      map.set(uri, record ?? null)
-    }
-
-    return map
+      return acc.set(uri, record ?? null)
+    }, new HydrationMap<Verification>())
   }
 
   async getBlocks(
-    uris: AtUriString[],
+    uris: string[],
     includeTakedowns = false,
-  ): Promise<HydrationMap<AtUriString, Block>> {
-    const map = new HydrationMap<AtUriString, Block>()
-    if (!uris.length) return map
-
+  ): Promise<HydrationMap<Block>> {
+    if (!uris.length) return new HydrationMap<Block>()
     const res = await this.dataplane.getBlockRecords({ uris })
-    for (let i = 0; i < uris.length; i++) {
-      const uri = uris[i]
-      const record = parseRecord(
-        app.bsky.graph.block.main,
-        res.records[i],
-        includeTakedowns,
-      )
-      map.set(uri, record ?? null)
-    }
-
-    return map
+    return uris.reduce((acc, uri, i) => {
+      const record = parseRecord<BlockRecord>(res.records[i], includeTakedowns)
+      return acc.set(uri, record ?? null)
+    }, new HydrationMap<Block>())
   }
 
   async getActorFollows(input: {
-    did: DidString
+    did: string
     cursor?: string
     limit?: number
   }): Promise<{ follows: FollowInfo[]; cursor: string }> {
@@ -288,7 +230,7 @@ export class GraphHydrator {
   }
 
   async getActorFollowers(input: {
-    did: DidString
+    did: string
     cursor?: string
     limit?: number
   }): Promise<{ followers: FollowInfo[]; cursor: string }> {
@@ -302,53 +244,38 @@ export class GraphHydrator {
   }
 
   async getStarterPacks(
-    uris: AtUriString[],
+    uris: string[],
     includeTakedowns = false,
   ): Promise<StarterPacks> {
-    const map: StarterPacks = new HydrationMap()
-    if (!uris.length) return map
-
+    if (!uris.length) return new HydrationMap<StarterPack>()
     const res = await this.dataplane.getStarterPackRecords({ uris })
-    for (let i = 0; i < uris.length; i++) {
-      const uri = uris[i]
-      const record = parseRecord(
-        app.bsky.graph.starterpack.main,
+    return uris.reduce((acc, uri, i) => {
+      const record = parseRecord<StarterPackRecord>(
         res.records[i],
         includeTakedowns,
       )
-      map.set(uri, record ?? null)
-    }
-
-    return map
+      return acc.set(uri, record ?? null)
+    }, new HydrationMap<StarterPack>())
   }
 
   async getStarterPackAggregates(refs: ItemRef[]) {
-    const map: StarterPackAggs = new HydrationMap()
-
-    if (refs.length) {
-      const counts = await this.dataplane.getStarterPackCounts({ refs })
-      for (let i = 0; i < refs.length; i++) {
-        map.set(refs[i].uri, {
-          joinedWeek: counts.joinedWeek[i] ?? 0,
-          joinedAllTime: counts.joinedAllTime[i] ?? 0,
-        })
-      }
-    }
-
-    return map
+    if (!refs.length) return new HydrationMap<StarterPackAgg>()
+    const counts = await this.dataplane.getStarterPackCounts({ refs })
+    return refs.reduce((acc, { uri }, i) => {
+      return acc.set(uri, {
+        joinedWeek: counts.joinedWeek[i] ?? 0,
+        joinedAllTime: counts.joinedAllTime[i] ?? 0,
+      })
+    }, new HydrationMap<StarterPackAgg>())
   }
 
-  async getListAggregates(refs: ItemRef[]): Promise<ListAggs> {
-    const map: ListAggs = new HydrationMap()
-
-    if (refs.length) {
-      const counts = await this.dataplane.getListCounts({ refs })
-      for (let i = 0; i < refs.length; i++) {
-        map.set(refs[i].uri, {
-          listItems: counts.listItems[i] ?? 0,
-        })
-      }
-    }
-    return map
+  async getListAggregates(refs: ItemRef[]) {
+    if (!refs.length) return new HydrationMap<ListAgg>()
+    const counts = await this.dataplane.getListCounts({ refs })
+    return refs.reduce((acc, { uri }, i) => {
+      return acc.set(uri, {
+        listItems: counts.listItems[i] ?? 0,
+      })
+    }, new HydrationMap<ListAgg>())
   }
 }

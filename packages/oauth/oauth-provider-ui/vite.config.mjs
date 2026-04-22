@@ -26,12 +26,7 @@ export default defineConfig({
     outDir: './dist',
     sourcemap: true,
     rollupOptions: {
-      input: [
-        './src/account-page.tsx',
-        './src/authorization-page.tsx',
-        './src/cookie-error-page.tsx',
-        './src/error-page.tsx',
-      ],
+      input: ['./src/authorization-page.tsx', './src/error-page.tsx'],
       output: {
         manualChunks: undefined,
         format: 'module',
@@ -45,9 +40,7 @@ export default defineConfig({
       include: [
         /node_modules/,
         /did/,
-        /jwk/,
         /oauth-scopes/,
-        /oauth-types/,
         /oauth-provider-api/,
         /syntax/,
       ],
@@ -66,9 +59,7 @@ export default defineConfig({
     include: [
       '@atproto/oauth-provider-api',
       '@atproto/did',
-      '@atproto/jwk',
       '@atproto/oauth-scopes',
-      '@atproto/oauth-types',
       '@atproto/syntax',
     ],
   },

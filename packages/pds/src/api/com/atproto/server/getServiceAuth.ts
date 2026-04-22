@@ -1,27 +1,21 @@
 import { HOUR, MINUTE } from '@atproto/common'
-import { l } from '@atproto/lex'
-import {
-  InvalidRequestError,
-  Server,
-  createServiceJwt,
-} from '@atproto/xrpc-server'
+import { InvalidRequestError, createServiceJwt } from '@atproto/xrpc-server'
 import {
   AuthScope,
   isAccessPrivileged,
   isTakendown,
 } from '../../../../auth-scope'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { ids } from '../../../../lexicon/lexicons'
 import { PRIVILEGED_METHODS, PROTECTED_METHODS } from '../../../../pipethrough'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.server.getServiceAuth, {
-    auth: ctx.authVerifier.authorization<
-      l.InferMethodParams<typeof com.atproto.server.getServiceAuth.main>
-    >({
+  server.com.atproto.server.getServiceAuth({
+    auth: ctx.authVerifier.authorization({
       additional: [AuthScope.Takendown],
-      authorize: (permissions, { params }) => {
-        const { aud, lxm = '*' } = params
+      authorize: (permissions, ctx) => {
+        const { aud, lxm = '*' } = ctx.params
         permissions.assertRpc({ aud, lxm })
       },
     }),
@@ -37,7 +31,7 @@ export default function (server: Server, ctx: AppContext) {
         // "InvalidRequestError" for legacy reasons.
         if (
           isTakendown(auth.credentials.scope) &&
-          lxm !== com.atproto.server.createAccount.$lxm
+          lxm !== ids.ComAtprotoServerCreateAccount
         ) {
           throw new InvalidRequestError('Bad token scope', 'InvalidToken')
         }
@@ -91,7 +85,7 @@ export default function (server: Server, ctx: AppContext) {
         keypair,
       })
       return {
-        encoding: 'application/json' as const,
+        encoding: 'application/json',
         body: {
           token,
         },

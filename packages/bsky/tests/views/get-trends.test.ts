@@ -3,8 +3,10 @@ import { once } from 'node:events'
 import { Server, createServer } from 'node:http'
 import { AddressInfo } from 'node:net'
 import express, { Application } from 'express'
-import { AppBskyUnspeccedGetTrendsSkeleton, AtpAgent, ids } from '@atproto/api'
+import AtpAgent from '@atproto/api'
 import { SeedClient, TestNetwork } from '@atproto/dev-env'
+import { ids } from '../../src/lexicon/lexicons'
+import { OutputSchema } from '../../src/lexicon/types/app/bsky/unspecced/getTrendsSkeleton'
 import { Users, trendsSeed } from '../seed/get-trends'
 
 describe('getTrends', () => {
@@ -25,7 +27,7 @@ describe('getTrends', () => {
         topicsApiKey: 'test',
       },
     })
-    agent = network.bsky.getAgent()
+    agent = network.bsky.getClient()
     sc = network.getSeedClient()
 
     const result = await trendsSeed(sc)
@@ -96,10 +98,7 @@ class MockTrendsServer {
   app: Application
   server: Server
 
-  mockedTrendSkeletons = new Map<
-    string,
-    AppBskyUnspeccedGetTrendsSkeleton.OutputSchema['trends'][0]
-  >()
+  mockedTrendSkeletons = new Map<string, OutputSchema['trends'][0]>()
 
   constructor() {
     this.app = this.createApp()
@@ -124,7 +123,7 @@ class MockTrendsServer {
   private createApp() {
     const app = express()
     app.get('/xrpc/app.bsky.unspecced.getTrendsSkeleton', (req, res) => {
-      const skeleton: AppBskyUnspeccedGetTrendsSkeleton.OutputSchema = {
+      const skeleton: OutputSchema = {
         trends: Array.from(this.mockedTrendSkeletons.values()),
       }
       return res.json(skeleton)

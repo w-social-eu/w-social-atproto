@@ -1,10 +1,10 @@
-import { Cid } from '@atproto/lex-data'
+import { CID } from 'multiformats/cid'
 import { writeCarStream } from '../car'
 import { CidSet } from '../cid-set'
 import { MissingBlocksError } from '../error'
 import { MST } from '../mst'
 import { ReadableBlockstore, RepoStorage } from '../storage'
-import { CarBlock, RecordPath, def } from '../types'
+import { RecordPath, def } from '../types'
 import * as util from '../util'
 
 // Full Repo
@@ -12,15 +12,12 @@ import * as util from '../util'
 
 export const getFullRepo = (
   storage: RepoStorage,
-  commitCid: Cid,
+  commitCid: CID,
 ): AsyncIterable<Uint8Array> => {
   return writeCarStream(commitCid, iterateFullRepo(storage, commitCid))
 }
 
-async function* iterateFullRepo(
-  storage: RepoStorage,
-  commitCid: Cid,
-): AsyncGenerator<CarBlock> {
+async function* iterateFullRepo(storage: RepoStorage, commitCid: CID) {
   const commit = await storage.readObjAndBytes(commitCid, def.commit)
   yield { cid: commitCid, bytes: commit.bytes }
   const mst = MST.load(storage, commit.obj.data)
@@ -34,7 +31,7 @@ async function* iterateFullRepo(
 
 export const getRecords = (
   storage: ReadableBlockstore,
-  commitCid: Cid,
+  commitCid: CID,
   paths: RecordPath[],
 ): AsyncIterable<Uint8Array> => {
   return writeCarStream(
@@ -45,9 +42,9 @@ export const getRecords = (
 
 async function* iterateRecordBlocks(
   storage: ReadableBlockstore,
-  commitCid: Cid,
+  commitCid: CID,
   paths: RecordPath[],
-): AsyncGenerator<CarBlock> {
+) {
   const commit = await storage.readObjAndBytes(commitCid, def.commit)
   yield { cid: commitCid, bytes: commit.bytes }
   const mst = MST.load(storage, commit.obj.data)

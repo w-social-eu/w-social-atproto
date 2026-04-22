@@ -1,27 +1,22 @@
-import { mkdir, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import * as url from 'url'
+import { readFileSync, writeFileSync } from 'fs'
+import { join } from 'path'
 import * as prettier from 'prettier'
-import labelsDef from '../../definitions/labels.json' with { type: 'json' }
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
+const __dirname = url.fileURLToPath(new URL('.', import.meta.url))
 
-export async function labels() {
-  const content = await gen()
+const labelsDef = JSON.parse(
+  readFileSync(
+    join(__dirname, '..', '..', 'definitions', 'labels.json'),
+    'utf8',
+  ),
+)
 
-  const path = join(
-    __dirname,
-    '..',
-    '..',
-    'src',
-    'moderation',
-    'const',
-    'labels.ts',
-  )
-
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, content, 'utf8')
-}
+writeFileSync(
+  join(__dirname, '..', '..', 'src', 'moderation', 'const', 'labels.ts'),
+  await gen(),
+  'utf8',
+)
 
 async function gen() {
   const knownValues = new Set()
@@ -75,3 +70,5 @@ async function gen() {
     { semi: false, parser: 'typescript', singleQuote: true },
   )
 }
+
+export {}

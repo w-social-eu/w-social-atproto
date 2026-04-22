@@ -1,9 +1,9 @@
-# @atproto/lex-password-session
+# @atproto/lex-password-agent
 
-Password-based session authentication for AT Protocol Lexicons. See the [Changelog](./CHANGELOG.md) for version history.
+Password-based client authentication for AT Protocol Lexicons. See the [Changelog](./CHANGELOG.md) for version history.
 
 ```bash
-npm install @atproto/lex-password-session
+npm install @atproto/lex-password-agent
 ```
 
 - Session management with automatic token refresh
@@ -17,7 +17,7 @@ npm install @atproto/lex-password-session
 
 **What is this?**
 
-`@atproto/lex-password-session` provides a `PasswordSession` class that implements the `Agent` interface from `@atproto/lex-client`. It handles password-based authentication with AT Protocol services, including:
+`@atproto/lex-password-agent` provides a `PasswordAgent` class that implements the `Agent` interface from `@atproto/lex-client`. It handles password-based authentication with AT Protocol services, including:
 
 1. Creating sessions with username/password credentials
 2. Automatic token refresh when access tokens expire
@@ -26,23 +26,28 @@ npm install @atproto/lex-password-session
 
 ```typescript
 import { Client } from '@atproto/lex-client'
-import { PasswordSession } from '@atproto/lex-password-session'
+import { PasswordAgent } from '@atproto/lex-password-agent'
 import * as app from './lexicons/app.js'
 
 // Login with credentials
-const session = await PasswordSession.login({
+const result = await PasswordAgent.login({
   service: 'https://bsky.social',
   identifier: 'alice.bsky.social',
   password: 'app-password',
-  onUpdated: (data) => saveToStorage(data),
-  onDeleted: (data) => clearStorage(data.did),
+  hooks: {
+    onRefreshed: (session) => saveToStorage(session),
+    onDeleted: (session) => clearStorage(session),
+  },
 })
 
-const client = new Client(session)
+if (!result.success) throw result.error
+
+const agent = result.value
+const client = new Client(agent)
 
 // Make authenticated requests
 const profile = await client.call(app.bsky.actor.getProfile, {
-  actor: session.did,
+  actor: agent.did,
 })
 ```
 
@@ -50,19 +55,18 @@ const profile = await client.call(app.bsky.actor.getProfile, {
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
 - [Quick Start](#quick-start)
-- [PasswordSession](#passwordsession)
+- [PasswordAgent](#passwordagent)
   - [Login](#login)
   - [Two-Factor Authentication](#two-factor-authentication)
   - [Resume Session](#resume-session)
   - [Logout](#logout)
   - [Static Delete](#static-delete)
-  - [Create Account](#create-account)
 - [Session Hooks](#session-hooks)
-  - [onUpdated](#onupdated)
-  - [onUpdateFailure](#onupdatefailure)
+  - [onRefreshed](#onrefreshed)
+  - [onRefreshFailure](#onrefreshfailure)
   - [onDeleted](#ondeleted)
   - [onDeleteFailure](#ondeletefailure)
-- [Session Data](#session-data)
+- [Session Object](#session-object)
 - [Error Handling](#error-handling)
 - [Using with Client](#using-with-client)
 - [License](#license)
@@ -74,92 +78,91 @@ const profile = await client.call(app.bsky.actor.getProfile, {
 **1. Install the package**
 
 ```bash
-npm install @atproto/lex-password-session @atproto/lex-client
+npm install @atproto/lex-password-agent @atproto/lex-client
 ```
 
 **2. Login and make requests**
 
 ```typescript
 import { Client } from '@atproto/lex-client'
-import { PasswordSession } from '@atproto/lex-password-session'
+import { PasswordAgent } from '@atproto/lex-password-agent'
 
-const session = await PasswordSession.login({
+const result = await PasswordAgent.login({
   service: 'https://bsky.social',
   identifier: 'your-handle.bsky.social',
   password: 'your-app-password',
 })
 
-const client = new Client(session)
+if (result.success) {
+  const agent = result.value
+  const client = new Client(agent)
 
-// Make authenticated API calls
-console.log('Logged in as:', session.did)
+  // Make authenticated API calls
+  console.log('Logged in as:', agent.did)
+}
 ```
 
-## PasswordSession
+## PasswordAgent
 
-The `PasswordSession` class manages password-based authentication sessions.
+The `PasswordAgent` class manages password-based authentication sessions.
 
 ### Login
 
 Create a new session with username and password:
 
 ```typescript
-import { PasswordSession } from '@atproto/lex-password-session'
+import { PasswordAgent } from '@atproto/lex-password-agent'
 
-const session = await PasswordSession.login({
+const result = await PasswordAgent.login({
   service: 'https://bsky.social',
   identifier: 'alice.bsky.social', // handle or email
   password: 'app-password',
-  onUpdated: (data) => {
-    // Persist session for later restoration
-    localStorage.setItem('session', JSON.stringify(data))
-  },
-  onDeleted: () => {
-    localStorage.removeItem('session')
+  hooks: {
+    onRefreshed: (session) => {
+      // Persist session for later restoration
+      localStorage.setItem('session', JSON.stringify(session))
+    },
+    onDeleted: () => {
+      localStorage.removeItem('session')
+    },
   },
 })
 
-console.log('Logged in as:', session.did)
+if (result.success) {
+  const agent = result.value
+  console.log('Logged in as:', agent.did)
+} else {
+  console.error('Login failed:', result.error, result.message)
+}
 ```
 
-The `login()` method throws on failure. For expected errors like invalid credentials, an `XrpcResponseError` is thrown. For 2FA requirements, a `LexAuthFactorError` is thrown.
+The `login()` method returns a discriminated union:
+
+- On success: `{ success: true, value: PasswordAgent }`
+- On expected errors: `XrpcResponseError` with `success: false`
+- On unexpected errors: throws the error
 
 ### Two-Factor Authentication
 
-> [!CAUTION]
->
-> Two-factor authentication only applies when using **main account credentials**, which is **strongly discouraged**. Password authentication should be used with [app passwords](https://bsky.app/settings/app-passwords) only because they are designed for programmatic access (bots, scripts, CLI tools). For user-facing applications, use OAuth via [@atproto/oauth-client](../../../oauth/oauth-client) which provides better security and user control.
-
-If the account has 2FA enabled, login will throw a `LexAuthFactorError`:
+If the account has 2FA enabled, login will return an `AuthFactorTokenRequired` error:
 
 ```typescript
-import {
-  PasswordSession,
-  LexAuthFactorError,
-} from '@atproto/lex-password-session'
+const result = await PasswordAgent.login({
+  service: 'https://bsky.social',
+  identifier: 'alice.bsky.social',
+  password: 'app-password',
+})
 
-async function loginWith2FA(
-  identifier: string,
-  password: string,
-  authFactorToken?: string,
-): Promise<PasswordSession> {
-  try {
-    return await PasswordSession.login({
-      service: 'https://bsky.social',
-      identifier,
-      password,
-      authFactorToken,
-      onUpdated: (data) => saveToStorage(data),
-      onDeleted: (data) => removeFromStorage(data.did),
-    })
-  } catch (err) {
-    if (err instanceof LexAuthFactorError && !authFactorToken) {
-      // 2FA required - prompt user for code
-      const token = await promptUserFor2FACode(err.message)
-      return loginWith2FA(identifier, password, token)
-    }
-    throw err
-  }
+if (!result.success && result.error === 'AuthFactorTokenRequired') {
+  // Prompt user for 2FA code, then retry
+  const code = await prompt2FACode()
+
+  const retryResult = await PasswordAgent.login({
+    service: 'https://bsky.social',
+    identifier: 'alice.bsky.social',
+    password: 'app-password',
+    authFactorToken: code,
+  })
 }
 ```
 
@@ -168,27 +171,24 @@ async function loginWith2FA(
 Restore a previously saved session:
 
 ```typescript
-import { PasswordSession, SessionData } from '@atproto/lex-password-session'
+import { PasswordAgent, Session } from '@atproto/lex-password-agent'
 
 // Load session from storage
-const savedSession: SessionData = JSON.parse(localStorage.getItem('session')!)
+const savedSession: Session = JSON.parse(localStorage.getItem('session')!)
 
 // Resume the session (automatically refreshes tokens)
-const session = await PasswordSession.resume(savedSession, {
-  onUpdated: (data) => {
-    localStorage.setItem('session', JSON.stringify(data))
-  },
-  onDeleted: () => {
-    localStorage.removeItem('session')
+const agent = await PasswordAgent.resume(savedSession, {
+  hooks: {
+    onRefreshed: (session) => {
+      localStorage.setItem('session', JSON.stringify(session))
+    },
+    onDeleted: () => {
+      localStorage.removeItem('session')
+    },
   },
 })
 
-console.log('Session resumed for:', session.did)
-
-// Access session properties
-console.log(session.did) // User's DID
-console.log(session.handle) // User's handle
-console.log(session.destroyed) // false (session is active)
+console.log('Session resumed for:', agent.did)
 ```
 
 > [!NOTE]
@@ -200,87 +200,66 @@ console.log(session.destroyed) // false (session is active)
 End the session and notify the server:
 
 ```typescript
-await session.logout()
+await agent.logout()
 ```
 
 After logout:
 
 - The `onDeleted` hook is called
-- The session is marked as destroyed (`session.destroyed === true`)
+- The agent is marked as destroyed (`agent.destroyed === true`)
 - Further requests will throw `'Logged out'`
 
 ### Static Delete
 
-Delete a session without creating a session instance:
+Delete a session without creating an agent instance:
 
 ```typescript
-import { PasswordSession, SessionData } from '@atproto/lex-password-session'
+import { PasswordAgent, Session } from '@atproto/lex-password-agent'
 
-const data: SessionData = JSON.parse(localStorage.getItem('session')!)
+const session: Session = JSON.parse(localStorage.getItem('session')!)
 
 // Delete the session on the server
-await PasswordSession.delete(data)
+await PasswordAgent.delete(session)
 ```
 
 This is useful for cleanup scenarios where you don't need to make additional requests.
 
-### Create Account
-
-Create a new account and get an authenticated session:
-
-```typescript
-import { PasswordSession } from '@atproto/lex-password-session'
-
-const session = await PasswordSession.createAccount(
-  {
-    handle: 'alice.bsky.social',
-    email: 'alice@example.com',
-    password: 'secure-password',
-  },
-  {
-    service: 'https://bsky.social',
-    onUpdated: (data) => saveToStorage(data),
-    onDeleted: (data) => removeFromStorage(data.did),
-  },
-)
-
-console.log('Account created:', session.did)
-```
-
 ## Session Hooks
 
-Hooks provide callbacks for session lifecycle events. All hooks receive the session instance as `this` context.
+Hooks provide callbacks for session lifecycle events. All hooks receive the agent as `this` context.
 
-### onUpdated
+### onRefreshed
 
-Called when the session is successfully created or refreshed:
+Called when tokens are successfully refreshed:
 
 ```typescript
-const session = await PasswordSession.login({
+const result = await PasswordAgent.login({
   service: 'https://bsky.social',
   identifier: 'alice.bsky.social',
   password: 'app-password',
-  onUpdated(data) {
-    // `this` is the PasswordSession instance
-    console.log('Session updated for:', this.did)
+  hooks: {
+    onRefreshed(session) {
+      // `this` is the PasswordAgent instance
+      console.log('Session refreshed for:', this.did)
 
-    // Persist the updated session
-    saveSession(data)
+      // Persist the updated session
+      saveSession(session)
+    },
   },
 })
 ```
 
 > [!IMPORTANT]
 >
-> Requests are blocked while `onUpdated` is running. Keep this callback fast to avoid delays.
+> Requests are blocked while `onRefreshed` is running. Keep this callback fast to avoid delays.
 
-### onUpdateFailure
+### onRefreshFailure
 
 Called when token refresh fails due to transient errors (network issues, server unavailability):
 
 ```typescript
-{
-  onUpdateFailure(data, error) {
+hooks: {
+  onRefreshFailure(session, error) {
     console.warn('Token refresh failed:', error.message)
     // Session may still be valid - consider retry logic
   }
@@ -292,10 +271,10 @@ Called when token refresh fails due to transient errors (network issues, server 
 Called when the session is terminated (logout or server-side invalidation):
 
 ```typescript
-{
-  onDeleted(data) {
-    console.log('Session ended for:', data.did)
-    clearPersistedSession(data.did)
+hooks: {
+  onDeleted(session) {
+    console.log('Session ended for:', session.data.did)
+    clearPersistedSession(session.data.did)
     redirectToLogin()
   }
 }
@@ -306,11 +285,11 @@ Called when the session is terminated (logout or server-side invalidation):
 Called when logout fails due to transient errors:
 
 ```typescript
-{
-  onDeleteFailure(data, error) {
+hooks: {
+  onDeleteFailure(session, error) {
     console.error('Logout failed:', error.message)
     // Consider queuing for retry to avoid orphaned sessions
-    queueLogoutRetry(data)
+    queueLogoutRetry(session)
   }
 }
 ```
@@ -319,21 +298,29 @@ Called when logout fails due to transient errors:
 >
 > Ignoring delete failures can leave sessions active on the server. Implement retry logic for security-sensitive applications.
 
-## Session Data
+## Session Object
 
-The `SessionData` type contains all data needed to authenticate and restore sessions:
+The `Session` type contains all data needed to authenticate and restore sessions:
 
 ```typescript
-type SessionData = {
+type Session = {
   // Session credentials and user info from createSession response
-  accessJwt: string
-  refreshJwt: string
-  did: string
-  handle: string
-  email?: string
-  emailConfirmed?: boolean
-  didDoc?: object
-  // ... other fields from createSession
+  data: {
+    accessJwt: string
+    refreshJwt: string
+    did: string
+    handle: string
+    email?: string
+    emailConfirmed?: boolean
+    didDoc?: object
+    // ... other fields from createSession
+  }
+
+  // When tokens were last refreshed
+  refreshedAt: string // ISO 8601 datetime
+
+  // PDS URL extracted from DID document (for routing requests)
+  pdsUrl: string | null
 
   // Original service URL used for login
   service: string
@@ -342,37 +329,28 @@ type SessionData = {
 
 ## Error Handling
 
-The `PasswordSession` class uses exception-based error handling:
+Login errors are returned as `XrpcResponseError` objects:
 
 ```typescript
-import {
-  PasswordSession,
-  LexAuthFactorError,
-} from '@atproto/lex-password-session'
-import { XrpcResponseError } from '@atproto/lex-client'
+const result = await PasswordAgent.login({
+  service: 'https://bsky.social',
+  identifier: 'alice.bsky.social',
+  password: 'wrong-password',
+})
 
-try {
-  const session = await PasswordSession.login({
-    service: 'https://bsky.social',
-    identifier: 'alice.bsky.social',
-    password: 'wrong-password',
-  })
-} catch (err) {
-  if (err instanceof LexAuthFactorError) {
-    console.error('2FA required')
-  } else if (err instanceof XrpcResponseError) {
-    switch (err.error) {
-      case 'AuthenticationRequired':
-        console.error('Invalid credentials')
-        break
-      case 'AccountTakedown':
-        console.error('Account has been suspended')
-        break
-      default:
-        console.error('Login failed:', err.message)
-    }
-  } else {
-    throw err
+if (!result.success) {
+  switch (result.error) {
+    case 'AuthenticationRequired':
+      console.error('Invalid credentials')
+      break
+    case 'AuthFactorTokenRequired':
+      console.error('2FA required')
+      break
+    case 'AccountTakedown':
+      console.error('Account has been suspended')
+      break
+    default:
+      console.error('Login failed:', result.message)
   }
 }
 ```
@@ -389,39 +367,41 @@ Common error codes:
 
 ## Using with Client
 
-The `PasswordSession` implements the `Agent` interface and can be used directly with `Client`:
+The `PasswordAgent` implements the `Agent` interface and can be used directly with `Client`:
 
 ```typescript
 import { Client } from '@atproto/lex-client'
-import { PasswordSession } from '@atproto/lex-password-session'
+import { PasswordAgent } from '@atproto/lex-password-agent'
 import * as app from './lexicons/app.js'
 
-const session = await PasswordSession.login({
+const result = await PasswordAgent.login({
   service: 'https://bsky.social',
   identifier: 'alice.bsky.social',
   password: 'app-password',
 })
 
-const client = new Client(session)
+if (result.success) {
+  const client = new Client(result.value)
 
-// The client automatically uses the session for authentication
-const profile = await client.call(app.bsky.actor.getProfile, {
-  actor: client.assertDid,
-})
+  // The client automatically uses the agent for authentication
+  const profile = await client.call(app.bsky.actor.getProfile, {
+    actor: client.assertDid,
+  })
 
-// Tokens are automatically refreshed when expired
-const timeline = await client.call(app.bsky.feed.getTimeline, {
-  limit: 50,
-})
+  // Tokens are automatically refreshed when expired
+  const timeline = await client.call(app.bsky.feed.getTimeline, {
+    limit: 50,
+  })
 
-// Create records
-await client.create(app.bsky.feed.post, {
-  text: 'Hello from lex-password-session!',
-  createdAt: new Date().toISOString(),
-})
+  // Create records
+  await client.create(app.bsky.feed.post, {
+    text: 'Hello from lex-password-agent!',
+    createdAt: new Date().toISOString(),
+  })
+}
 ```
 
-The session handles:
+The agent handles:
 
 - Adding `Authorization` headers to requests
 - Detecting expired tokens (401 responses or `ExpiredToken` errors)

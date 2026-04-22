@@ -1,43 +1,36 @@
 import { mapDefined } from '@atproto/common'
-import { DidString } from '@atproto/syntax'
-import { Server } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
 import {
   HydrateCtx,
   HydrationState,
   Hydrator,
 } from '../../../../hydration/hydrator'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { ids } from '../../../../lexicon/lexicons'
+import { QueryParams } from '../../../../lexicon/types/app/bsky/actor/getProfiles'
 import { createPipeline, noRules } from '../../../../pipeline'
 import { Views } from '../../../../views'
 import { resHeaders } from '../../../util'
 
 export default function (server: Server, ctx: AppContext) {
   const getProfile = createPipeline(skeleton, hydration, noRules, presentation)
-  server.add(app.bsky.actor.getProfiles, {
+  server.app.bsky.actor.getProfiles({
     auth: ctx.authVerifier.standardOptionalParameterized({
       lxmCheck: (method) => {
         if (!method) return false
         return (
-          method === app.bsky.actor.getProfiles.$lxm ||
+          method === ids.AppBskyActorGetProfiles ||
           method.startsWith('chat.bsky.')
         )
       },
     }),
-    opts: {
-      // @TODO remove after grace period has passed, behavior is non-standard.
-      // temporarily added for compat w/ previous version of xrpc-server to avoid breakage of a few specified parties.
-      paramsParseLoose: true,
-    },
     handler: async ({ auth, params, req }) => {
-      const { viewer, includeTakedowns, skipViewerBlocks } =
-        ctx.authVerifier.parseCreds(auth)
+      const { viewer, includeTakedowns } = ctx.authVerifier.parseCreds(auth)
       const labelers = ctx.reqLabelers(req)
       const hydrateCtx = await ctx.hydrator.createContext({
         viewer,
         labelers,
         includeTakedowns,
-        skipViewerBlocks,
       })
 
       const result = await getProfile({ ...params, hydrateCtx }, ctx)
@@ -92,8 +85,8 @@ type Context = {
   views: Views
 }
 
-type Params = app.bsky.actor.getProfiles.$Params & {
+type Params = QueryParams & {
   hydrateCtx: HydrateCtx
 }
 
-type SkeletonState = { dids: DidString[] }
+type SkeletonState = { dids: string[] }

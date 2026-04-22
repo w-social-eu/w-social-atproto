@@ -28,7 +28,6 @@ import {
   isAccountEvent,
   isAgeAssuranceEvent,
   isAgeAssuranceOverrideEvent,
-  isAgeAssurancePurgeEvent,
   isIdentityEvent,
   isModEventAcknowledge,
   isModEventComment,
@@ -666,10 +665,6 @@ export class ModerationService {
       subject.blobCids,
     )
 
-    if (isAgeAssurancePurgeEvent(event)) {
-      await this.purgeAgeAssuranceEvents(subjectInfo.subjectDid)
-    }
-
     // Updates are only needed if strikeCount is numeric (in some cases even 0)
     if (modEvent.strikeCount !== null) {
       try {
@@ -684,15 +679,6 @@ export class ModerationService {
     }
 
     return { event: modEvent, subjectStatus }
-  }
-
-  async purgeAgeAssuranceEvents(subjectDid: string) {
-    this.db.assertTransaction()
-    await this.db.db
-      .deleteFrom('moderation_event')
-      .where('subjectDid', '=', subjectDid)
-      .where('action', '=', 'tools.ozone.moderation.defs#ageAssuranceEvent')
-      .execute()
   }
 
   async getLastReversibleEventForSubject(subject: ReversalSubject) {

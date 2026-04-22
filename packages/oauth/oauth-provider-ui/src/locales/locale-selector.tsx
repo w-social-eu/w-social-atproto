@@ -29,12 +29,11 @@ export function LocaleSelector({
         'transition duration-300 ease-in-out',
         'outline-none',
         'focus:ring-primary focus:ring-2 focus:ring-offset-1 focus:ring-offset-white dark:focus:ring-offset-black',
-        'border-contrast-300 border',
         // Font
-        'text-text-default',
+        'text-slate-600 dark:text-slate-300',
         // Layout
-        'rounded-full',
-        'px-2 py-1',
+        'rounded-lg',
+        'p-2 pr-1',
         className,
       )}
       value={locale}

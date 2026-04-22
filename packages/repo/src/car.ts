@@ -1,13 +1,20 @@
 import { setImmediate } from 'node:timers/promises'
+import * as cbor from '@ipld/dag-cbor'
+import { CID } from 'multiformats/cid'
+import * as ui8 from 'uint8arrays'
 import * as varint from 'varint'
-import * as cbor from '@atproto/lex-cbor'
-import { Cid, decodeCid, isCidForBytes } from '@atproto/lex-data'
+import {
+  check,
+  parseCidFromBytes,
+  schema,
+  streamToBuffer,
+  verifyCidForBytes,
+} from '@atproto/common'
 import { BlockMap } from './block-map'
-import { CarBlock, schema } from './types'
-import { concatBytesAsync } from './util'
+import { CarBlock } from './types'
 
 export async function* writeCarStream(
-  root: Cid | null,
+  root: CID | null,
   blocks: AsyncIterable<CarBlock>,
 ): AsyncIterable<Uint8Array> {
   const header = new Uint8Array(
@@ -27,15 +34,16 @@ export async function* writeCarStream(
   }
 }
 
-export async function blocksToCarFile(
-  root: Cid | null,
+export const blocksToCarFile = (
+  root: CID | null,
   blocks: BlockMap,
-): Promise<Uint8Array> {
-  return concatBytesAsync(blocksToCarStream(root, blocks))
+): Promise<Uint8Array> => {
+  const carStream = blocksToCarStream(root, blocks)
+  return streamToBuffer(carStream)
 }
 
 export const blocksToCarStream = (
-  root: Cid | null,
+  root: CID | null,
   blocks: BlockMap,
 ): AsyncIterable<Uint8Array> => {
   return writeCarStream(root, iterateBlocks(blocks))
@@ -57,7 +65,7 @@ export type ReadCarOptions = {
 export const readCar = async (
   bytes: Uint8Array,
   opts?: ReadCarOptions,
-): Promise<{ roots: Cid[]; blocks: BlockMap }> => {
+): Promise<{ roots: CID[]; blocks: BlockMap }> => {
   const { roots, blocks } = await readCarReader(new Ui8Reader(bytes), opts)
   const blockMap = new BlockMap()
   for await (const block of blocks) {
@@ -69,7 +77,7 @@ export const readCar = async (
 export const readCarWithRoot = async (
   bytes: Uint8Array,
   opts?: ReadCarOptions,
-): Promise<{ root: Cid; blocks: BlockMap }> => {
+): Promise<{ root: CID; blocks: BlockMap }> => {
   const { roots, blocks } = await readCar(bytes, opts)
   if (roots.length !== 1) {
     throw new Error(`Expected one root, got ${roots.length}`)
@@ -88,7 +96,7 @@ export const readCarStream = async (
   car: Iterable<Uint8Array> | AsyncIterable<Uint8Array>,
   opts?: ReadCarOptions,
 ): Promise<{
-  roots: Cid[]
+  roots: CID[]
   blocks: CarBlockIterable
 }> => {
   return readCarReader(new BufferedReader(car), opts)
@@ -98,7 +106,7 @@ export const readCarReader = async (
   reader: BytesReader,
   opts?: ReadCarOptions,
 ): Promise<{
-  roots: Cid[]
+  roots: CID[]
   blocks: CarBlockIterable
 }> => {
   try {
@@ -108,12 +116,11 @@ export const readCarReader = async (
     }
     const headerBytes = await reader.read(headerSize)
     const header = cbor.decode(headerBytes)
-    const result = schema.carHeader.safeParse(header)
-    if (!result.success) {
-      throw new Error('Could not parse CAR header', { cause: result.error })
+    if (!check.is(header, schema.carHeader)) {
+      throw new Error('Could not parse CAR header')
     }
     return {
-      roots: result.data.roots,
+      roots: header.roots,
       blocks: readCarBlocksIter(reader, opts),
     }
   } catch (err) {
@@ -156,7 +163,7 @@ async function* readCarBlocksIterGenerator(
         break
       }
       const blockBytes = await reader.read(blockSize)
-      const cid = decodeCid(blockBytes.subarray(0, 36))
+      const cid = parseCidFromBytes(blockBytes.subarray(0, 36))
       const bytes = blockBytes.subarray(36)
       yield { cid, bytes }
 
@@ -176,9 +183,7 @@ export async function* verifyIncomingCarBlocks(
   car: AsyncIterable<CarBlock>,
 ): AsyncGenerator<CarBlock, void, unknown> {
   for await (const block of car) {
-    if (!(await isCidForBytes(block.cid, block.bytes))) {
-      throw new Error(`Not a valid CID for bytes (${block.cid.toString()})`)
-    }
+    await verifyCidForBytes(block.cid, block.bytes)
     yield block
   }
 }
@@ -200,7 +205,7 @@ const readVarint = async (reader: BytesReader): Promise<number | null> => {
       done = true
     }
   }
-  const concatted = Buffer.concat(bytes)
+  const concatted = ui8.concat(bytes)
   return varint.decode(concatted)
 }
 
@@ -228,17 +233,10 @@ class Ui8Reader implements BytesReader {
   async close(): Promise<void> {}
 }
 
-/**
- * This code was optimized for performance. See
- * {@link https://github.com/bluesky-social/atproto/pull/4729 #4729} for more details
- * and benchmarks.
- */
 class BufferedReader implements BytesReader {
+  buffer: Uint8Array = new Uint8Array()
   iterator: Iterator<Uint8Array> | AsyncIterator<Uint8Array>
   isDone = false
-
-  /** fifo list of chunks to consume */
-  private chunks: Uint8Array[] = []
 
   constructor(stream: Iterable<Uint8Array> | AsyncIterable<Uint8Array>) {
     this.iterator =
@@ -247,110 +245,32 @@ class BufferedReader implements BytesReader {
         : stream[Symbol.iterator]()
   }
 
-  /** Number of bytes currently buffered and available for reading */
-  get bufferedByteLength() {
-    let total = 0
-    for (let i = 0; i < this.chunks.length; i++) {
-      total += this.chunks[i].byteLength
-    }
-    return total
-  }
-
-  /**
-   * @note concurrent reads are **NOT** supported by the current implementation
-   * and would require call to readUntilBuffered to be using a fifo lock for
-   * read()s to be processed in fifo order.
-   */
   async read(bytesToRead: number): Promise<Uint8Array> {
-    const bytesNeeded = bytesToRead - this.bufferedByteLength
-    if (bytesNeeded > 0 && !this.isDone) {
-      await this.readUntilBuffered(bytesNeeded)
-    }
-
-    const resultLength = Math.min(bytesToRead, this.bufferedByteLength)
-    if (resultLength <= 0) return new Uint8Array()
-
-    const firstChunk = this.consumeChunk(resultLength)
-    if (firstChunk.byteLength === resultLength) {
-      // If the data consumed from the first chunk contains all we need, return
-      // it as-is. This allows to avoid any copy operation.
-      return firstChunk
-    }
-
-    // The first chunk does not have all the data we need. We have to copy
-    // multiple chunks into a larger buffer
-    const result = new Uint8Array(resultLength)
-    let resultWriteIndex = 0
-
-    // Copy the first chunk into the result buffer
-    result.set(firstChunk, resultWriteIndex)
-    resultWriteIndex += firstChunk.byteLength
-
-    // Copy more chunks as needed (we use do-while because we *know* we need
-    // more than one chunk)
-    do {
-      const missingLength = resultLength - resultWriteIndex
-      const currentChunk = this.consumeChunk(missingLength)
-
-      result.set(currentChunk, resultWriteIndex)
-      resultWriteIndex += currentChunk.byteLength
-    } while (resultWriteIndex < resultLength)
-
-    return result
+    await this.readUntilBuffered(bytesToRead)
+    const value = this.buffer.subarray(0, bytesToRead)
+    this.buffer = this.buffer.subarray(bytesToRead)
+    return value
   }
 
-  private async readUntilBuffered(bytesNeeded: number) {
-    let bytesRead = 0
-    while (bytesRead < bytesNeeded) {
+  private async readUntilBuffered(bytesToRead: number) {
+    if (this.isDone) {
+      return
+    }
+    while (this.buffer.length < bytesToRead) {
       const next = await this.iterator.next()
       if (next.done) {
         this.isDone = true
-        break
-      } else {
-        this.chunks.push(next.value)
-        bytesRead += next.value.byteLength
+        return
       }
-    }
-    return bytesRead
-  }
-
-  private consumeChunk(bytesToConsume: number) {
-    const firstChunk = this.chunks[0]!
-    if (bytesToConsume < firstChunk.byteLength) {
-      // return a sub-view of the data being read and replace the first chunk
-      // with a sub-view that does not contain that data.
-
-      // @NOTE for some reason, subarray() revealed to be 7-8% slower in NodeJS
-      // benchmarks.
-
-      // this.chunks[0] = firstChunk.subarray(bytesToConsume)
-      // return firstChunk.subarray(0, bytesToConsume)
-
-      this.chunks[0] = new Uint8Array(
-        firstChunk.buffer,
-        firstChunk.byteOffset + bytesToConsume,
-        firstChunk.byteLength - bytesToConsume,
-      )
-      return new Uint8Array(
-        firstChunk.buffer,
-        firstChunk.byteOffset,
-        bytesToConsume,
-      )
-    } else {
-      // First chunk is being read in full, discard it
-      this.chunks.shift()
-      return firstChunk
+      this.buffer = ui8.concat([this.buffer, next.value])
     }
   }
 
   async close(): Promise<void> {
-    try {
-      if (!this.isDone && this.iterator.return) {
-        await this.iterator.return()
-      }
-    } finally {
-      this.isDone = true
-      this.chunks.length = 0
+    if (!this.isDone && this.iterator.return) {
+      await this.iterator.return()
     }
+    this.isDone = true
+    this.buffer = new Uint8Array()
   }
 }

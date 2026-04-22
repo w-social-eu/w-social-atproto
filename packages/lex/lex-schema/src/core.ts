@@ -1,4 +1,5 @@
 export * from './core/$type.js'
+export * from './core/property-key.js'
 export * from './core/record-key.js'
 export * from './core/result.js'
 export * from './core/schema.js'

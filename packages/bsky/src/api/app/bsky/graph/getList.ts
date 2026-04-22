@@ -1,6 +1,5 @@
 import { mapDefined } from '@atproto/common'
-import { AtUriString, DidString } from '@atproto/lex'
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
 import {
   HydrateCtx,
@@ -8,7 +7,8 @@ import {
   Hydrator,
   mergeManyStates,
 } from '../../../../hydration/hydrator'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { QueryParams } from '../../../../lexicon/types/app/bsky/graph/getList'
 import {
   HydrationFnInput,
   PresentationFnInput,
@@ -23,18 +23,16 @@ import { clearlyBadCursor, resHeaders } from '../../../util'
 
 export default function (server: Server, ctx: AppContext) {
   const getList = createPipeline(skeleton, hydration, noBlocks, presentation)
-  server.add(app.bsky.graph.getList, {
+  server.app.bsky.graph.getList({
     auth: ctx.authVerifier.standardOptional,
     handler: async ({ params, auth, req }) => {
-      const { viewer, includeTakedowns, skipViewerBlocks } =
-        ctx.authVerifier.parseCreds(auth)
+      const { viewer, includeTakedowns } = ctx.authVerifier.parseCreds(auth)
 
       const labelers = ctx.reqLabelers(req)
       const hydrateCtx = await ctx.hydrator.createContext({
         labelers,
         viewer,
         includeTakedowns,
-        skipViewerBlocks,
       })
       const result = await getList({ ...params, hydrateCtx }, ctx)
       return {
@@ -73,7 +71,7 @@ const hydration = async (
   const [listState, profileState] = await Promise.all([
     ctx.hydrator.hydrateLists([listUri], params.hydrateCtx),
     ctx.hydrator.hydrateProfiles(
-      listitems.map(({ did }) => did as DidString),
+      listitems.map(({ did }) => did),
       params.hydrateCtx,
     ),
   ])
@@ -91,7 +89,7 @@ const noBlocks = (input: RulesFnInput<Context, Params, SkeletonState>) => {
   const creator = didFromUri(skeleton.listUri)
   const blocks = hydration.bidirectionalBlocks?.get(creator)
   skeleton.listitems = skeleton.listitems.filter(({ did }) => {
-    return !blocks?.get(did as DidString)
+    return !blocks?.get(did)
   })
   return skeleton
 }
@@ -103,7 +101,7 @@ const presentation = (
   const { listUri, listitems, cursor } = skeleton
   const list = ctx.views.list(listUri, hydration)
   const items = mapDefined(listitems, ({ uri, did }) =>
-    ctx.views.listItemView(uri as AtUriString, did as DidString, hydration),
+    ctx.views.listItemView(uri, did, hydration),
   )
   if (!list) {
     throw new InvalidRequestError('List not found')
@@ -128,10 +126,10 @@ const maybeGetBlocksForReferenceAndCurateList = async (input: {
   ) {
     return
   }
-  const pairs: Map<DidString, DidString[]> = new Map()
+  const pairs: Map<string, string[]> = new Map()
   pairs.set(
     creator,
-    listitems.map(({ did }) => did as DidString),
+    listitems.map(({ did }) => did),
   )
   return await ctx.hydrator.hydrateBidirectionalBlocks(pairs, params.hydrateCtx)
 }
@@ -141,12 +139,12 @@ type Context = {
   views: Views
 }
 
-type Params = app.bsky.graph.getList.$Params & {
+type Params = QueryParams & {
   hydrateCtx: HydrateCtx
 }
 
 type SkeletonState = {
-  listUri: AtUriString
+  listUri: string
   listitems: ListItemInfo[]
   cursor?: string
 }

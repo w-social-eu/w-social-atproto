@@ -1,9 +1,8 @@
 import { Selectable } from 'kysely'
-import { DidString, HandleString } from '@atproto/syntax'
 
 export interface Actor {
-  did: DidString
-  handle: HandleString | null
+  did: string
+  handle: string | null
   createdAt: string
   takedownRef: string | null
   deactivatedAt: string | null

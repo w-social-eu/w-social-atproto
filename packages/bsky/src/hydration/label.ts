@@ -1,8 +1,9 @@
-import { AtUri, AtUriString, DidString, UriString } from '@atproto/syntax'
+import { AtUri } from '@atproto/syntax'
 import { DataPlaneClient } from '../data-plane/client'
-import { app, com } from '../lexicons/index.js'
+import { ids } from '../lexicon/lexicons'
+import { Record as LabelerRecord } from '../lexicon/types/app/bsky/labeler/service'
+import { Label } from '../lexicon/types/com/atproto/label/defs'
 import { ParsedLabelers } from '../util'
-import { Label, LabelerRecord } from '../views/types.js'
 import {
   HydrationMap,
   Merges,
@@ -12,25 +13,22 @@ import {
   parseString,
 } from './util'
 
-export type { Label }
+export type { Label } from '../lexicon/types/com/atproto/label/defs'
 
 export type SubjectLabels = {
   isImpersonation: boolean
   isTakendown: boolean
   needsReview: boolean
-  labels: HydrationMap<`${string}::${string}`, Label> // src + val -> label
+  labels: HydrationMap<Label> // src + val -> label
 }
 
-export class Labels
-  extends HydrationMap<UriString, SubjectLabels>
-  implements Merges
-{
-  static key(label: Label): `${string}::${string}` {
+export class Labels extends HydrationMap<SubjectLabels> implements Merges {
+  static key(label: Label) {
     return `${label.src}::${label.val}`
   }
   merge(map: Labels): this {
-    for (const [key, theirs] of map) {
-      if (!theirs) continue
+    map.forEach((theirs, key) => {
+      if (!theirs) return
       const mine = this.get(key)
       if (mine) {
         mine.isTakendown = mine.isTakendown || theirs.isTakendown
@@ -38,10 +36,10 @@ export class Labels
       } else {
         this.set(key, theirs)
       }
-    }
+    })
     return this
   }
-  getBySubject(sub: UriString): Label[] {
+  getBySubject(sub: string): Label[] {
     const it = this.get(sub)?.labels.values()
     if (!it) return []
     const labels: Label[] = []
@@ -56,38 +54,35 @@ export type LabelerAgg = {
   likes: number
 }
 
-export type LabelerAggs = HydrationMap<DidString, LabelerAgg>
+export type LabelerAggs = HydrationMap<LabelerAgg>
 
 export type Labeler = RecordInfo<LabelerRecord>
-export type Labelers = HydrationMap<DidString, Labeler>
+export type Labelers = HydrationMap<Labeler>
 
 export type LabelerViewerState = {
-  like?: AtUriString
+  like?: string
 }
 
-export type LabelerViewerStates = HydrationMap<DidString, LabelerViewerState>
+export type LabelerViewerStates = HydrationMap<LabelerViewerState>
 
 export class LabelHydrator {
   constructor(public dataplane: DataPlaneClient) {}
 
   async getLabelsForSubjects(
-    subjects: UriString[],
+    subjects: string[],
     labelers: ParsedLabelers,
   ): Promise<Labels> {
-    const map = new Labels()
-
-    if (!subjects.length || !labelers.dids.length) return map
-
+    if (!subjects.length || !labelers.dids.length) return new Labels()
     const res = await this.dataplane.getLabels({
       subjects,
       issuers: labelers.dids,
     })
 
-    for (const cur of res.labels) {
-      const parsed = parseJsonBytes(com.atproto.label.defs.label, cur)
-      if (!parsed || parsed.neg) continue
+    return res.labels.reduce((acc, cur) => {
+      const parsed = parseJsonBytes(cur) as Label | undefined
+      if (!parsed || parsed.neg) return acc
       const { sig: _, ...label } = parsed
-      let entry = map.get(label.uri)
+      let entry = acc.get(label.uri)
       if (!entry) {
         entry = {
           isImpersonation: false,
@@ -95,7 +90,7 @@ export class LabelHydrator {
           needsReview: false,
           labels: new HydrationMap(),
         }
-        map.set(label.uri, entry)
+        acc.set(label.uri, entry)
       }
 
       const isActionableNeedsReview =
@@ -125,81 +120,61 @@ export class LabelHydrator {
       ) {
         entry.isImpersonation = true
       }
-    }
 
-    return map
+      return acc
+    }, new Labels())
   }
 
   async getLabelers(
-    dids: DidString[],
+    dids: string[],
     includeTakedowns = false,
   ): Promise<Labelers> {
-    const map: Labelers = new HydrationMap()
-    if (!dids.length) return map
-
     const res = await this.dataplane.getLabelerRecords({
       uris: dids.map(labelerDidToUri),
     })
-    for (let i = 0; i < dids.length; i++) {
-      const did = dids[i]
-      const record = parseRecord(
-        app.bsky.labeler.service.main,
+    return dids.reduce((acc, did, i) => {
+      const record = parseRecord<LabelerRecord>(
         res.records[i],
         includeTakedowns,
       )
-      map.set(did, record ?? null)
-    }
-
-    return map
+      return acc.set(did, record ?? null)
+    }, new HydrationMap<Labeler>())
   }
 
   async getLabelerViewerStates(
-    dids: DidString[],
-    viewer: DidString,
+    dids: string[],
+    viewer: string,
   ): Promise<LabelerViewerStates> {
-    const map: LabelerViewerStates = new HydrationMap()
-    if (!dids.length) return map
-
     const likes = await this.dataplane.getLikesByActorAndSubjects({
       actorDid: viewer,
       refs: dids.map((did) => ({ uri: labelerDidToUri(did) })),
     })
-
-    for (let i = 0; i < dids.length; i++) {
-      const did = dids[i]
-      map.set(did, {
+    return dids.reduce((acc, did, i) => {
+      return acc.set(did, {
         like: parseString(likes.uris[i]),
       })
-    }
-
-    return map
+    }, new HydrationMap<LabelerViewerState>())
   }
 
   async getLabelerAggregates(
-    dids: DidString[],
-    viewer: DidString | null,
+    dids: string[],
+    viewer: string | null,
   ): Promise<LabelerAggs> {
-    const map: LabelerAggs = new HydrationMap()
-    if (!dids.length) return map
-
     const refs = dids.map((did) => ({ uri: labelerDidToUri(did) }))
     const counts = await this.dataplane.getInteractionCounts({
       refs,
       skipCacheForDids: viewer ? [viewer] : undefined,
     })
-    for (let i = 0; i < dids.length; i++) {
-      const did = dids[i]
-      map.set(did, {
+    return dids.reduce((acc, did, i) => {
+      return acc.set(did, {
         likes: counts.likes[i] ?? 0,
       })
-    }
-
-    return map
+    }, new HydrationMap<LabelerAgg>())
   }
 }
 
-const labelerDidToUri = (did: DidString): AtUriString => {
-  return AtUri.make(did, app.bsky.labeler.service.$type, 'self').toString()
+const labelerDidToUri = (did: string): string => {
+  return AtUri.make(did, ids.AppBskyLabelerService, 'self').toString()
 }
 
 const IMPERSONATION_LABEL = 'impersonation'

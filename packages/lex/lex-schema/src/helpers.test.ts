@@ -38,8 +38,9 @@ describe('InferMethodParams', () => {
       const procedure = l.procedure(
         'com.example.list',
         l.params({ limit: l.string() }),
-        l.payload(),
-        l.payload(),
+        l.payload(undefined, undefined),
+        l.payload(undefined, undefined),
+        undefined,
       )
 
       type Params = l.InferMethodParams<typeof procedure>
@@ -61,7 +62,7 @@ describe('InferMethodParams', () => {
         l.params({
           cursor: l.optional(l.integer()),
         }),
-        l.lexMap(),
+        l.unknown(),
       )
 
       type Params = l.InferMethodParams<typeof subscription>
@@ -81,8 +82,9 @@ describe('InferMethodInput', () => {
       const procedure = l.procedure(
         'com.example.create',
         l.params(),
-        l.jsonPayload({ text: l.string() }),
-        l.payload(),
+        l.payload('application/json', l.object({ text: l.string() })),
+        l.payload(undefined, undefined),
+        undefined,
       )
 
       type Input = l.InferMethodInput<typeof procedure, BinaryValue>
@@ -90,8 +92,6 @@ describe('InferMethodInput', () => {
       expectType<Input>({ encoding: 'application/json', body: { text: 'hi' } })
       // @ts-expect-error
       expectType<Input>({ encoding: 'application/json', body: { text: 123 } })
-      // @ts-expect-error
-      expectType<Input>({ encoding: 'text/plain', body: { text: 'hi' } })
       // @ts-expect-error
       expectType<Input>({ encoding: 'text/plain', body: 'hello' })
       // @ts-expect-error
@@ -105,7 +105,8 @@ describe('InferMethodInput', () => {
         'com.example.create',
         l.params(),
         l.payload('*/*', undefined),
-        l.payload(),
+        l.payload(undefined, undefined),
+        undefined,
       )
 
       type Input = l.InferMethodInput<typeof procedure, BinaryValue>
@@ -127,8 +128,9 @@ describe('InferMethodInputBody', () => {
       const procedure = l.procedure(
         'com.example.create',
         l.params(),
-        l.jsonPayload({ text: l.string() }),
-        l.payload(),
+        l.payload('application/json', l.object({ text: l.string() })),
+        l.payload(undefined, undefined),
+        undefined,
       )
 
       type InputBody = l.InferMethodInputBody<typeof procedure, BinaryValue>
@@ -145,7 +147,8 @@ describe('InferMethodInputBody', () => {
         'com.example.upload',
         l.params(),
         l.payload('*/*', undefined),
-        l.payload(),
+        l.payload(undefined, undefined),
+        undefined,
       )
 
       type InputBody = l.InferMethodInputBody<typeof procedure, BinaryValue>
@@ -165,8 +168,9 @@ describe('InferMethodInputEncoding', () => {
       const procedure = l.procedure(
         'com.example.create',
         l.params(),
-        l.jsonPayload({ text: l.string() }),
-        l.payload(),
+        l.payload('application/json', l.object({ text: l.string() })),
+        l.payload(undefined, undefined),
+        undefined,
       )
 
       type InputEncoding = l.InferMethodInputEncoding<typeof procedure>
@@ -183,7 +187,8 @@ describe('InferMethodInputEncoding', () => {
         'com.example.upload',
         l.params(),
         l.payload('*/*', undefined),
-        l.payload(),
+        l.payload(undefined, undefined),
+        undefined,
       )
 
       type InputEncoding = l.InferMethodInputEncoding<typeof procedure>
@@ -198,42 +203,11 @@ describe('InferMethodInputEncoding', () => {
 
 describe('InferMethodOutput', () => {
   describe('query', () => {
-    test('generic output', () => {
-      const query = l.query(
-        'com.example.query',
-        l.params(),
-        l.payload(),
-      ) as unknown as l.Query
-      const unknownValue = {} as unknown
-      const lexValue = {} as l.LexValue
-
-      type Output = l.InferMethodOutput<typeof query, BinaryValue>
-
-      expectType<Output>(undefined)
-      expectType<Output>({ body: binaryValue, encoding: 'text/plain' })
-      expectType<Output>({ body: lexValue, encoding: 'application/json' })
-
-      expectType<Output>({
-        // @ts-expect-error
-        body: unknownValue,
-        encoding: 'application/octet-stream',
-      })
-
-      class Foo {
-        constructor(readonly field: number = 3) {}
-      }
-      expectType<Output>({
-        // @ts-expect-error
-        body: new Foo(),
-        encoding: 'application/octet-stream',
-      })
-    })
-
     test('with payload schema', () => {
       const query = l.query(
         'com.example.query',
         l.params(),
-        l.jsonPayload({ items: l.array(l.string()) }),
+        l.payload('application/json', l.object({ items: l.array(l.string()) })),
       )
 
       type Output = l.InferMethodOutput<typeof query, BinaryValue>
@@ -263,44 +237,11 @@ describe('InferMethodOutput', () => {
   })
 
   describe('procedure', () => {
-    test('generic output', () => {
-      const procedure = l.procedure(
-        'com.example.procedure',
-        l.params(),
-        l.payload(),
-        l.payload(),
-      ) as unknown as l.Procedure
-      const unknownValue = {} as unknown
-      const lexValue = {} as l.LexValue
-
-      type Output = l.InferMethodOutput<typeof procedure, BinaryValue>
-
-      expectType<Output>(undefined)
-      expectType<Output>({ body: binaryValue, encoding: 'text/plain' })
-      expectType<Output>({ body: lexValue, encoding: 'application/json' })
-      expectType<Output>({ body: { foo: 'bar' }, encoding: 'application/json' })
-
-      expectType<Output>({
-        // @ts-expect-error
-        body: unknownValue,
-        encoding: 'application/octet-stream',
-      })
-
-      class Foo {
-        constructor(readonly field: number = 3) {}
-      }
-      expectType<Output>({
-        // @ts-expect-error
-        body: new Foo(),
-        encoding: 'application/octet-stream',
-      })
-    })
-
     test('with payload schema', () => {
       const procedure = l.procedure(
         'com.example.create',
         l.params(),
-        l.payload(),
+        l.payload(undefined, undefined),
         l.payload(
           'application/json',
           l.object({ uri: l.string({ format: 'at-uri' }) }),
@@ -326,7 +267,7 @@ describe('InferMethodOutput', () => {
       const procedure = l.procedure(
         'com.example.export',
         l.params(),
-        l.payload(),
+        l.payload(undefined, undefined),
         l.payload('*/*', undefined),
         undefined,
       )
@@ -350,27 +291,6 @@ describe('InferMethodOutput', () => {
 
 describe('InferMethodOutputBody', () => {
   describe('query', () => {
-    test('generic output', () => {
-      const query = l.query(
-        'com.example.query',
-        l.params(),
-        l.payload(),
-      ) as unknown as l.Query
-      const lexValue = {} as l.LexValue
-
-      type OutputBody = l.InferMethodOutputBody<typeof query, BinaryValue>
-
-      expectType<OutputBody>(undefined)
-      expectType<OutputBody>(binaryValue)
-      expectType<OutputBody>(lexValue)
-
-      class Foo {
-        constructor(readonly field: number = 3) {}
-      }
-      // @ts-expect-error
-      expectType<OutputBody>(new Foo())
-    })
-
     test('with payload schema', () => {
       const query = l.query(
         'com.example.query',
@@ -418,7 +338,7 @@ describe('InferMethodOutputBody', () => {
       const procedure = l.procedure(
         'com.example.get',
         l.params(),
-        l.payload(),
+        l.payload(undefined, undefined),
         l.payload(
           'application/json',
           l.object({ uri: l.string({ format: 'at-uri' }) }),
@@ -439,7 +359,7 @@ describe('InferMethodOutputBody', () => {
       const procedure = l.procedure(
         'com.example.export',
         l.params(),
-        l.payload(),
+        l.payload(undefined, undefined),
         l.payload('*/*', undefined),
         undefined,
       )
@@ -461,7 +381,7 @@ describe('InferMethodOutputEncoding', () => {
       const query = l.query(
         'com.example.query',
         l.params(),
-        l.jsonPayload({ data: l.string() }),
+        l.payload('application/json', l.object({ data: l.string() })),
       )
 
       type OutputEncoding = l.InferMethodOutputEncoding<typeof query>
@@ -494,8 +414,8 @@ describe('InferMethodOutputEncoding', () => {
       const procedure = l.procedure(
         'com.example.create',
         l.params(),
-        l.payload(),
-        l.jsonPayload({ id: l.string() }),
+        l.payload(undefined, undefined),
+        l.payload('application/json', l.object({ id: l.string() })),
         undefined,
       )
 
@@ -512,7 +432,7 @@ describe('InferMethodOutputEncoding', () => {
       const procedure = l.procedure(
         'com.example.export',
         l.params(),
-        l.payload(),
+        l.payload(undefined, undefined),
         l.payload('*/*', undefined),
         undefined,
       )
@@ -554,14 +474,13 @@ describe('InferMethodMessage', () => {
       const subscription = l.subscription(
         'com.example.subscribe',
         l.params(),
-        l.integer(),
+        l.unknown(),
       )
 
       type Message = l.InferMethodMessage<typeof subscription>
 
       // @ts-expect-error "unknown" is turned into LexValue
       expectType<Message>(undefined)
-      // @ts-expect-error Not a LexValue
       expectType<Message>({ any: 'value' })
       expectType<Message>(123)
     })

@@ -11,7 +11,7 @@ describe('communication-templates', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'ozone_communication_templates',
     })
-    agent = network.ozone.getAgent()
+    agent = network.ozone.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     await network.processAll()

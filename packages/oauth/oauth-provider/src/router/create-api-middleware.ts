@@ -58,6 +58,7 @@ import { emailSchema } from '../types/email.js'
 import { handleSchema } from '../types/handle.js'
 import { newPasswordSchema } from '../types/password.js'
 import { validateCsrfToken } from './assets/csrf.js'
+import type { MiddlewareOptions } from './middleware-options.js'
 import {
   ERROR_REDIRECT_KEYS,
   OAuthRedirectOptions,
@@ -66,8 +67,7 @@ import {
   buildRedirectMode,
   buildRedirectParams,
   buildRedirectUri,
-} from './assets/send-redirect.js'
-import type { MiddlewareOptions } from './middleware-options.js'
+} from './send-redirect.js'
 
 const verifyHandleSchema = z.object({ handle: handleSchema }).strict()
 
@@ -145,17 +145,10 @@ export function createApiMiddleware<
         // Remember when not in the context of a request by default
         const { remember = requestUri == null, ...input } = this.input
 
-        // Look up the client identifier associated with the pending OAuth
-        // request, if any, so it can be surfaced to the sign-in hooks.
-        const clientId = requestUri
-          ? await server.requestManager.peekClientId(requestUri)
-          : undefined
-
         const account = await server.accountManager.authenticateAccount(
           deviceId,
           deviceMetadata,
           input,
-          clientId,
         )
 
         if (remember) {
@@ -583,14 +576,14 @@ export function createApiMiddleware<
   async function authenticate(
     this: ApiContext<void, { sub: Sub }>,
     req: Req,
-    _res: Res,
+    res: Res,
   ) {
-    if (req.headers.authorization?.startsWith('Bearer ')) {
+    const authorization = req.headers.authorization?.split(' ')
+    if (authorization?.[0].toLowerCase() === 'bearer') {
       try {
         // If there is an authorization header, verify that the ephemeral token it
         // contains is a jwt bound to the right [sub, device, request].
-        const bearer = req.headers.authorization.slice(7)
-        const ephemeralToken = signedJwtSchema.parse(bearer)
+        const ephemeralToken = signedJwtSchema.parse(authorization[1])
         const { payload } =
           await server.signer.verifyEphemeralToken(ephemeralToken)
 
@@ -602,12 +595,8 @@ export function createApiMiddleware<
           return await server.accountManager.getAccount(payload.sub)
         }
       } catch (err) {
-        throw new WWWAuthenticateError(
-          'unauthorized',
-          `Invalid or expired bearer token`,
-          { Bearer: {} },
-          err,
-        )
+        onError?.(req, res, err, 'Failed to authenticate ephemeral token')
+        // Fall back to session based authentication
       }
     }
 

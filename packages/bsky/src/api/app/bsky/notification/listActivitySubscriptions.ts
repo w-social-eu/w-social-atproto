@@ -1,9 +1,8 @@
 import { mapDefined } from '@atproto/common'
-import { DidString } from '@atproto/syntax'
-import { Server } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { HydrateCtxWithViewer, Hydrator } from '../../../../hydration/hydrator'
-import { app } from '../../../../lexicons/index.js'
+import { HydrateCtx, Hydrator } from '../../../../hydration/hydrator'
+import { Server } from '../../../../lexicon'
+import { QueryParams } from '../../../../lexicon/types/app/bsky/notification/listActivitySubscriptions'
 import {
   HydrationFnInput,
   PresentationFnInput,
@@ -21,7 +20,7 @@ export default function (server: Server, ctx: AppContext) {
     noBlocks,
     presentation,
   )
-  server.add(app.bsky.notification.listActivitySubscriptions, {
+  server.app.bsky.notification.listActivitySubscriptions({
     auth: ctx.authVerifier.standard,
     handler: async ({ params, auth, req }) => {
       const viewer = auth.credentials.iss
@@ -32,7 +31,7 @@ export default function (server: Server, ctx: AppContext) {
       })
 
       const result = await listActivitySubscriptions(
-        { ...params, hydrateCtx },
+        { ...params, hydrateCtx: hydrateCtx.copy({ viewer }) },
         ctx,
       )
 
@@ -45,9 +44,7 @@ export default function (server: Server, ctx: AppContext) {
   })
 }
 
-const skeleton = async (
-  input: SkeletonFnInput<Context, Params>,
-): Promise<SkeletonState> => {
+const skeleton = async (input: SkeletonFnInput<Context, Params>) => {
   const { params, ctx } = input
   const actorDid = params.hydrateCtx.viewer
   if (clearlyBadCursor(params.cursor)) {
@@ -61,7 +58,7 @@ const skeleton = async (
     })
   return {
     actorDid,
-    dids: dids as DidString[],
+    dids,
     cursor: cursor || undefined,
   }
 }
@@ -102,12 +99,12 @@ type Context = {
   views: Views
 }
 
-type Params = app.bsky.notification.listActivitySubscriptions.$Params & {
-  hydrateCtx: HydrateCtxWithViewer
+type Params = QueryParams & {
+  hydrateCtx: HydrateCtx & { viewer: string }
 }
 
 type SkeletonState = {
-  actorDid: DidString
-  dids: DidString[]
+  actorDid: string
+  dids: string[]
   cursor?: string
 }

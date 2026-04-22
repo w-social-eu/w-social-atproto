@@ -8,9 +8,7 @@ import * as ui8 from 'uint8arrays'
 import { AtpAgent } from '@atproto/api'
 import { Secp256k1Keypair, randomStr } from '@atproto/crypto'
 import { SeedClient, TestPds, TestPlc, mockResolvers } from '@atproto/dev-env'
-import { isDidString } from '@atproto/lex'
 import * as pdsEntryway from '@atproto/pds-entryway'
-import { DidString } from '@atproto/syntax'
 import { parseReqNsid } from '@atproto/xrpc-server'
 
 describe('entryway', () => {
@@ -19,7 +17,7 @@ describe('entryway', () => {
   let entryway: pdsEntryway.PDS
   let pdsAgent: AtpAgent
   let entrywayAgent: AtpAgent
-  let alice: DidString
+  let alice: string
   let accessToken: string
 
   beforeAll(async () => {
@@ -58,7 +56,7 @@ describe('entryway', () => {
         weight: 1,
       })
       .execute()
-    pdsAgent = pds.getAgent()
+    pdsAgent = pds.getClient()
     entrywayAgent = new AtpAgent({
       service: entryway.ctx.cfg.service.publicUrl,
     })
@@ -76,9 +74,6 @@ describe('entryway', () => {
       handle: 'alice.test',
       password: 'test123',
     })
-
-    assert(isDidString(res.data.did), 'Account DID is not a valid DidString')
-
     alice = res.data.did
     accessToken = res.data.accessJwt
 

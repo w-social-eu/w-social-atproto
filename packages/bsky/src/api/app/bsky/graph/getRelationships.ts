@@ -1,51 +1,42 @@
-import { Server } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(app.bsky.graph.getRelationships, {
+  server.app.bsky.graph.getRelationships({
     handler: async ({ params }) => {
-      const { others = [] } = params
-
-      const [actor] = await ctx.hydrator.actor.getDids([params.actor])
-      if (!actor || others.length < 1) {
+      const { actor, others = [] } = params
+      if (others.length < 1) {
         return {
           encoding: 'application/json',
           body: {
             actor,
-            relationships: others.map((actor) => {
-              return app.bsky.graph.defs.notFoundActor.$build({
-                actor,
-                notFound: true,
-              })
-            }),
+            relationships: [],
           },
         }
       }
-
       const res = await ctx.hydrator.actor.getProfileViewerStatesNaive(
         others,
         actor,
       )
-
-      const relationships = others.map((actor) => {
-        const subject = res.get(actor)
+      const relationships = others.map((did) => {
+        const subject = res.get(did)
         return subject
-          ? app.bsky.graph.defs.relationship.$build({
-              did: subject.did,
+          ? {
+              $type: 'app.bsky.graph.defs#relationship',
+              did,
               following: subject.following,
               followedBy: subject.followedBy,
               blocking: subject.blocking,
               blockedBy: subject.blockedBy,
               blockingByList: subject.blockingByList,
               blockedByList: subject.blockedByList,
-            })
-          : app.bsky.graph.defs.notFoundActor.$build({
-              actor,
+            }
+          : {
+              $type: 'app.bsky.graph.defs#notFoundActor',
+              actor: did,
               notFound: true,
-            })
+            }
       })
-
       return {
         encoding: 'application/json',
         body: {

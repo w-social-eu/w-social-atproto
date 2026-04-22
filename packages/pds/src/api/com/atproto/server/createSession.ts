@@ -1,97 +1,82 @@
 import { DAY, MINUTE } from '@atproto/common'
-import { DidString, HandleString, INVALID_HANDLE } from '@atproto/syntax'
-import {
-  AuthRequiredError,
-  MethodRateLimit,
-  Server,
-} from '@atproto/xrpc-server'
+import { INVALID_HANDLE } from '@atproto/syntax'
+import { AuthRequiredError } from '@atproto/xrpc-server'
 import { formatAccountStatus } from '../../../../account-manager/account-manager'
 import { OLD_PASSWORD_MAX_LENGTH } from '../../../../account-manager/helpers/scrypt'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { resultPassthru } from '../../../proxy'
 import { didDocForSession } from './util'
 
 export default function (server: Server, ctx: AppContext) {
-  const { entrywayClient } = ctx
-
-  const rateLimit: MethodRateLimit<
-    void,
-    com.atproto.server.createSession.$Params,
-    com.atproto.server.createSession.$Input
-  > = [
-    {
-      durationMs: DAY,
-      points: 300,
-      calcKey: ({ input, req }) => `${input.body.identifier}-${req.ip}`,
-    },
-    {
-      durationMs: 5 * MINUTE,
-      points: 30,
-      calcKey: ({ input, req }) => `${input.body.identifier}-${req.ip}`,
-    },
-  ]
-
-  if (entrywayClient) {
-    server.add(com.atproto.server.createSession, {
-      rateLimit,
-      handler: async ({ input: { body }, req }) => {
-        const { headers } = ctx.entrywayPassthruHeaders(req)
-        return entrywayClient.xrpc(com.atproto.server.createSession, {
-          headers,
-          body,
-        })
+  server.com.atproto.server.createSession({
+    rateLimit: [
+      {
+        durationMs: DAY,
+        points: 300,
+        calcKey: ({ input, req }) => `${input.body.identifier}-${req.ip}`,
       },
-    })
-  } else {
-    server.add(com.atproto.server.createSession, {
-      rateLimit,
-      handler: async ({
-        input: { body },
-      }): Promise<com.atproto.server.createSession.$Output> => {
-        if (body.password.length > OLD_PASSWORD_MAX_LENGTH) {
-          throw new AuthRequiredError(
-            'Password too long. Consider resetting your password.',
-          )
-        }
-
-        const { user, isSoftDeleted, appPassword } =
-          await ctx.accountManager.login(body)
-
-        if (!body.allowTakendown && isSoftDeleted) {
-          throw new AuthRequiredError(
-            'Account has been taken down',
-            'AccountTakedown',
-          )
-        }
-
-        const [{ accessJwt, refreshJwt }, didDoc] = await Promise.all([
-          ctx.accountManager.createSession(
-            user.did,
-            appPassword,
-            isSoftDeleted,
+      {
+        durationMs: 5 * MINUTE,
+        points: 30,
+        calcKey: ({ input, req }) => `${input.body.identifier}-${req.ip}`,
+      },
+    ],
+    handler: async ({ input, req }) => {
+      if (ctx.entrywayAgent) {
+        return resultPassthru(
+          await ctx.entrywayAgent.com.atproto.server.createSession(
+            input.body,
+            ctx.entrywayPassthruHeaders(req),
           ),
-          didDocForSession(ctx, user.did),
-        ])
+        )
+      }
 
-        const { status, active } = formatAccountStatus(user)
+      // Standard password-based authentication
+      const password = input.body.password || ''
 
-        return {
-          encoding: 'application/json',
-          body: {
-            accessJwt,
-            refreshJwt,
+      req.log.info(
+        { identifier: input.body.identifier },
+        'Using password authentication',
+      )
 
-            did: user.did as DidString,
-            // @ts-expect-error https://github.com/bluesky-social/atproto/pull/4406
-            didDoc,
-            handle: (user.handle ?? INVALID_HANDLE) as HandleString,
-            email: user.email ?? undefined,
-            emailConfirmed: !!user.emailConfirmedAt,
-            active,
-            status,
-          },
-        }
-      },
-    })
-  }
+      if (password.length > OLD_PASSWORD_MAX_LENGTH) {
+        throw new AuthRequiredError(
+          'Password too long. Consider resetting your password.',
+        )
+      }
+
+      const { user, isSoftDeleted, appPassword} =
+        await ctx.accountManager.login(input.body)
+
+      if (!input.body.allowTakendown && isSoftDeleted) {
+        throw new AuthRequiredError(
+          'Account has been taken down',
+          'AccountTakedown',
+        )
+      }
+
+      const [{ accessJwt, refreshJwt }, didDoc] = await Promise.all([
+        ctx.accountManager.createSession(user.did, appPassword, isSoftDeleted),
+        didDocForSession(ctx, user.did),
+      ])
+
+      const { status, active } = formatAccountStatus(user)
+
+      return {
+        encoding: 'application/json',
+        body: {
+          accessJwt,
+          refreshJwt,
+          did: user.did,
+          didDoc,
+          handle: user.handle ?? INVALID_HANDLE,
+          email: user.email ?? undefined,
+          emailConfirmed: !!user.emailConfirmedAt,
+          active,
+          status,
+        },
+      }
+    },
+  })
 }

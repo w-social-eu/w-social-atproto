@@ -1,10 +1,8 @@
 import { parseList } from 'structured-headers'
-import { DidString } from '@atproto/lex'
-import { isValidDid } from '@atproto/syntax'
 
 export type ParsedLabelers = {
-  dids: DidString[]
-  redact: Set<DidString>
+  dids: string[]
+  redact: Set<string>
 }
 
 export const parseLabelerHeader = (
@@ -13,12 +11,12 @@ export const parseLabelerHeader = (
   // An empty header is valid, so we shouldn't return null
   // https://datatracker.ietf.org/doc/html/rfc7230#section-3.2
   if (header === undefined) return null
-  const labelerDids = new Set<DidString>()
-  const redactDids = new Set<DidString>()
+  const labelerDids = new Set<string>()
+  const redactDids = new Set<string>()
   const parsed = parseList(header)
   for (const item of parsed) {
     const did = item[0].toString()
-    if (!isValidDid(did)) {
+    if (!did) {
       return null
     }
     labelerDids.add(did)
@@ -33,7 +31,7 @@ export const parseLabelerHeader = (
   }
 }
 
-export const defaultLabelerHeader = (dids: DidString[]): ParsedLabelers => {
+export const defaultLabelerHeader = (dids: string[]): ParsedLabelers => {
   return {
     dids,
     redact: new Set(dids),

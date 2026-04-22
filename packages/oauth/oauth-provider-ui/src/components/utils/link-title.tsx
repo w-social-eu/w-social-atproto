@@ -1,4 +1,5 @@
 import { useLingui } from '@lingui/react/macro'
+import { ReactNode } from 'react'
 import type { LinkDefinition } from '@atproto/oauth-provider-api'
 import { useLangString } from './lang-string.tsx'
 
@@ -6,7 +7,7 @@ export type LinkNameProps = {
   link: LinkDefinition
 }
 
-export function LinkTitle({ link }: LinkNameProps): string | undefined {
+export function LinkTitle({ link }: LinkNameProps): ReactNode {
   const { t } = useLingui()
 
   const title = useLangString(link.title)
@@ -18,10 +19,8 @@ export function LinkTitle({ link }: LinkNameProps): string | undefined {
   if (link.rel === 'terms-of-service') return t`Terms of Service`
   if (link.rel === 'help') return t`Support`
 
-  if (typeof link.title === 'object') {
-    // English version, or any version if English is not available
-    return link.title['en'] || Object.values(link.title).find(Boolean)
-  }
-
-  return link.title
+  // English version
+  return typeof link.title === 'object'
+    ? link.title['en'] || Object.values(link.title).find(Boolean)
+    : link.title
 }

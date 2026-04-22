@@ -1,10 +1,10 @@
 import { AtUri } from '@atproto/syntax'
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.repo.listRecords, async ({ params }) => {
+  server.com.atproto.repo.listRecords(async ({ params }) => {
     const { repo, collection, limit = 50, cursor, reverse = false } = params
 
     const did = await ctx.accountManager.getDidForActor(repo)
@@ -25,7 +25,7 @@ export default function (server: Server, ctx: AppContext) {
     const lastUri = lastRecord && new AtUri(lastRecord?.uri)
 
     return {
-      encoding: 'application/json' as const,
+      encoding: 'application/json',
       body: {
         records,
         // Paginate with `before` by default, paginate with `after` when using `reverse`.

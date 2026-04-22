@@ -1,4 +1,4 @@
-import { Cid } from '@atproto/lex-data'
+import { CID } from 'multiformats/cid'
 import { BlockMap } from '../block-map'
 import { CommitData } from '../types'
 import { ReadableBlockstore } from './readable-blockstore'
@@ -9,7 +9,7 @@ export class MemoryBlockstore
   implements RepoStorage
 {
   blocks: BlockMap
-  root: Cid | null = null
+  root: CID | null = null
   rev: string | null = null
 
   constructor(blocks?: BlockMap) {
@@ -20,23 +20,23 @@ export class MemoryBlockstore
     }
   }
 
-  async getRoot(): Promise<Cid | null> {
+  async getRoot(): Promise<CID | null> {
     return this.root
   }
 
-  async getBytes(cid: Cid): Promise<Uint8Array | null> {
+  async getBytes(cid: CID): Promise<Uint8Array | null> {
     return this.blocks.get(cid) || null
   }
 
-  async has(cid: Cid): Promise<boolean> {
+  async has(cid: CID): Promise<boolean> {
     return this.blocks.has(cid)
   }
 
-  async getBlocks(cids: Cid[]): Promise<{ blocks: BlockMap; missing: Cid[] }> {
+  async getBlocks(cids: CID[]): Promise<{ blocks: BlockMap; missing: CID[] }> {
     return this.blocks.getMany(cids)
   }
 
-  async putBlock(cid: Cid, block: Uint8Array): Promise<void> {
+  async putBlock(cid: CID, block: Uint8Array): Promise<void> {
     this.blocks.set(cid, block)
   }
 
@@ -44,7 +44,7 @@ export class MemoryBlockstore
     this.blocks.addMap(blocks)
   }
 
-  async updateRoot(cid: Cid, rev: string): Promise<void> {
+  async updateRoot(cid: CID, rev: string): Promise<void> {
     this.root = cid
     this.rev = rev
   }

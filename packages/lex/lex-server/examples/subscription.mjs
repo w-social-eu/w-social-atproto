@@ -35,14 +35,14 @@ const com = { example: { echo: { main, message } } }
 
 const router = new LexRouter({
   upgradeWebSocket,
-  fallback: indexHtml,
-  onHandlerError: ({ error, method }) => {
-    console.error(`Handler error in method ${method.nsid}:`, error)
+  onHandlerError: ({ error }) => {
+    console.error('Handler error:', error)
   },
 })
   //
-  .add(com.example.echo, async function* ({ signal, params }) {
+  .add(com.example.echo, async function* ({ request, params }) {
     const { message, cursor, limit } = params
+    const { signal } = request
 
     for (let i = 0; i < limit; i++) {
       yield com.example.echo.message.$build({
@@ -57,16 +57,27 @@ const router = new LexRouter({
     throw new LexError('LimitReached', `Limit of ${limit} messages reached`)
   })
 
-serve(router.fetch, { port: 8080 })
+serve(
+  async (request, info) => {
+    const url = new URL(request.url)
 
-async function indexHtml() {
+    if (url.pathname.startsWith('/xrpc/')) {
+      return router.fetch(request, info)
+    }
+
+    return indexHtml()
+  },
+  { port: 8080 },
+)
+
+function indexHtml() {
   return new Response(
     html`
       <h1>Open dev tools and look at the console</h1>
       <script type="module">
         import { decodeMultiple } from 'https://cdn.jsdelivr.net/npm/cbor-x@1.6.0/+esm'
 
-        const host = window.location.host
+        const host = 'localhost:8080'
         const nsid = 'com.example.echo'
         const params = new URLSearchParams(window.location.search)
         if (!params.has('message')) {

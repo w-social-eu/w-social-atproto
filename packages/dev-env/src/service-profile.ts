@@ -1,5 +1,4 @@
 import { AtpAgent } from '@atproto/api'
-import { DidString } from '@atproto/lex'
 import { TestPds } from './pds'
 
 export type ServiceUserDetails = {
@@ -17,25 +16,25 @@ export class ServiceProfile {
   protected constructor(
     protected pds: TestPds,
     /** @note assumes the session is already authenticated */
-    protected agent: AtpAgent,
+    protected client: AtpAgent,
     protected userDetails: ServiceUserDetails,
   ) {}
 
-  get did(): DidString {
-    return this.agent.assertDid
+  get did() {
+    return this.client.assertDid
   }
 
   async migrateTo(newPds: TestPds, options: ServiceMigrationOptions = {}) {
-    const newAgent = newPds.getAgent()
+    const newClient = newPds.getClient()
 
-    const newPdsDesc = await newAgent.com.atproto.server.describeServer()
-    const serviceAuth = await this.agent.com.atproto.server.getServiceAuth({
+    const newPdsDesc = await newClient.com.atproto.server.describeServer()
+    const serviceAuth = await this.client.com.atproto.server.getServiceAuth({
       aud: newPdsDesc.data.did,
       lxm: 'com.atproto.server.createAccount',
     })
 
     const inviteCode = newPds.ctx.cfg.invites.required
-      ? await newAgent.com.atproto.server
+      ? await newClient.com.atproto.server
           .createInviteCode(
             { useCount: 1 },
             {
@@ -46,7 +45,7 @@ export class ServiceProfile {
           .then((res) => res.data.code)
       : undefined
 
-    await newAgent.createAccount(
+    await newClient.createAccount(
       {
         ...this.userDetails,
         inviteCode,
@@ -63,12 +62,12 @@ export class ServiceProfile {
     // process of migrating, that didDoc references the old PDS. In order to
     // avoid calling the old PDS, let's clear the pdsUrl, which will result in
     // the (new) serviceUrl being used.
-    newAgent.sessionManager.pdsUrl = undefined
+    newClient.sessionManager.pdsUrl = undefined
 
     const newDidCredentialsRes =
-      await newAgent.com.atproto.identity.getRecommendedDidCredentials()
+      await newClient.com.atproto.identity.getRecommendedDidCredentials()
 
-    await this.agent.com.atproto.identity.requestPlcOperationSignature()
+    await this.client.com.atproto.identity.requestPlcOperationSignature()
     const { token } = await this.pds.ctx.accountManager.db.db
       .selectFrom('email_token')
       .select('token')
@@ -81,15 +80,15 @@ export class ServiceProfile {
     Object.assign((op.verificationMethods ??= {}), options.verificationMethods)
 
     const signedPlcOperation =
-      await this.agent.com.atproto.identity.signPlcOperation(op)
+      await this.client.com.atproto.identity.signPlcOperation(op)
 
-    await newAgent.com.atproto.identity.submitPlcOperation({
+    await newClient.com.atproto.identity.submitPlcOperation({
       operation: signedPlcOperation.data.operation,
     })
 
-    await newAgent.com.atproto.server.activateAccount()
+    await newClient.com.atproto.server.activateAccount()
 
     this.pds = newPds
-    this.agent = newAgent
+    this.client = newClient
   }
 }

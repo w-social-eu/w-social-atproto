@@ -1,11 +1,13 @@
 import express from 'express'
-import { LexValue, l } from '@atproto/lex'
-import { lexParse } from '@atproto/lex-json'
+import { jsonToLex } from '@atproto/lexicon'
+import { HeadersMap } from '@atproto/xrpc'
 import {
   HandlerPipeThrough,
   HandlerPipeThroughBuffer,
+  parseReqNsid,
 } from '@atproto/xrpc-server'
 import { AppContext } from '../context'
+import { lexicons } from '../lexicon/lexicons'
 import { readStickyLogger as log } from '../logger'
 import {
   asPipeThroughBuffer,
@@ -13,6 +15,12 @@ import {
   pipethrough,
 } from '../pipethrough'
 import { HandlerResponse, LocalRecords, MungeFn } from './types'
+
+const REPO_REV_HEADER = 'atproto-repo-rev'
+
+export const getRepoRev = (headers: HeadersMap): string | undefined => {
+  return headers[REPO_REV_HEADER]
+}
 
 export const getLocalLag = (local: LocalRecords): number | undefined => {
   let oldest: string | undefined = local.profile?.indexedAt
@@ -25,25 +33,17 @@ export const getLocalLag = (local: LocalRecords): number | undefined => {
   return Date.now() - new Date(oldest).getTime()
 }
 
-export const pipethroughReadAfterWrite = async <
-  M extends (l.Query | l.Procedure) & {
-    output: l.Payload<`application/json`, l.Schema<LexValue>>
-  },
->(
+export const pipethroughReadAfterWrite = async <T>(
   ctx: AppContext,
   reqCtx: { req: express.Request; auth: { credentials: { did: string } } },
-  ns: l.Main<M>,
-  munge: MungeFn<l.InferMethodOutputBody<M>>,
-): Promise<
-  HandlerResponse<l.InferMethodOutputBody<M>> | HandlerPipeThrough
-> => {
+  munge: MungeFn<T>,
+): Promise<HandlerResponse<T> | HandlerPipeThrough> => {
   const { req, auth } = reqCtx
   const requester = auth.credentials.did
-  const method = l.getMain(ns)
 
   const streamRes = await pipethrough(ctx, req, { iss: requester })
 
-  const rev = streamRes.headers['atproto-repo-rev']
+  const rev = getRepoRev(streamRes.headers)
   if (!rev) return streamRes
 
   if (isJsonContentType(streamRes.headers['content-type']) === false) {
@@ -57,20 +57,17 @@ export const pipethroughReadAfterWrite = async <
   let bufferRes: HandlerPipeThroughBuffer | undefined
 
   try {
+    const lxm = parseReqNsid(req)
+
     return await ctx.actorStore.read(requester, async (store) => {
       const local = await store.record.getRecordsSinceRev(rev)
       if (local.count === 0) return streamRes
 
       const { buffer } = (bufferRes = await asPipeThroughBuffer(streamRes))
 
-      const lex = lexParse(buffer.toString('utf8'), { strict: false })
+      const lex = jsonToLex(JSON.parse(buffer.toString('utf8')))
 
-      const result = method.output.schema.safeValidate(lex, { strict: false })
-
-      // We won't perform munging with invalid upstream data
-      if (!result.success) return bufferRes
-
-      const parsedRes = result.value as l.InferMethodOutputBody<M, never>
+      const parsedRes = lexicons.assertValidXrpcOutput(lxm, lex) as T
 
       const localViewer = ctx.localViewer(store)
 

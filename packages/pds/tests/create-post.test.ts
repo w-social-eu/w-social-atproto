@@ -18,7 +18,7 @@ describe('pds posts record creation', () => {
     network = await TestNetworkNoAppView.create({
       dbPostgresSchema: 'views_posts',
     })
-    agent = network.pds.getAgent()
+    agent = network.pds.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     await network.processAll()

@@ -1,11 +1,10 @@
 import { mapDefined } from '@atproto/common'
-import { Server } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 import { resHeaders } from '../../../util'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(app.bsky.labeler.getServices, {
+  server.app.bsky.labeler.getServices({
     auth: ctx.authVerifier.standardOptional,
     handler: async ({ params, auth, req }) => {
       const { dids, detailed } = params
@@ -21,11 +20,17 @@ export default function (server: Server, ctx: AppContext) {
         if (detailed) {
           const view = ctx.views.labelerDetailed(did, hydration)
           if (!view) return
-          return app.bsky.labeler.defs.labelerViewDetailed.$build(view)
+          return {
+            ...view,
+            $type: 'app.bsky.labeler.defs#labelerViewDetailed',
+          }
         } else {
           const view = ctx.views.labeler(did, hydration)
           if (!view) return
-          return app.bsky.labeler.defs.labelerView.$build(view)
+          return {
+            ...view,
+            $type: 'app.bsky.labeler.defs#labelerView',
+          }
         }
       })
 

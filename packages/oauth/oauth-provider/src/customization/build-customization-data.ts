@@ -1,5 +1,5 @@
-import type { CustomizationData } from '@atproto/oauth-provider-api'
-import type { Customization } from './customization.js'
+import { CustomizationData } from '@atproto/oauth-provider-api'
+import { Customization } from './customization.js'
 
 export function buildCustomizationData({
   branding,

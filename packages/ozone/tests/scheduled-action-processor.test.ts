@@ -66,7 +66,7 @@ describe('scheduled action processor', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'ozone_scheduled_action_processor_test',
     })
-    adminAgent = network.ozone.getAgent()
+    adminAgent = network.ozone.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     await network.processAll()

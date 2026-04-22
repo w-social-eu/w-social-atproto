@@ -1,53 +1,24 @@
 import {
   Agent,
+  XrpcError,
   XrpcFailure,
   buildAgent,
-  xrpc,
   xrpcSafe,
 } from '@atproto/lex-client'
 import { LexAuthFactorError } from './error.js'
 import { com } from './lexicons/index.js'
-import { extractPdsUrl, extractXrpcErrorCode } from './util.js'
+import { extractPdsUrl, extractXrpcErrorCode, noop } from './util.js'
 
-/**
- * Represents a failure response when refreshing a session.
- *
- * This type captures the possible error responses from
- * `com.atproto.server.refreshSession`, including both expected errors
- * (e.g., invalid/expired refresh token) and unexpected errors (e.g., network issues).
- */
 export type RefreshFailure = XrpcFailure<
   typeof com.atproto.server.refreshSession.main
 >
 
-/**
- * Represents a failure response when deleting a session.
- *
- * This type captures the possible error responses from
- * `com.atproto.server.deleteSession`, including both expected errors
- * and unexpected errors (e.g., network issues, server unavailability).
- */
 export type DeleteFailure = XrpcFailure<
   typeof com.atproto.server.deleteSession.main
 >
 
-/**
- * Persisted session data containing authentication credentials and service information.
- *
- * This type extends the response from `com.atproto.server.createSession` with the
- * service URL used for authentication. Store this data securely to resume sessions
- * later without re-authenticating.
- */
-export type SessionData = com.atproto.server.createSession.$OutputBody & {
+export type SessionData = com.atproto.server.createSession.OutputBody & {
   service: string
-}
-
-export type LoginOptions = PasswordSessionOptions & {
-  service: string | URL
-  identifier: string
-  password: string
-  allowTakendown?: boolean
-  authFactorToken?: string
 }
 
 export type PasswordSessionOptions = {
@@ -66,7 +37,7 @@ export type PasswordSessionOptions = {
    *
    * @note this function **must** not throw
    */
-  onUpdated?: (this: PasswordSession, data: SessionData) => void | Promise<void>
+  onUpdated: (this: PasswordSession, data: SessionData) => void | Promise<void>
 
   /**
    * Called whenever the session update fails due to an expected error, such as
@@ -90,7 +61,7 @@ export type PasswordSessionOptions = {
    *
    * @note this function **must** not throw
    */
-  onDeleted?: (this: PasswordSession, data: SessionData) => void | Promise<void>
+  onDeleted: (this: PasswordSession, data: SessionData) => void | Promise<void>
 
   /**
    * Called whenever a session deletion fails due to an unexpected error, such
@@ -113,45 +84,7 @@ export type PasswordSessionOptions = {
   ) => void | Promise<void>
 }
 
-/**
- * Password-based authentication session for AT Protocol services.
- *
- * This class provides session management for CLI tools, scripts, and bots that
- * need to authenticate with AT Protocol services using password credentials.
- * It implements the {@link Agent} interface, allowing it to be used directly
- * with AT Protocol clients.
- *
- * **Security Warning:** It is strongly recommended to use app passwords instead
- * of main account credentials. App passwords provide limited access and can be
- * revoked independently without compromising your main account. For browser-based
- * applications, use OAuth-based authentication instead.
- *
- * @example Basic usage with app password
- * ```ts
- * const session = await PasswordSession.login({
- *   service: 'https://bsky.social',
- *   identifier: 'alice.bsky.social',
- *   password: 'xxxx-xxxx-xxxx-xxxx', // App password
- *   onUpdated: (data) => saveToStorage(data),
- *   onDeleted: (data) => clearStorage(data.did),
- * })
- *
- * const client = new Client(session)
- * // Use client to make authenticated requests
- * ```
- *
- * @example Resuming a persisted session
- * ```ts
- * const savedData = JSON.parse(fs.readFileSync('session.json', 'utf8'))
- * const session = await PasswordSession.resume(savedData, {
- *   onUpdated: (data) => saveToStorage(data),
- *   onDeleted: (data) => clearStorage(data.did),
- * })
- * ```
- *
- * @implements {Agent}
- */
-export class PasswordSession implements Agent, AsyncDisposable {
+export class PasswordSession implements Agent {
   /**
    * Internal {@link Agent} used for session management towards the
    * authentication service only.
@@ -163,7 +96,7 @@ export class PasswordSession implements Agent, AsyncDisposable {
 
   constructor(
     sessionData: SessionData,
-    protected readonly options: PasswordSessionOptions = {},
+    protected readonly options: PasswordSessionOptions,
   ) {
     this.#serviceAgent = buildAgent({
       service: sessionData.service,
@@ -174,59 +107,23 @@ export class PasswordSession implements Agent, AsyncDisposable {
     this.#sessionPromise = Promise.resolve(this.#sessionData)
   }
 
-  /**
-   * The DID (Decentralized Identifier) of the authenticated account.
-   *
-   * @throws {Error} If the session has been destroyed (logged out).
-   */
   get did() {
     return this.session.did
   }
 
-  /**
-   * The handle (username) of the authenticated account.
-   *
-   * @throws {Error} If the session has been destroyed (logged out).
-   */
   get handle() {
     return this.session.handle
   }
 
-  /**
-   * The current session data containing authentication credentials.
-   *
-   * @throws {Error} If the session has been destroyed (logged out).
-   */
   get session() {
     if (this.#sessionData) return this.#sessionData
-    throw new Error('Logged out')
+    throw new XrpcError('AuthenticationRequired', 'Logged out')
   }
 
-  /**
-   * Whether this session has been destroyed (logged out).
-   *
-   * Once destroyed, this session instance can no longer be used for
-   * authenticated requests. Create a new session via {@link PasswordSession.login}
-   * or {@link PasswordSession.resume}.
-   */
   get destroyed(): boolean {
     return this.#sessionData === null
   }
 
-  /**
-   * Handles authenticated fetch requests to the user's PDS.
-   *
-   * This method implements the {@link Agent} interface and is called by
-   * AT Protocol clients to make authenticated requests. It automatically:
-   * - Adds the access token to request headers
-   * - Detects expired tokens and triggers refresh
-   * - Retries requests after successful token refresh
-   *
-   * @param path - The request path (will be resolved against the PDS URL)
-   * @param init - Standard fetch RequestInit options (headers, body, etc.)
-   * @returns The fetch Response from the PDS
-   * @throws {TypeError} If an 'authorization' header is already set in init
-   */
   async fetchHandler(path: string, init: RequestInit): Promise<Response> {
     const headers = new Headers(init.headers)
     if (headers.has('authorization')) {
@@ -293,21 +190,6 @@ export class PasswordSession implements Agent, AsyncDisposable {
     return fetch(fetchUrl(newSessionData, path), { ...init, headers })
   }
 
-  /**
-   * Refreshes the session by obtaining new access and refresh tokens.
-   *
-   * This method is automatically called by {@link fetchHandler} when the access
-   * token expires. You can also call it manually to proactively refresh tokens.
-   *
-   * On success, the {@link PasswordSessionOptions.onUpdated} callback is invoked
-   * with the new session data. On expected failures (invalid session), the
-   * {@link PasswordSessionOptions.onDeleted} callback is invoked. On unexpected
-   * failures (network issues), the {@link PasswordSessionOptions.onUpdateFailure}
-   * callback is invoked and the existing session data is preserved.
-   *
-   * @returns The refreshed session data
-   * @throws {RefreshFailure} If the session is no longer valid (triggers onDeleted)
-   */
   async refresh(): Promise<SessionData> {
     this.#sessionPromise = this.#sessionPromise.then(async (sessionData) => {
       const response = await xrpcSafe(
@@ -316,9 +198,9 @@ export class PasswordSession implements Agent, AsyncDisposable {
         { headers: { Authorization: `Bearer ${sessionData.refreshJwt}` } },
       )
 
-      if (!response.success && response.matchesSchemaErrors()) {
+      if (!response.success && response.matchesSchema()) {
         // Expected errors that indicate the session is no longer valid
-        await this.options.onDeleted?.call(this, sessionData)
+        await this.options.onDeleted.call(this, sessionData)
 
         // Update the session promise to a rejected state
         this.#sessionData = null
@@ -356,7 +238,7 @@ export class PasswordSession implements Agent, AsyncDisposable {
         service: sessionData.service,
       }
 
-      await this.options.onUpdated?.call(this, newSession)
+      await this.options.onUpdated.call(this, newSession)
 
       return (this.#sessionData = newSession)
     })
@@ -364,21 +246,6 @@ export class PasswordSession implements Agent, AsyncDisposable {
     return this.#sessionPromise
   }
 
-  /**
-   * Logs out by deleting the session on the server.
-   *
-   * This method invalidates both the access and refresh tokens on the server,
-   * preventing any further use of this session. After successful logout, the
-   * session is marked as destroyed and the {@link PasswordSessionOptions.onDeleted}
-   * callback is invoked.
-   *
-   * If the logout request fails due to network issues or server unavailability,
-   * the {@link PasswordSessionOptions.onDeleteFailure} callback is invoked and
-   * the session remains active locally. In this case, you should retry the
-   * logout later to ensure the session is properly invalidated on the server.
-   *
-   * @throws {DeleteFailure} If the logout request fails due to unexpected errors
-   */
   async logout(): Promise<void> {
     let reason: DeleteFailure | null = null
 
@@ -389,12 +256,12 @@ export class PasswordSession implements Agent, AsyncDisposable {
         { headers: { Authorization: `Bearer ${sessionData.refreshJwt}` } },
       )
 
-      if (result.success || result.matchesSchemaErrors()) {
-        await this.options.onDeleted?.call(this, sessionData)
+      if (result.success || result.matchesSchema()) {
+        await this.options.onDeleted.call(this, sessionData)
 
         // Update the session promise to a rejected state
         this.#sessionData = null
-        throw new Error('Logged out')
+        throw new XrpcError('AuthenticationRequired', 'Logged out')
       } else {
         // Capture the reason for the failure to re-throw in the outer promise
         reason = result
@@ -419,149 +286,48 @@ export class PasswordSession implements Agent, AsyncDisposable {
     )
   }
 
-  async [Symbol.asyncDispose]() {
-    await this.logout()
-  }
-
   /**
-   * Creates a new account and returns an authenticated session.
+   * @note It is **not** recommended to use {@link PasswordSession} with main
+   * account credentials. Instead, it is strongly advised to use OAuth based
+   * authentication for main username/password credentials and use
+   * {@link PasswordSession} with an app-password, for bots, scripts, or similar
+   * use-cases.
    *
-   * This static method registers a new account on the specified service and
-   * automatically creates an authenticated session for it.
+   * @throws If unable to create a session. In particular, if the server
+   * requires a 2FA token, a {@link XrpcResponseError} with the
+   * `AuthFactorTokenRequired` error code will be thrown.
    *
-   * @param body - Account creation parameters (handle, email, password, etc.)
-   * @param options - Session options including the service URL
-   * @returns A new PasswordSession for the created account
-   * @throws If account creation fails (e.g., handle taken, invalid invite code)
    *
-   * @example
-   * ```ts
-   * const session = await PasswordSession.createAccount(
-   *   {
-   *     handle: 'alice.bsky.social',
-   *     email: 'alice@example.com',
-   *     password: 'secure-password',
-   *   },
-   *   {
-   *     service: 'https://bsky.social',
-   *     onUpdated: (data) => saveToStorage(data),
-   *   }
-   * )
-   * ```
-   */
-  static async createAccount(
-    body: com.atproto.server.createAccount.$InputBody,
-    {
-      service,
-      headers,
-      ...options
-    }: PasswordSessionOptions & {
-      headers?: HeadersInit
-      service: string | URL
-    },
-  ): Promise<PasswordSession> {
-    const response = await xrpc(
-      buildAgent({ service, headers, fetch: options.fetch }),
-      com.atproto.server.createAccount.main,
-      { body },
-    )
-
-    const data: SessionData = {
-      ...response.body,
-      service: String(service),
-    }
-
-    const agent = new PasswordSession(data, options)
-    await options.onUpdated?.call(agent, data)
-    return agent
-  }
-
-  /**
-   * Creates a new authenticated session using password credentials.
+   * @example Handling 2FA errors
    *
-   * This static method authenticates with the specified service and returns
-   * a new PasswordSession instance that can be used for authenticated requests.
-   *
-   * **Security Warning:** It is strongly recommended to use app passwords instead
-   * of main account credentials. App passwords can be created in your account
-   * settings and provide limited access that can be revoked independently. For
-   * browser-based applications, use OAuth-based authentication instead.
-   *
-   * @param options - Login options including service URL, identifier, and password
-   * @param options.service - The AT Protocol service URL (e.g., 'https://bsky.social')
-   * @param options.identifier - The user's handle or DID
-   * @param options.password - The user's password or app password
-   * @param options.allowTakendown - If true, allow login to takendown accounts
-   * @param options.authFactorToken - 2FA token if required by the server
-   * @returns A new authenticated PasswordSession
-   * @throws {LexAuthFactorError} If the server requires a 2FA token
-   * @throws If authentication fails (invalid credentials, etc.)
-   *
-   * **Basic login with app password in script**
-   * @example
-   * ```ts
-   * // .env
-   * // APP_PASSWORD_CREDENTIALS="https://<handle>:<app-password>@<pds-hosting-provider>"
-   *
-   * // Make sure to dispose (or logout) the session when done to avoid leaking
-   * // resources and leaving orphaned sessions on the server
-   * await using session = await PasswordSession.login(process.env.APP_PASSWORD_CREDENTIALS)
-   *
-   * // Use session to make authenticated requests
-   * ```
-   *
-   * **Basic login with user password (not recommended!!!)**
-   * @example
-   * ```ts
-   * const session = await PasswordSession.login({
-   *   service: 'https://bsky.social',
-   *   identifier: 'alice.bsky.social',
-   *   password: 'xxxx',
-   *   onUpdated: (data) => saveToStorage(data),
-   *   onDeleted: (data) => clearStorage(data.did),
-   * })
-   *
-   * // Next time, use resume with the persisted session data to avoid storing
-   * // user credentials.
-   * ```
-   *
-   * **Handling 2FA requirement**
-   * @example
    * ```ts
    * try {
-   *   const session = await PasswordSession.login({
-   *     service: 'https://bsky.social',
-   *     identifier: 'alice.bsky.social',
-   *     password: 'xxxx',
+   *   const session = await PasswordSession.create({
+   *     service: 'https://example.com',
+   *     identifier: 'alice',
+   *     password: 'correct horse battery staple',
    *   })
    * } catch (err) {
-   *   if (err instanceof LexAuthFactorError) {
-   *     const token = await promptUser('Enter 2FA code:')
-   *     const session = await PasswordSession.login({
-   *       service: 'https://bsky.social',
-   *       identifier: 'alice.bsky.social',
-   *       password: 'xxxx',
-   *       authFactorToken: token,
-   *     })
+   *   if (err instanceof XrpcResponseError && err.error === 'AuthFactorTokenRequired') {
+   *     // Prompt user for 2FA token and re-attempt session creation
    *   }
    * }
    * ```
    */
-  static async login(
-    input: string | URL | LoginOptions,
-  ): Promise<PasswordSession> {
-    const {
-      service,
-      identifier,
-      password,
-      allowTakendown,
-      authFactorToken,
-      ...options
-    } =
-      typeof input === 'string' || input instanceof URL
-        ? parseLoginUrl(input)
-        : input
-
+  static async create({
+    service,
+    identifier,
+    password,
+    allowTakendown,
+    authFactorToken,
+    ...options
+  }: PasswordSessionOptions & {
+    service: string | URL
+    identifier: string
+    password: string
+    allowTakendown?: boolean
+    authFactorToken?: string
+  }): Promise<PasswordSession> {
     const xrpcAgent = buildAgent({
       service,
       fetch: options.fetch,
@@ -586,7 +352,7 @@ export class PasswordSession implements Agent, AsyncDisposable {
     }
 
     const agent = new PasswordSession(data, options)
-    await options.onUpdated?.call(agent, data)
+    await options.onUpdated.call(agent, data)
     return agent
   }
 
@@ -621,9 +387,13 @@ export class PasswordSession implements Agent, AsyncDisposable {
    */
   static async delete(
     data: SessionData,
-    options?: PasswordSessionOptions,
+    options?: Partial<PasswordSessionOptions>,
   ): Promise<void> {
-    const agent = new PasswordSession(data, options)
+    const agent = new PasswordSession(data, {
+      ...options,
+      onUpdated: options?.onUpdated ?? noop,
+      onDeleted: options?.onDeleted ?? noop,
+    })
     await agent.logout()
   }
 }
@@ -631,25 +401,4 @@ export class PasswordSession implements Agent, AsyncDisposable {
 function fetchUrl(sessionData: SessionData, path: string): URL {
   const pdsUrl = extractPdsUrl(sessionData.didDoc)
   return new URL(path, pdsUrl ?? sessionData.service)
-}
-
-function parseLoginUrl(input: string | URL): LoginOptions {
-  const url = typeof input === 'string' ? new URL(input) : input
-  if (url.pathname !== '/') {
-    throw new TypeError('Invalid login URL: unexpected pathname')
-  }
-  if (url.hash) {
-    throw new TypeError('Invalid login URL: unexpected hash')
-  }
-  if (url.search) {
-    throw new TypeError('Invalid login URL: unexpected search parameters')
-  }
-  if (!url.username || !url.password) {
-    throw new TypeError('Invalid login URL: missing identifier or password')
-  }
-  return {
-    service: url.origin,
-    identifier: url.username,
-    password: url.password,
-  }
 }

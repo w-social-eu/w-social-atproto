@@ -1,11 +1,6 @@
 import type { SignedJwt } from '@atproto/jwk'
 import type { OAuthClientMetadata } from '@atproto/oauth-types'
-import type {
-  Account,
-  DeviceMetadata,
-  ISODateString,
-  Session,
-} from './types.js'
+import type { Account, DeviceMetadata, ISODateString } from './types.js'
 
 // These are the endpoints implemented by the OAuth provider, for its UI to
 // call.
@@ -46,7 +41,7 @@ export type ApiEndpoints = {
    */
   '/device-sessions': {
     method: 'GET'
-    output: Session[]
+    output: ActiveDeviceSession[]
   }
   /**
    * Lists all the active OAuth sessions (access/refresh tokens) that where
@@ -64,8 +59,8 @@ export type ApiEndpoints = {
    */
   '/oauth-sessions': {
     method: 'GET'
-    params: OAuthSessionsInput
-    output: OAuthSessionsOutput
+    params: { sub: string }
+    output: ActiveOAuthSession[]
   }
   '/revoke-oauth-session': {
     method: 'POST'
@@ -78,8 +73,8 @@ export type ApiEndpoints = {
    */
   '/account-sessions': {
     method: 'GET'
-    params: AccountSessionsInput
-    output: AccountSessionsOutput
+    params: { sub: string }
+    output: ActiveAccountSession[]
   }
   '/revoke-account-session': {
     method: 'POST'
@@ -160,18 +155,6 @@ export type RevokeAccountSessionInput = {
   sub: string
   deviceId: string
 }
-
-export type OAuthSessionsInput = {
-  sub: string
-}
-
-export type OAuthSessionsOutput = ActiveOAuthSession[]
-
-export type AccountSessionsInput = {
-  sub: string
-}
-
-export type AccountSessionsOutput = ActiveAccountSession[]
 
 export type RevokeOAuthSessionInput = {
   sub: string

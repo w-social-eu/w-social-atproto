@@ -1,51 +1,50 @@
-import { xrpc } from '@atproto/lex'
-import { BackgroundQueue } from './background.js'
-import { com } from './lexicons/index.js'
-import { crawlerLogger as log } from './logger.js'
+import { AtpAgent } from '@atproto/api'
+import { MINUTE } from '@atproto/common'
+import { BackgroundQueue } from './background'
+import { crawlerLogger as log } from './logger'
 
-const NOTIFY_THRESHOLD = 20 * 60e3
+const NOTIFY_THRESHOLD = 20 * MINUTE
 
 export class Crawlers {
-  private lastNotified = -Infinity
+  public agents: AtpAgent[]
+  public lastNotified = 0
 
   constructor(
-    private readonly backgroundQueue: BackgroundQueue,
-    private readonly hostname: string,
-    private readonly crawlers: Iterable<string>,
-    // W Social: skip crawl notifications in development mode to prevent
-    // sending dev traffic to production relays.
-    private readonly devMode: boolean = false,
-  ) {}
-
-  notifyOfUpdate() {
-    if (this.devMode) return
-
-    const now = Date.now()
-    if (this.lastNotified < now - NOTIFY_THRESHOLD) {
-      this.lastNotified = now
-      this.requestCrawl()
-    } else {
-      // @TODO We should probably actually schedule (setTimeout) a crawl for
-      // when the threshold is met, instead of just waiting for the next update
-      // to trigger it. Not doing this now as it requires cleanup logic on
-      // shutdown.
-    }
+    public hostname: string,
+    public crawlers: string[],
+    public backgroundQueue: BackgroundQueue,
+    public devMode: boolean = false,
+  ) {
+    this.agents = crawlers.map((service) => new AtpAgent({ service }))
   }
 
-  private requestCrawl() {
-    for (const crawler of this.crawlers) {
-      this.backgroundQueue.add(async () => {
-        try {
-          await xrpc(crawler, com.atproto.sync.requestCrawl, {
-            validateRequest: false,
-            validateResponse: false,
-            strictResponseProcessing: false,
-            body: { hostname: this.hostname },
-          })
-        } catch (err) {
-          log.warn({ err, crawler }, 'failed to request crawl')
-        }
-      })
+  async notifyOfUpdate() {
+    // Skip crawl notifications in development mode to prevent sending dev data to production servers
+    if (this.devMode) {
+      return
     }
+
+    const now = Date.now()
+    if (now - this.lastNotified < NOTIFY_THRESHOLD) {
+      return
+    }
+
+    this.backgroundQueue.add(async () => {
+      await Promise.all(
+        this.agents.map(async (agent) => {
+          try {
+            await agent.api.com.atproto.sync.requestCrawl({
+              hostname: this.hostname,
+            })
+          } catch (err) {
+            log.warn(
+              { err, cralwer: agent.service.toString() },
+              'failed to request crawl',
+            )
+          }
+        }),
+      )
+      this.lastNotified = now
+    })
   }
 }

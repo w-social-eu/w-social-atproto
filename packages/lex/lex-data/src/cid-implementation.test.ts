@@ -73,19 +73,25 @@ describe(BytesCid, () => {
  */
 export function createCustomCid<
   TVersion extends 0 | 1,
-  TCodec extends number,
-  THashCode extends number,
+  TCode extends number,
+  TMultihashCode extends number,
 >(
   version: TVersion,
-  code: TCodec,
-  hashCode: THashCode,
+  code: TCode,
+  multihashCode: TMultihashCode,
   digest: Uint8Array,
-): Cid<TVersion, TCodec, THashCode> {
+): Cid<TVersion, TCode, TMultihashCode> {
   return {
     version,
     code,
-    multihash: { code: hashCode, digest },
-    bytes: new Uint8Array([version, code, hashCode, digest.length, ...digest]),
+    multihash: { code: multihashCode, digest },
+    bytes: new Uint8Array([
+      version,
+      code,
+      multihashCode,
+      digest.length,
+      ...digest,
+    ]),
     toString,
     equals,
   }
