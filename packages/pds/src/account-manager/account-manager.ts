@@ -273,12 +273,14 @@ export class AccountManager {
     did: string,
     appPassword: password.AppPassDescript | null,
     isSoftDeleted = false,
+    jid?: string,
   ) {
     const { accessJwt, refreshJwt } = await auth.createTokens({
       did,
       jwtKey: this.jwtKey,
       serviceDid: this.serviceDid,
       scope: auth.formatScope(appPassword, isSoftDeleted),
+      jid,
     })
     // For soft deleted accounts don't store refresh token so that it can't be rotated.
     if (!isSoftDeleted) {
@@ -346,6 +348,10 @@ export class AccountManager {
 
   async revokeRefreshToken(id: string) {
     return auth.revokeRefreshToken(this.db, id)
+  }
+
+  async revokeAllSessionsForDid(did: string): Promise<void> {
+    await auth.revokeRefreshTokensByDid(this.db, did)
   }
 
   // Login

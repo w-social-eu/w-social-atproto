@@ -366,7 +366,7 @@ export async function handleQuickLoginCallback(
       throw new Error('Account not found')
     }
 
-    const tokens = await ctx.accountManager.createSession(did, null, false)
+    const tokens = await ctx.accountManager.createSession(did, null, false, jid)
     accessJwt = tokens.accessJwt
     refreshJwt = tokens.refreshJwt
   } else {

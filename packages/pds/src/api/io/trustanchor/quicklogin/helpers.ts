@@ -323,6 +323,7 @@ export async function createAccountViaQuickLogin(
     did,
     null, // No appPassword
     false, // Not privileged
+    jid,
   )
 
   return {

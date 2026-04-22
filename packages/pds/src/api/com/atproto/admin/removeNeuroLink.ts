@@ -38,6 +38,10 @@ export default function (server: Server, ctx: AppContext) {
         .where('did', '=', did)
         .execute()
 
+      // Revoke all active sessions for the unlinked account so the user
+      // is forced to re-authenticate on next token refresh.
+      await ctx.accountManager.revokeAllSessionsForDid(did)
+
       req.log.info({ did, jid, isLastLink }, 'Removed Neuro identity link')
 
       return {

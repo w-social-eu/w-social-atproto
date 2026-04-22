@@ -244,6 +244,7 @@ import * as IoTrustanchorAdminSetThreadViewPreferences from './types/io/trustanc
 import * as IoTrustanchorAdminSubscribeToLists from './types/io/trustanchor/admin/subscribeToLists.js'
 import * as IoTrustanchorAdminUpdateInvitationEmailStatus from './types/io/trustanchor/admin/updateInvitationEmailStatus.js'
 import * as IoTrustanchorQuickloginCallback from './types/io/trustanchor/quicklogin/callback.js'
+import * as IoTrustanchorQuickloginGetLinkedAccounts from './types/io/trustanchor/quicklogin/getLinkedAccounts.js'
 import * as IoTrustanchorQuickloginInit from './types/io/trustanchor/quicklogin/init.js'
 import * as IoTrustanchorQuickloginStatus from './types/io/trustanchor/quicklogin/status.js'
 import * as IoTrustanchorServerDeleteAccountWID from './types/io/trustanchor/server/deleteAccountWID.js'
@@ -3570,6 +3571,18 @@ export class IoTrustanchorQuickloginNS {
     >,
   ) {
     const nsid = 'io.trustanchor.quicklogin.callback' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  getLinkedAccounts<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorQuickloginGetLinkedAccounts.QueryParams,
+      IoTrustanchorQuickloginGetLinkedAccounts.HandlerInput,
+      IoTrustanchorQuickloginGetLinkedAccounts.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.quicklogin.getLinkedAccounts' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 

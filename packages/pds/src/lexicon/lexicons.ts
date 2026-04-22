@@ -16896,6 +16896,64 @@ export const schemaDict = {
       },
     },
   },
+  IoTrustanchorQuickloginGetLinkedAccounts: {
+    lexicon: 1,
+    id: 'io.trustanchor.quicklogin.getLinkedAccounts',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Return sessions for all W Social accounts linked to the same WID as the authenticated account. Used to populate the account switcher dynamically.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            properties: {},
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['accounts'],
+            properties: {
+              accounts: {
+                type: 'array',
+                description:
+                  "All accounts (including the caller's) linked to the same WID, ordered by lastLoginAt descending.",
+                items: {
+                  type: 'ref',
+                  ref: 'lex:io.trustanchor.quicklogin.getLinkedAccounts#linkedAccount',
+                },
+              },
+            },
+          },
+        },
+      },
+      linkedAccount: {
+        type: 'object',
+        required: ['accessJwt', 'refreshJwt', 'did', 'handle'],
+        properties: {
+          accessJwt: {
+            type: 'string',
+            description: 'Access token for this account',
+          },
+          refreshJwt: {
+            type: 'string',
+            description: 'Refresh token for this account',
+          },
+          did: {
+            type: 'string',
+            description: 'DID of this account',
+          },
+          handle: {
+            type: 'string',
+            description: 'Handle of this account',
+          },
+        },
+      },
+    },
+  },
   IoTrustanchorQuickloginInit: {
     lexicon: 1,
     id: 'io.trustanchor.quicklogin.init',
@@ -22609,6 +22667,8 @@ export const ids = {
   IoTrustanchorAdminUpdateInvitationEmailStatus:
     'io.trustanchor.admin.updateInvitationEmailStatus',
   IoTrustanchorQuickloginCallback: 'io.trustanchor.quicklogin.callback',
+  IoTrustanchorQuickloginGetLinkedAccounts:
+    'io.trustanchor.quicklogin.getLinkedAccounts',
   IoTrustanchorQuickloginInit: 'io.trustanchor.quicklogin.init',
   IoTrustanchorQuickloginStatus: 'io.trustanchor.quicklogin.status',
   IoTrustanchorServerDeleteAccountWID: 'io.trustanchor.server.deleteAccountWID',

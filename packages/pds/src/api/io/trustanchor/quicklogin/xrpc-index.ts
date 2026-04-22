@@ -3,6 +3,7 @@ import { Server } from '../../../../lexicon'
 import xrpcInit from './xrpc-init'
 import xrpcCallback from './xrpc-callback'
 import xrpcStatus from './xrpc-status'
+import xrpcGetLinkedAccounts from './xrpc-getLinkedAccounts'
 
 export default function (server: Server, ctx: AppContext) {
   if (!ctx.cfg.quicklogin) {
@@ -12,4 +13,5 @@ export default function (server: Server, ctx: AppContext) {
   xrpcInit(server, ctx)
   xrpcCallback(server, ctx)
   xrpcStatus(server, ctx)
+  xrpcGetLinkedAccounts(server, ctx)
 }
