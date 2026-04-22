@@ -118,5 +118,70 @@ describe('EventRunner utils', () => {
       }
       expect(runner.partitions.size).toEqual(0)
     })
+
+    it('applies backpressure when bounded, preventing unbounded memory growth.', async () => {
+      // Simulates a fast firehose producer (500 events enqueued back-to-back)
+      // with slow consumers (each task waits 5ms). Without backpressure, all
+      // 500 closures would be held in memory at once. With a 20/10 watermark
+      // pair, the producer's enqueue loop is expected to stall — so the
+      // runner never buffers more than ~20 events at a time.
+      const runner = new MemoryRunner({
+        concurrency: 10,
+        maxQueueSize: 20,
+        lowWaterMark: 10,
+      })
+      let maxObserved = 0
+      const producer = (async () => {
+        for (let i = 0; i < 500; ++i) {
+          await runner.trackEvent(
+            (i % 4).toString(10), // 4 partitions to allow some parallelism
+            i,
+            async () => {
+              await wait(5)
+            },
+          )
+          // Sample the high-water mark as seen by the producer; with
+          // backpressure working, this should never exceed maxQueueSize by
+          // more than a couple in transit.
+          const inMemory = runner['inMemory'] as number
+          if (inMemory > maxObserved) maxObserved = inMemory
+        }
+      })()
+      await producer
+      await runner.mainQueue.onIdle()
+      // Small fudge for in-flight tasks racing past the watermark while a
+      // new enqueue resolves — should stay well under 2× the limit.
+      expect(maxObserved).toBeLessThanOrEqual(40)
+      expect(runner.getCursor()).toEqual(499)
+    })
+
+    it('bounded trackEvent returns after enqueue, not after completion.', async () => {
+      // Critical property for the firehose consumer: awaiting `trackEvent`
+      // must not block per-task processing, otherwise indexing serializes
+      // to one event at a time and the AppView falls hopelessly behind.
+      const runner = new MemoryRunner({
+        concurrency: 10,
+        maxQueueSize: 100,
+        lowWaterMark: 50,
+      })
+      let handlerStarted = false
+      let release: (() => void) | null = null
+      const p = runner.trackEvent('a', 1, async () => {
+        handlerStarted = true
+        await new Promise<void>((r) => {
+          release = r
+        })
+      })
+      // `await p` must resolve even though the handler is still awaiting
+      // `release` — i.e. trackEvent must not block on task completion in
+      // bounded mode. A stuck `await p` here would time out the test.
+      await p
+      // Give the partition queue a tick to start the task.
+      await wait(10)
+      expect(handlerStarted).toBe(true)
+      expect(release).not.toBeNull()
+      ;(release as unknown as () => void)()
+      await runner.mainQueue.onIdle()
+    })
   })
 })
