@@ -1,10 +1,8 @@
-import { DatetimeString } from '@atproto/lex'
-
 export interface RepoRoot {
   did: string
   cid: string
   rev: string
-  indexedAt: DatetimeString
+  indexedAt: string
 }
 
 export const tableName = 'repo_root'

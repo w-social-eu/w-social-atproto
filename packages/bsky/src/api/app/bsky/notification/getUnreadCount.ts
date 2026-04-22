@@ -1,8 +1,8 @@
-import { DidString } from '@atproto/syntax'
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
 import { Hydrator } from '../../../../hydration/hydrator'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { QueryParams } from '../../../../lexicon/types/app/bsky/notification/getUnreadCount'
 import {
   HydrationFnInput,
   PresentationFnInput,
@@ -19,7 +19,7 @@ export default function (server: Server, ctx: AppContext) {
     noRules,
     presentation,
   )
-  server.add(app.bsky.notification.getUnreadCount, {
+  server.app.bsky.notification.getUnreadCount({
     auth: ctx.authVerifier.standard,
     handler: async ({ auth, params }) => {
       const viewer = auth.credentials.iss
@@ -67,15 +67,15 @@ type Context = {
   views: Views
 }
 
-type Params = app.bsky.notification.getUnreadCount.$Params & {
-  viewer: DidString
+type Params = QueryParams & {
+  viewer: string
 }
 
 type SkeletonState = {
   count: number
 }
 
-const getPriority = async (ctx: Context, did: DidString) => {
+const getPriority = async (ctx: Context, did: string) => {
   const actors = await ctx.hydrator.actor.getActors([did], {
     skipCacheForDids: [did],
   })

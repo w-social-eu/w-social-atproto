@@ -1,5 +1,6 @@
-import { AtpAgent, ids } from '@atproto/api'
+import { AtpAgent } from '@atproto/api'
 import { RecordRef, SeedClient, TestNetwork, usersSeed } from '@atproto/dev-env'
+import { ids } from '../../src/lexicon/lexicons'
 
 describe('thread mutes', () => {
   let network: TestNetwork
@@ -17,7 +18,7 @@ describe('thread mutes', () => {
       dbPostgresSchema: 'bsky_thread_mutes',
     })
     sc = network.getSeedClient()
-    agent = network.bsky.getAgent()
+    agent = network.bsky.getClient()
     await usersSeed(sc)
     alice = sc.dids.alice
     bob = sc.dids.bob

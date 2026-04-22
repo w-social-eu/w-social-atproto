@@ -1,5 +1,3 @@
-import { DidString } from '@atproto/syntax'
-
 export type EmailTokenPurpose =
   | 'confirm_email'
   | 'update_email'
@@ -9,7 +7,7 @@ export type EmailTokenPurpose =
 
 export interface EmailToken {
   purpose: EmailTokenPurpose
-  did: DidString
+  did: string
   token: string
   requestedAt: string
 }

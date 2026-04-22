@@ -1,12 +1,8 @@
-import { parseCid } from '@atproto/lex-data'
+import { CID } from 'multiformats/cid'
 import { InvalidRecordKeyError } from '@atproto/syntax'
-import {
-  AuthRequiredError,
-  InvalidRequestError,
-  Server,
-} from '@atproto/xrpc-server'
+import { AuthRequiredError, InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 import { dbLogger } from '../../../../logger'
 import {
   BadCommitSwapError,
@@ -17,7 +13,7 @@ import {
 } from '../../../../repo'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.repo.createRecord, {
+  server.com.atproto.repo.createRecord({
     auth: ctx.authVerifier.authorization({
       // @NOTE the "checkTakedown" and "checkDeactivated" checks are typically
       // performed during auth. However, since this method's "repo" parameter
@@ -65,7 +61,7 @@ export default function (server: Server, ctx: AppContext) {
         })
       }
 
-      const swapCommitCid = swapCommit ? parseCid(swapCommit) : undefined
+      const swapCommitCid = swapCommit ? CID.parse(swapCommit) : undefined
 
       let write: PreparedCreate
       try {
@@ -96,9 +92,9 @@ export default function (server: Server, ctx: AppContext) {
             : []
         const backlinkDeletions = backlinkConflicts.map((uri) =>
           prepareDelete({
-            did: uri.did,
-            collection: uri.collectionSafe,
-            rkey: uri.rkeySafe,
+            did: uri.hostname,
+            collection: uri.collection,
+            rkey: uri.rkey,
           }),
         )
         const writes = [...backlinkDeletions, write]
@@ -124,7 +120,7 @@ export default function (server: Server, ctx: AppContext) {
         })
 
       return {
-        encoding: 'application/json' as const,
+        encoding: 'application/json',
         body: {
           uri: write.uri.toString(),
           cid: write.cid.toString(),

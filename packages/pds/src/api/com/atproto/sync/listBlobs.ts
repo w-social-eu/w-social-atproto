@@ -1,12 +1,11 @@
-import { Server } from '@atproto/xrpc-server'
 import { AuthScope } from '../../../../auth-scope'
 import { isUserOrAdmin } from '../../../../auth-verifier'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 import { assertRepoAvailability } from './util'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.sync.listBlobs, {
+  server.com.atproto.sync.listBlobs({
     auth: ctx.authVerifier.authorizationOrAdminTokenOptional({
       additional: [AuthScope.Takendown],
       authorize: () => {
@@ -22,7 +21,7 @@ export default function (server: Server, ctx: AppContext) {
       )
 
       return {
-        encoding: 'application/json' as const,
+        encoding: 'application/json',
         body: {
           cursor: blobCids.at(-1),
           cids: blobCids,

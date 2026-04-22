@@ -1,16 +1,25 @@
-import {
-  AppBskyActorDefs,
-  AppBskyNotificationDeclaration,
-  AppBskyNotificationDefs,
-  AppBskyNotificationListActivitySubscriptions,
-  AppBskyNotificationListNotifications,
-  AppBskyNotificationPutPreferencesV2,
-  AtpAgent,
-  ids,
-} from '@atproto/api'
+import { AppBskyNotificationDeclaration, AtpAgent } from '@atproto/api'
 import { SeedClient, TestNetwork, basicSeed } from '@atproto/dev-env'
 import { TAG_HIDE } from '@atproto/dev-env/dist/seed/thread-v2'
 import { delayCursor } from '../../src/api/app/bsky/notification/listNotifications'
+import { ids } from '../../src/lexicon/lexicons'
+import { ProfileView } from '../../src/lexicon/types/app/bsky/actor/defs'
+import {
+  ActivitySubscription,
+  ChatPreference,
+  FilterablePreference,
+  Preference,
+  Preferences,
+} from '../../src/lexicon/types/app/bsky/notification/defs'
+import {
+  OutputSchema as ListActivitySubscriptionsOutputSchema,
+  QueryParams,
+} from '../../src/lexicon/types/app/bsky/notification/listActivitySubscriptions'
+import {
+  Notification,
+  OutputSchema as ListNotificationsOutputSchema,
+} from '../../src/lexicon/types/app/bsky/notification/listNotifications'
+import { InputSchema } from '../../src/lexicon/types/app/bsky/notification/putPreferencesV2'
 import { Namespaces } from '../../src/stash'
 import { forSnapshot, paginateAll } from '../_util'
 
@@ -43,8 +52,8 @@ describe('notification views', () => {
       },
     })
     db = network.bsky.db
-    agent = network.bsky.getAgent()
-    pdsAgent = network.pds.getAgent()
+    agent = network.bsky.getClient()
+    pdsAgent = network.pds.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     await network.bsky.db.db
@@ -95,9 +104,7 @@ describe('notification views', () => {
     await network.close()
   })
 
-  const sortNotifs = (
-    notifs: AppBskyNotificationListNotifications.Notification[],
-  ) => {
+  const sortNotifs = (notifs: Notification[]) => {
     // Need to sort because notification ordering is not well-defined
     return notifs.sort((a, b) => {
       const stableUriA = a.uri.replace(
@@ -453,9 +460,8 @@ describe('notification views', () => {
   })
 
   it('paginates', async () => {
-    const results = (
-      results: AppBskyNotificationListNotifications.OutputSchema[],
-    ) => sortNotifs(results.flatMap((res) => res.notifications))
+    const results = (results: ListNotificationsOutputSchema[]) =>
+      sortNotifs(results.flatMap((res) => res.notifications))
     const paginator = async (cursor?: string) => {
       const res = await agent.api.app.bsky.notification.listNotifications(
         { cursor, limit: 6 },
@@ -656,8 +662,7 @@ describe('notification views', () => {
     // only notifs from follow (alice)
     expect(
       priority.data.notifications.every(
-        (notif) =>
-          !([sc.dids.bob, sc.dids.dan] as string[]).includes(notif.author.did),
+        (notif) => ![sc.dids.bob, sc.dids.dan].includes(notif.author.did),
       ),
     ).toBe(true)
     expect(forSnapshot(priority.data)).toMatchSnapshot()
@@ -697,8 +702,7 @@ describe('notification views', () => {
     // only notifs from follow (alice)
     expect(
       notifs.data.notifications.every(
-        (notif) =>
-          !([sc.dids.bob, sc.dids.dan] as string[]).includes(notif.author.did),
+        (notif) => ![sc.dids.bob, sc.dids.dan].includes(notif.author.did),
       ),
     ).toBe(true)
     expect(forSnapshot(notifs.data)).toMatchSnapshot()
@@ -714,9 +718,6 @@ describe('notification views', () => {
     )
     await network.processAll()
   })
-
-  // @NOTE there is some flakyness between these tests. We sometimes get
-  // "priority": true when the snapshot expects false.
 
   it('filters notifications by reason', async () => {
     const res = await agent.app.bsky.notification.listNotifications(
@@ -751,9 +752,8 @@ describe('notification views', () => {
   })
 
   it('paginates filtered notifications', async () => {
-    const results = (
-      results: AppBskyNotificationListNotifications.OutputSchema[],
-    ) => sortNotifs(results.flatMap((res) => res.notifications))
+    const results = (results: ListNotificationsOutputSchema[]) =>
+      sortNotifs(results.flatMap((res) => res.notifications))
     const paginator = async (cursor?: string) => {
       const res = await agent.app.bsky.notification.listNotifications(
         { reasons: ['mention', 'reply'], cursor, limit: 2 },
@@ -846,7 +846,7 @@ describe('notification views', () => {
         },
         dbPostgresSchema: 'bsky_views_notifications_delay',
       })
-      delayAgent = delayNetwork.bsky.getAgent()
+      delayAgent = delayNetwork.bsky.getClient()
       delaySc = delayNetwork.getSeedClient()
       await basicSeed(delaySc)
       await delayNetwork.processAll()
@@ -891,9 +891,8 @@ describe('notification views', () => {
       // At this point we won't have any notifications that already crossed the delay threshold.
       jest.setSystemTime(new Date(firstNotification.sortAt))
 
-      const results = (
-        results: AppBskyNotificationListNotifications.OutputSchema[],
-      ) => sortNotifs(results.flatMap((res) => res.notifications))
+      const results = (results: ListNotificationsOutputSchema[]) =>
+        sortNotifs(results.flatMap((res) => res.notifications))
       const paginator = async (cursor?: string) => {
         const res =
           await delayAgent.api.app.bsky.notification.listNotifications(
@@ -1031,16 +1030,16 @@ describe('notification views', () => {
     })
 
     // Defaults
-    const fp: AppBskyNotificationDefs.FilterablePreference = {
+    const fp: FilterablePreference = {
       include: 'all',
       list: true,
       push: true,
     }
-    const p: AppBskyNotificationDefs.Preference = {
+    const p: Preference = {
       list: true,
       push: true,
     }
-    const cp: AppBskyNotificationDefs.ChatPreference = {
+    const cp: ChatPreference = {
       include: 'all',
       push: true,
     }
@@ -1049,8 +1048,8 @@ describe('notification views', () => {
       const actorDid = sc.dids.carol
 
       const getAndAssert = async (
-        expectedApi: AppBskyNotificationDefs.Preferences,
-        expectedDb: AppBskyNotificationDefs.Preferences | undefined,
+        expectedApi: Preferences,
+        expectedDb: Preferences | undefined,
       ) => {
         const { data } = await agent.app.bsky.notification.getPreferences(
           {},
@@ -1070,7 +1069,7 @@ describe('notification views', () => {
           .where(
             'namespace',
             '=',
-            Namespaces.AppBskyNotificationDefsPreferences.$type,
+            Namespaces.AppBskyNotificationDefsPreferences,
           )
           .where('key', '=', 'self')
           .executeTakeFirst()
@@ -1079,20 +1078,20 @@ describe('notification views', () => {
         } else {
           expect(dbResult).toStrictEqual({
             actorDid: actorDid,
-            namespace: Namespaces.AppBskyNotificationDefsPreferences.$type,
+            namespace: Namespaces.AppBskyNotificationDefsPreferences,
             key: 'self',
             indexedAt: expect.any(String),
             payload: expect.anything(), // Better to compare payload parsed.
             updatedAt: expect.any(String),
           })
           expect(JSON.parse(dbResult.payload)).toStrictEqual({
-            $type: Namespaces.AppBskyNotificationDefsPreferences.$type,
+            $type: Namespaces.AppBskyNotificationDefsPreferences,
             ...expectedDb,
           })
         }
       }
 
-      const expectedApi0: AppBskyNotificationDefs.Preferences = {
+      const expectedApi0: Preferences = {
         chat: cp,
         follow: fp,
         like: fp,
@@ -1123,7 +1122,7 @@ describe('notification views', () => {
       )
       await network.processAll()
 
-      const expectedApi1: AppBskyNotificationDefs.Preferences = {
+      const expectedApi1: Preferences = {
         chat: cp,
         follow: fp,
         like: fp,
@@ -1147,8 +1146,8 @@ describe('notification views', () => {
       const actorDid = sc.dids.carol
 
       const putAndAssert = async (
-        input: AppBskyNotificationPutPreferencesV2.InputSchema,
-        expected: AppBskyNotificationDefs.Preferences,
+        input: InputSchema,
+        expected: Preferences,
       ) => {
         const { data } = await agent.app.bsky.notification.putPreferencesV2(
           input,
@@ -1156,7 +1155,7 @@ describe('notification views', () => {
             encoding: 'application/json',
             headers: await network.serviceHeaders(
               actorDid,
-              'app.bsky.notification.putPreferencesV2',
+              ids.AppBskyNotificationPutPreferencesV2,
             ),
           },
         )
@@ -1170,21 +1169,21 @@ describe('notification views', () => {
           .where(
             'namespace',
             '=',
-            Namespaces.AppBskyNotificationDefsPreferences.$type,
+            Namespaces.AppBskyNotificationDefsPreferences,
           )
           .where('key', '=', 'self')
           .executeTakeFirstOrThrow()
         expect(dbResult).toStrictEqual({
           actorDid: actorDid,
-          namespace: Namespaces.AppBskyNotificationDefsPreferences.$type,
+          namespace: Namespaces.AppBskyNotificationDefsPreferences,
           key: 'self',
           indexedAt: expect.any(String),
           payload: expect.anything(), // Better to compare payload parsed.
           updatedAt: expect.any(String),
         })
         expect(JSON.parse(dbResult.payload)).toStrictEqual({
+          $type: Namespaces.AppBskyNotificationDefsPreferences,
           ...expected,
-          $type: Namespaces.AppBskyNotificationDefsPreferences.$type,
         })
       }
 
@@ -1194,7 +1193,7 @@ describe('notification views', () => {
           include: 'accepted',
         },
       }
-      const expected0: AppBskyNotificationDefs.Preferences = {
+      const expected0: Preferences = {
         chat: input0.chat,
         follow: fp,
         like: fp,
@@ -1218,7 +1217,7 @@ describe('notification views', () => {
           include: 'follows',
         },
       }
-      const expected1: AppBskyNotificationDefs.Preferences = {
+      const expected1: Preferences = {
         // Kept from the previous call.
         chat: input0.chat,
         follow: fp,
@@ -1239,7 +1238,7 @@ describe('notification views', () => {
   })
 
   describe('activity subscriptions', () => {
-    const sortProfiles = (profiles: AppBskyActorDefs.ProfileView[]) => {
+    const sortProfiles = (profiles: ProfileView[]) => {
       return profiles.sort((a, b) => (a.handle > b.handle ? 1 : -1))
     }
 
@@ -1260,7 +1259,7 @@ describe('notification views', () => {
     const put = async (
       actor: string,
       subject: string,
-      val: AppBskyNotificationDefs.ActivitySubscription,
+      val: ActivitySubscription,
     ) =>
       agent.app.bsky.notification.putActivitySubscription(
         {
@@ -1270,15 +1269,12 @@ describe('notification views', () => {
         {
           headers: await network.serviceHeaders(
             actor,
-            'app.bsky.notification.putActivitySubscription',
+            ids.AppBskyNotificationPutActivitySubscription,
           ),
         },
       )
 
-    const list = async (
-      actor: string,
-      params?: AppBskyNotificationListActivitySubscriptions.QueryParams,
-    ) =>
+    const list = async (actor: string, params?: QueryParams) =>
       agent.app.bsky.notification.listActivitySubscriptions(params ?? {}, {
         headers: await network.serviceHeaders(
           actor,
@@ -1445,13 +1441,10 @@ describe('notification views', () => {
       await put(actorDid, fred, val)
       await put(actorDid, blocked, val) // blocked is removed from the list.
 
-      const results = (
-        results: AppBskyNotificationListActivitySubscriptions.OutputSchema[],
-      ) =>
+      const results = (results: ListActivitySubscriptionsOutputSchema[]) =>
         sortProfiles(
           results.flatMap(
-            (res: AppBskyNotificationListActivitySubscriptions.OutputSchema) =>
-              res.subscriptions,
+            (res: ListActivitySubscriptionsOutputSchema) => res.subscriptions,
           ),
         )
       const paginator = async (cursor?: string) => {

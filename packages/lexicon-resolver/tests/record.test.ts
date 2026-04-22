@@ -1,7 +1,5 @@
-import assert from 'node:assert'
+import { dataToCborBlock } from '@atproto/common'
 import { SeedClient, TestNetworkNoAppView, usersSeed } from '@atproto/dev-env'
-import { AtUriString, l } from '@atproto/lex'
-import { encode } from '@atproto/lex-cbor'
 import { AtprotoRecordResolver, buildRecordResolver } from '../src/index.js'
 
 describe('Record resolution', () => {
@@ -38,7 +36,6 @@ describe('Record resolution', () => {
 
   it('resolves record by AT-URI string.', async () => {
     const post = await sc.post(sc.dids.alice, 'post2')
-    assert(l.isAtUriString(post.ref.uriStr))
     const result = await resolveRecord(post.ref.uriStr, {
       forceRefresh: true,
     })
@@ -81,13 +78,13 @@ describe('Record resolution', () => {
 
   it('does not resolve record with corrupted CAR block.', async () => {
     const post = await sc.post(sc.dids.alice, 'post4')
-    const badCbor = encode({})
+    const badBlock = await dataToCborBlock({})
     await network.pds.ctx.actorStore.transact(sc.dids.alice, (txn) =>
       txn.repo.db.db
         .updateTable('repo_block')
         .set({
-          content: badCbor,
-          size: badCbor.byteLength,
+          content: badBlock.bytes,
+          size: badBlock.bytes.byteLength,
         })
         .where('cid', '=', post.ref.cidStr)
         .execute(),
@@ -171,7 +168,7 @@ describe('Record resolution', () => {
         return doc
       },
     )
-    const result = await resolveRecord(post.ref.uriStr as AtUriString, {
+    const result = await resolveRecord(post.ref.uriStr, {
       forceRefresh: true,
     })
     expect(result.commit.did).toEqual(sc.dids.alice)

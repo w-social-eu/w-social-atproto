@@ -21,7 +21,7 @@ describe('server', () => {
         version: '0.0.0',
       },
     })
-    agent = network.pds.getAgent()
+    agent = network.pds.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     alice = sc.dids.alice
@@ -95,14 +95,12 @@ describe('server', () => {
     )
     const uri = new AtUri(createRes.data.uri)
 
-    const url = new URL(`/xrpc/com.atproto.repo.getRecord`, network.pds.url)
-    url.searchParams.set('repo', uri.host)
-    url.searchParams.set('collection', uri.collectionSafe)
-    url.searchParams.set('rkey', uri.rkeySafe)
-
-    const res = await request(url, {
-      headers: { ...sc.getHeaders(alice), 'accept-encoding': 'gzip' },
-    })
+    const res = await request(
+      `${network.pds.url}/xrpc/com.atproto.repo.getRecord?repo=${uri.host}&collection=${uri.collection}&rkey=${uri.rkey}`,
+      {
+        headers: { ...sc.getHeaders(alice), 'accept-encoding': 'gzip' },
+      },
+    )
 
     await finished(res.body.resume())
 
@@ -110,12 +108,10 @@ describe('server', () => {
   })
 
   it('compresses large car file responses', async () => {
-    const url = new URL(`/xrpc/com.atproto.sync.getRepo`, network.pds.url)
-    url.searchParams.set('did', alice)
-
-    const res = await request(url, {
-      headers: { 'accept-encoding': 'gzip' },
-    })
+    const res = await request(
+      `${network.pds.url}/xrpc/com.atproto.sync.getRepo?did=${alice}`,
+      { headers: { 'accept-encoding': 'gzip' } },
+    )
 
     await finished(res.body.resume())
 
@@ -123,8 +119,7 @@ describe('server', () => {
   })
 
   it('does not compress small payloads', async () => {
-    const url = new URL(`/xrpc/_health`, network.pds.url)
-    const res = await request(url, {
+    const res = await request(`${network.pds.url}/xrpc/_health`, {
       headers: { 'accept-encoding': 'gzip' },
     })
 

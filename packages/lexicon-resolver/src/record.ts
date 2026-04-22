@@ -1,13 +1,6 @@
+import { CID } from 'multiformats/cid'
 import { IdResolver, parseToAtprotoDocument } from '@atproto/identity'
-import {
-  AgentConfig,
-  Cid,
-  Client,
-  DidString,
-  FetchHandler,
-  LexMap,
-  l,
-} from '@atproto/lex'
+import { RepoRecord } from '@atproto/lexicon'
 import {
   Commit,
   MST,
@@ -16,39 +9,28 @@ import {
   readCarWithRoot,
   verifyCommitSig,
 } from '@atproto/repo'
-import { AtUri, AtUriString } from '@atproto/syntax'
+import { AtUri, ensureValidDid } from '@atproto/syntax'
+import { BuildFetchHandlerOptions, FetchHandler } from '@atproto/xrpc'
 import { safeFetchWrap } from '@atproto-labs/fetch-node'
-import { com } from './lexicons/index.js'
-
-export { AtUri, IdResolver }
-export type {
-  AgentConfig,
-  AtUriString,
-  Cid,
-  Commit,
-  DidString,
-  FetchHandler,
-  LexMap,
-}
+import { AtpBaseClient as Client } from './client/index.js'
+import { isValidDid } from './util.js'
 
 /**
  * Resolve a record from the network.
  */
-export type RecordResolver = (
-  uri: AtUri | AtUriString,
-) => Promise<RecordResolution>
+export type RecordResolver = (uri: AtUri | string) => Promise<RecordResolution>
 
 /**
  * Resolve a record from the network, verifying its authenticity.
  */
 export type AtprotoRecordResolver = (
-  uri: AtUri | AtUriString,
+  uri: AtUri | string,
   options?: ResolveRecordOptions,
 ) => Promise<RecordResolution>
 
 export type BuildRecordResolverOptions = {
   idResolver?: IdResolver
-  rpc?: Partial<AgentConfig> | FetchHandler
+  rpc?: Partial<BuildFetchHandlerOptions> | FetchHandler
 }
 
 export type ResolveRecordOptions = {
@@ -58,9 +40,11 @@ export type ResolveRecordOptions = {
 export type RecordResolution = {
   commit: Commit
   uri: AtUri
-  cid: Cid
-  record: LexMap
+  cid: CID
+  record: RepoRecord
 }
+
+export { AtUri, CID, type Commit, IdResolver, type RepoRecord }
 
 /**
  * Build a record resolver function.
@@ -70,7 +54,7 @@ export function buildRecordResolver(
 ): AtprotoRecordResolver {
   const { idResolver = new IdResolver(), rpc } = options
   return async function resolveRecord(
-    uriStr: AtUri | AtUriString,
+    uriStr: AtUri | string,
     opts: ResolveRecordOptions = {},
   ): Promise<RecordResolution> {
     const uri = typeof uriStr === 'string' ? new AtUri(uriStr) : uriStr
@@ -95,18 +79,18 @@ export function buildRecordResolver(
     }
     const client = new Client(
       typeof rpc === 'function'
-        ? { fetchHandler: rpc }
+        ? rpc
         : {
             ...rpc,
             service: rpc?.service ?? pds,
             fetch: rpc?.fetch ?? safeFetch,
           },
     )
-    const proofBytes = await client
-      .call(com.atproto.sync.getRecord, {
+    const { data: proofBytes } = await client.com.atproto.sync
+      .getRecord({
         did,
-        collection: uri.collection as l.NsidString,
-        rkey: uri.rkey as l.RecordKeyString,
+        collection: uri.collection,
+        rkey: uri.rkey,
       })
       .catch((err) => {
         throw new RecordResolutionError('Could not fetch record proof', {
@@ -139,23 +123,22 @@ export class RecordResolutionError extends Error {
 async function getDidFromUri(
   uri: AtUri,
   { idResolver }: { idResolver: IdResolver },
-): Promise<DidString> {
-  if (l.isDidString(uri.host)) {
+) {
+  if (uri.host.startsWith('did:')) {
+    ensureValidDid(uri.host)
     return uri.host
   }
-
   const resolved = await idResolver.handle.resolve(uri.host)
-  if (!resolved || !l.isDidString(resolved)) {
+  if (!resolved || !isValidDid(resolved)) {
     throw new RecordResolutionError('Could not resolve handle found in AT-URI')
   }
-
   return resolved
 }
 
 async function verifyRecordProof(
   proofBytes: Uint8Array,
   { uri, signingKey }: { uri: AtUri; signingKey: string },
-): Promise<RecordResolution> {
+) {
   const { root, blocks } = await readCarWithRoot(proofBytes).catch((err) => {
     throw new RecordResolutionError('Malformed record proof', { cause: err })
   })
@@ -179,6 +162,6 @@ async function verifyRecordProof(
   if (!cid) {
     throw new RecordResolutionError('Record not found in proof')
   }
-  const record = (await blockstore.readRecord(cid)) as LexMap
+  const record = await blockstore.readRecord(cid)
   return { commit, uri, cid, record }
 }

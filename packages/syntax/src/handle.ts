@@ -92,8 +92,6 @@ export function ensureValidHandleRegex<I extends string>(
   }
 }
 
-export function normalizeHandle(handle: HandleString): HandleString
-export function normalizeHandle(handle: string): string
 export function normalizeHandle(handle: string): string {
   return handle.toLowerCase()
 }

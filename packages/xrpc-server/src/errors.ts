@@ -1,6 +1,5 @@
 import { isHttpError } from 'http-errors'
-import { LexError, XrpcError } from '@atproto/lex-client'
-import { l } from '@atproto/lex-schema'
+import { z } from 'zod'
 import {
   ResponseType,
   ResponseTypeStrings,
@@ -12,12 +11,12 @@ import {
 // @NOTE Do not depend (directly or indirectly) on "./types" here, as it would
 // create a circular dependency.
 
-export const errorResult = l.object({
-  status: l.integer({ minimum: 400 }),
-  error: l.optional(l.string()),
-  message: l.optional(l.string()),
+export const errorResult = z.object({
+  status: z.number(),
+  error: z.string().optional(),
+  message: z.string().optional(),
 })
-export type ErrorResult = l.Infer<typeof errorResult>
+export type ErrorResult = z.infer<typeof errorResult>
 
 export function isErrorResult(v: unknown): v is ErrorResult {
   return errorResult.safeParse(v).success
@@ -53,13 +52,9 @@ export class XRPCError extends Error {
     return type
   }
 
-  get error(): string | undefined {
-    return this.customErrorName ?? this.typeName
-  }
-
   get payload() {
     return {
-      error: this.error,
+      error: this.customErrorName ?? this.typeName,
       message:
         this.type === ResponseType.InternalServerError
           ? this.typeStr // Do not respond with error details for 500s
@@ -83,17 +78,6 @@ export class XRPCError extends Error {
     if (cause instanceof XRPCClientError) {
       const { error, message, type } = mapFromClientError(cause)
       return new XRPCError(type, message, error, { cause })
-    }
-
-    if (cause instanceof XrpcError) {
-      const { status, body } = cause.toDownstreamError()
-      return new XRPCError(status, body.message, body.error, { cause })
-    }
-
-    if (cause instanceof LexError) {
-      const data = cause.toJSON()
-      const type = ResponseType.InternalServerError
-      return new XRPCError(type, data.message, data.error, { cause })
     }
 
     if (isHttpError(cause)) {

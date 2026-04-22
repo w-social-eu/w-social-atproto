@@ -1,15 +1,14 @@
 import path from 'node:path'
 import { Kysely } from 'kysely'
-import { DidString } from '@atproto/syntax'
 import { Database, Migrator } from '../../db'
 
 export interface NewAccount {
-  did: DidString
+  did: string
   published: 0 | 1
 }
 
 export interface Failed {
-  did: DidString
+  did: string
   error: string | null
   fixed: 0 | 1
 }

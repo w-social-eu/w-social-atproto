@@ -3,7 +3,7 @@ import { once } from 'node:events'
 import { Server, createServer } from 'node:http'
 import { AddressInfo } from 'node:net'
 import express, { Application } from 'express'
-import { AtpAgent, ids } from '@atproto/api'
+import { AtpAgent } from '@atproto/api'
 import { SeedClient, TestNetwork, basicSeed } from '@atproto/dev-env'
 import {
   KwsExternalPayload,
@@ -14,6 +14,7 @@ import {
   parseExternalPayload,
   serializeExternalPayload,
 } from '../../src/api/kws/util'
+import { ids } from '../../src/lexicon/lexicons'
 
 type Database = TestNetwork['bsky']['db']
 
@@ -61,7 +62,7 @@ describe('age assurance views', () => {
       },
     })
     db = network.bsky.db
-    agent = network.bsky.getAgent()
+    agent = network.bsky.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     await network.processAll()

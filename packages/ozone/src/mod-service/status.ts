@@ -125,7 +125,6 @@ const getSubjectStatusForModerationEvent = ({
       }
     case 'tools.ozone.moderation.defs#ageAssuranceEvent':
     case 'tools.ozone.moderation.defs#ageAssuranceOverrideEvent':
-    case 'tools.ozone.moderation.defs#ageAssurancePurgeEvent':
       return {
         reviewState: defaultReviewState,
       }
@@ -468,13 +467,6 @@ export const adjustModerationSubjectStatus = async (
       newStatus.ageAssuranceUpdatedBy = 'admin'
       subjectStatus.ageAssuranceUpdatedBy = 'admin'
     }
-  }
-
-  if (action === 'tools.ozone.moderation.defs#ageAssurancePurgeEvent') {
-    newStatus.ageAssuranceState = 'unknown'
-    subjectStatus.ageAssuranceState = 'unknown'
-    newStatus.ageAssuranceUpdatedBy = null
-    subjectStatus.ageAssuranceUpdatedBy = null
   }
 
   if (blobCids?.length) {

@@ -1,6 +1,8 @@
-import { AppBskyActorSearchActors, AtpAgent, ids } from '@atproto/api'
+import { AtpAgent } from '@atproto/api'
 import { wait } from '@atproto/common'
 import { SeedClient, TestNetwork, usersBulkSeed } from '@atproto/dev-env'
+import { ids } from '../../src/lexicon/lexicons'
+import { OutputSchema as SearchActorsOutputSchema } from '../../src/lexicon/types/app/bsky/actor/searchActors'
 import { forSnapshot, paginateAll, stripViewer } from '../_util'
 
 // @NOTE skipped to help with CI failures
@@ -15,7 +17,7 @@ describe.skip('pds actor search views', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'bsky_views_actor_search',
     })
-    agent = network.bsky.getAgent()
+    agent = network.bsky.getClient()
     sc = network.getSeedClient()
 
     await wait(50) // allow pending sub to be established
@@ -187,7 +189,7 @@ describe.skip('pds actor search views', () => {
   })
 
   it('paginates', async () => {
-    const results = (results: AppBskyActorSearchActors.OutputSchema[]) =>
+    const results = (results: SearchActorsOutputSchema[]) =>
       results.flatMap((res) => res.actors)
     const paginator = async (cursor?: string) => {
       const res = await agent.api.app.bsky.actor.searchActors(

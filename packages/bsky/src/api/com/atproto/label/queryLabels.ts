@@ -1,23 +1,17 @@
-import { isUriString } from '@atproto/lex'
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.label.queryLabels, async ({ params }) => {
+  server.com.atproto.label.queryLabels(async ({ params }) => {
     const { uriPatterns, sources } = params
 
-    if (!sources?.length) {
-      throw new InvalidRequestError('source dids are required')
-    }
-
-    if (uriPatterns.some(includesWildcard)) {
+    if (uriPatterns.find((uri) => uri.includes('*'))) {
       throw new InvalidRequestError('wildcards not supported')
     }
 
-    // @TODO Should this be enforced at the schema level?
-    if (!uriPatterns.every(isUriString)) {
-      throw new InvalidRequestError('invalid uri pattern')
+    if (!sources?.length) {
+      throw new InvalidRequestError('source dids are required')
     }
 
     const labelMap = await ctx.hydrator.label.getLabelsForSubjects(
@@ -28,15 +22,14 @@ export default function (server: Server, ctx: AppContext) {
         redact: new Set(),
       },
     )
-    const labels = uriPatterns.flatMap((sub) => labelMap.getBySubject(sub))
+    const labels = uriPatterns.flatMap((uri) => labelMap.getBySubject(uri))
 
     return {
       encoding: 'application/json',
-      body: { labels },
+      body: {
+        cursor: undefined,
+        labels,
+      },
     }
   })
-}
-
-function includesWildcard(str: string) {
-  return str.includes('*')
 }

@@ -17,7 +17,6 @@ import {
   RedisRateLimiter,
   ResponseType,
   XRPCError,
-  createServer,
 } from '@atproto/xrpc-server'
 import apiRoutes from './api'
 import * as authRoutes from './auth-routes'
@@ -25,33 +24,32 @@ import * as basicRoutes from './basic-routes'
 import { ServerConfig, ServerSecrets } from './config'
 import { AppContext, AppContextOptions } from './context'
 import * as error from './error'
-import { app } from './lexicons.js'
+import { createServer } from './lexicon'
+import * as AppBskyFeedGetFeedSkeleton from './lexicon/types/app/bsky/feed/getFeedSkeleton'
 import { httpLogger, loggerMiddleware } from './logger'
 import { proxyHandler } from './pipethrough'
 import compression from './util/compression'
 import { BUILD_HASH, BUILD_TIME } from './version'
 import * as wellKnown from './well-known'
 
-export * from './lexicons.js'
 export { createSecretKeyObject } from './auth-verifier'
 export * from './config'
 export { AppContext } from './context'
 export { Database } from './db'
 export { DiskBlobStore } from './disk-blobstore'
+export { createServer as createLexiconServer } from './lexicon'
 export { httpLogger } from './logger'
 export { type CommitDataWithOps, type PreparedWrite } from './repo'
 export * as repoPrepare from './repo/prepare'
 export { scripts } from './scripts'
 export * as sequencer from './sequencer'
 
-/**
- * @deprecated Legacy export for backwards compatibility
- */
+// Legacy export for backwards compatibility
 export type SkeletonHandler = MethodHandler<
   void,
-  app.bsky.feed.getFeedSkeleton.$Params,
-  void,
-  app.bsky.feed.getFeedSkeleton.$Output
+  AppBskyFeedGetFeedSkeleton.QueryParams,
+  AppBskyFeedGetFeedSkeleton.HandlerInput,
+  AppBskyFeedGetFeedSkeleton.HandlerOutput
 >
 
 export class PDS {
@@ -132,8 +130,8 @@ export class PDS {
 
     const { rateLimits } = ctx.cfg
 
-    const server = createServer([], {
-      validateResponse: cfg.service.devMode,
+    const server = createServer({
+      validateResponse: false,
       payload: {
         jsonLimit: 150 * 1024, // 150kb
         textLimit: 100 * 1024, // 100kb
@@ -220,7 +218,7 @@ export class PDS {
     app.use(cors({ maxAge: DAY / SECOND }))
     app.use(basicRoutes.createRouter(ctx))
     app.use(wellKnown.createRouter(ctx))
-    app.use(server.router)
+    app.use(server.xrpc.router)
     app.use(error.handler)
 
     return new PDS({

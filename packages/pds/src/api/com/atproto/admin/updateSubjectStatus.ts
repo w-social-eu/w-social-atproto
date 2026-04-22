@@ -1,36 +1,41 @@
-import { parseCid } from '@atproto/lex-data'
+import { CID } from 'multiformats/cid'
 import { AtUri } from '@atproto/syntax'
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import {
+  isRepoBlobRef,
+  isRepoRef,
+} from '../../../../lexicon/types/com/atproto/admin/defs'
+import { isMain as isStrongRef } from '../../../../lexicon/types/com/atproto/repo/strongRef'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.admin.updateSubjectStatus, {
+  server.com.atproto.admin.updateSubjectStatus({
     auth: ctx.authVerifier.moderator,
     handler: async ({ input }) => {
       const { subject, takedown, deactivated } = input.body
       if (takedown) {
-        if (com.atproto.admin.defs.repoRef.$isTypeOf(subject)) {
+        if (isRepoRef(subject)) {
           await ctx.accountManager.takedownAccount(subject.did, takedown)
-        } else if (com.atproto.repo.strongRef.$isTypeOf(subject)) {
+        } else if (isStrongRef(subject)) {
           const uri = new AtUri(subject.uri)
           await ctx.actorStore.transact(uri.hostname, async (store) => {
             await store.record.updateRecordTakedownStatus(uri, takedown)
           })
-        } else if (com.atproto.admin.defs.repoBlobRef.$isTypeOf(subject)) {
+        } else if (isRepoBlobRef(subject)) {
           await ctx.actorStore.transact(subject.did, async (store) => {
             await store.repo.blob.updateBlobTakedownStatus(
-              parseCid(subject.cid),
+              CID.parse(subject.cid),
               takedown,
             )
           })
         } else {
-          throw new InvalidRequestError(`Invalid subject (${subject.$type})`)
+          throw new InvalidRequestError('Invalid subject')
         }
       }
 
       if (deactivated) {
-        if (com.atproto.admin.defs.repoRef.$isTypeOf(subject)) {
+        if (isRepoRef(subject)) {
           if (deactivated.applied) {
             await ctx.accountManager.deactivateAccount(subject.did, null)
           } else {
@@ -39,13 +44,13 @@ export default function (server: Server, ctx: AppContext) {
         }
       }
 
-      if (com.atproto.admin.defs.repoRef.$isTypeOf(subject)) {
+      if (isRepoRef(subject)) {
         const status = await ctx.accountManager.getAccountStatus(subject.did)
         await ctx.sequencer.sequenceAccountEvt(subject.did, status)
       }
 
       return {
-        encoding: 'application/json' as const,
+        encoding: 'application/json',
         body: {
           subject,
           takedown,

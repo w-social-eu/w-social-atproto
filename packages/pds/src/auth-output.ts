@@ -1,5 +1,4 @@
 import { ScopePermissions } from '@atproto/oauth-scopes'
-import { DidString } from '@atproto/syntax'
 import { AuthScope } from './auth-scope'
 
 export type UnauthenticatedOutput = {
@@ -15,14 +14,14 @@ export type AdminTokenOutput = {
 export type ModServiceOutput = {
   credentials: {
     type: 'mod_service'
-    did: DidString
+    did: string
   }
 }
 
 export type AccessOutput<S extends AuthScope = AuthScope> = {
   credentials: {
     type: 'access'
-    did: DidString
+    did: string
     scope: S
   }
 }
@@ -30,7 +29,7 @@ export type AccessOutput<S extends AuthScope = AuthScope> = {
 export type OAuthOutput = {
   credentials: {
     type: 'oauth'
-    did: DidString
+    did: string
     permissions: ScopePermissions
   }
 }
@@ -38,7 +37,7 @@ export type OAuthOutput = {
 export type RefreshOutput = {
   credentials: {
     type: 'refresh'
-    did: DidString
+    did: string
     scope: AuthScope.Refresh
     tokenId: string
   }
@@ -47,6 +46,6 @@ export type RefreshOutput = {
 export type UserServiceAuthOutput = {
   credentials: {
     type: 'user_service_auth'
-    did: DidString
+    did: string
   }
 }

@@ -23,7 +23,6 @@ import { DeviceId } from './device/device-id.js'
 import { DpopProof } from './dpop/dpop-proof.js'
 import { AccessDeniedError } from './errors/access-denied-error.js'
 import { AuthorizationError } from './errors/authorization-error.js'
-import { InvalidCredentialsError } from './errors/invalid-credentials-error.js'
 import { InvalidRequestError } from './errors/invalid-request-error.js'
 import { OAuthError } from './errors/oauth-error.js'
 import {
@@ -33,7 +32,6 @@ import {
 } from './lib/hcaptcha.js'
 import { RequestMetadata } from './lib/http/request.js'
 import { Awaitable, OmitKey } from './lib/util/type.js'
-import { Sub } from './oidc/sub.js'
 import { RequestId } from './request/request-id.js'
 import { AccessTokenPayload } from './signer/access-token-payload.js'
 import { TokenClaims } from './token/token-claims.js'
@@ -54,7 +52,6 @@ export {
   type HcaptchaClientTokens,
   type HcaptchaConfig,
   type HcaptchaVerifyResult,
-  InvalidCredentialsError,
   InvalidRequestError,
   type Jwks,
   type OAuthAccessToken,
@@ -70,7 +67,6 @@ export {
   type SignInData,
   type SignUpData,
   type SignUpInput,
-  type Sub,
   type TokenClaims,
 }
 
@@ -163,24 +159,14 @@ export type OAuthHooks = {
     deviceMetadata: RequestMetadata
   }) => Awaitable<void>
 
-  /**
-   * `clientId` is populated when the sign-in is submitted in the context of
-   * an OAuth authorization request (i.e. the user is logging in to approve a
-   * client); it is omitted for first-party sign-ins that happen outside any
-   * authorization flow.
-   */
   onSignInAttempt?: (data: {
     data: SignInData
     deviceId: DeviceId
     deviceMetadata: RequestMetadata
-    clientId?: ClientId
   }) => Awaitable<void>
 
   /**
    * This hook is called when a user successfully signs in.
-   *
-   * `clientId` is populated when the sign-in is submitted in the context of
-   * an OAuth authorization request; see {@link OAuthHooks.onSignInAttempt}.
    *
    * @throws {InvalidRequestError} when the sing-in should be denied
    */
@@ -189,34 +175,6 @@ export type OAuthHooks = {
     account: Account
     deviceId: DeviceId
     deviceMetadata: RequestMetadata
-    clientId?: ClientId
-  }) => Awaitable<void>
-
-  /**
-   * This hook is called when a sign-in attempt is rejected by the account
-   * store due to invalid credentials (e.g. unknown identifier, wrong
-   * password). It is *not* called for unexpected server errors, nor for flows
-   * that require an additional authentication factor.
-   *
-   * `sub` is populated when the store throws an
-   * {@link InvalidCredentialsError} that carries the matched subject
-   * identifier (i.e. identifier known, credentials wrong). It is `null` when
-   * the identifier was unknown or when the store threw a plain
-   * {@link InvalidRequestError} without distinguishing the two cases.
-   *
-   * `clientId` is populated when the sign-in is submitted in the context of
-   * an OAuth authorization request; see {@link OAuthHooks.onSignInAttempt}.
-   *
-   * Errors thrown from this hook are caught and ignored so that they do not
-   * mask the original authentication failure.
-   */
-  onSignInFailed?: (data: {
-    data: SignInData
-    error: InvalidRequestError
-    sub: Sub | null
-    deviceId: DeviceId
-    deviceMetadata: RequestMetadata
-    clientId?: ClientId
   }) => Awaitable<void>
 
   /**

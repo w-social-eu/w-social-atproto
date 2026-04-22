@@ -1,10 +1,14 @@
-import { AtUriString } from '@atproto/syntax'
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { ServerConfig } from '../../../../config'
 import { AppContext } from '../../../../context'
 import { Code, DataPlaneClient, isDataplaneError } from '../../../../data-plane'
 import { HydrateCtx, Hydrator } from '../../../../hydration/hydrator'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { isNotFoundPost } from '../../../../lexicon/types/app/bsky/feed/defs'
+import {
+  OutputSchema,
+  QueryParams,
+} from '../../../../lexicon/types/app/bsky/feed/getPostThread'
 import {
   HydrationFnInput,
   PresentationFnInput,
@@ -23,15 +27,10 @@ export default function (server: Server, ctx: AppContext) {
     noRules, // handled in presentation: 3p block-violating replies are turned to #blockedPost, viewer blocks turned to #notFoundPost.
     presentation,
   )
-  server.add(app.bsky.feed.getPostThread, {
+  server.app.bsky.feed.getPostThread({
     auth: ctx.authVerifier.optionalStandardOrRole,
-    opts: {
-      // @TODO remove after grace period has passed, behavior is non-standard.
-      // temporarily added for compat w/ previous version of xrpc-server to avoid breakage of a few specified parties.
-      paramsParseLoose: true,
-    },
     handler: async ({ params, auth, req, res }) => {
-      const { viewer, includeTakedowns, include3pBlocks, skipViewerBlocks } =
+      const { viewer, includeTakedowns, include3pBlocks } =
         ctx.authVerifier.parseCreds(auth)
       const labelers = ctx.reqLabelers(req)
       const hydrateCtx = await ctx.hydrator.createContext({
@@ -39,10 +38,9 @@ export default function (server: Server, ctx: AppContext) {
         viewer,
         includeTakedowns,
         include3pBlocks,
-        skipViewerBlocks,
       })
 
-      let result: app.bsky.feed.getPostThread.$OutputBody
+      let result: OutputSchema
       try {
         result = await getPostThread({ ...params, hydrateCtx }, ctx)
       } catch (err) {
@@ -67,9 +65,7 @@ export default function (server: Server, ctx: AppContext) {
   })
 }
 
-const skeleton = async (
-  inputs: SkeletonFnInput<Context, Params>,
-): Promise<Skeleton> => {
+const skeleton = async (inputs: SkeletonFnInput<Context, Params>) => {
   const { ctx, params } = inputs
   const anchor = await ctx.hydrator.resolveUri(params.uri)
   try {
@@ -80,7 +76,7 @@ const skeleton = async (
     })
     return {
       anchor,
-      uris: res.uris as AtUriString[],
+      uris: res.uris,
     }
   } catch (err) {
     if (isDataplaneError(err, Code.NotFound)) {
@@ -109,10 +105,10 @@ const presentation = (
 ) => {
   const { ctx, params, skeleton, hydration } = inputs
   const thread = ctx.views.thread(skeleton, hydration, {
-    height: params.parentHeight!,
+    height: params.parentHeight,
     depth: getDepth(ctx, skeleton.anchor, params),
   })
-  if (app.bsky.feed.defs.notFoundPost.$isTypeOf(thread)) {
+  if (isNotFoundPost(thread)) {
     // @TODO technically this could be returned as a NotFoundPost based on lexicon
     throw new InvalidRequestError(
       `Post not found: ${skeleton.anchor}`,
@@ -136,11 +132,11 @@ type Context = {
   cfg: ServerConfig
 }
 
-type Params = app.bsky.feed.getPostThread.$Params & { hydrateCtx: HydrateCtx }
+type Params = QueryParams & { hydrateCtx: HydrateCtx }
 
 type Skeleton = {
-  anchor: AtUriString
-  uris: AtUriString[]
+  anchor: string
+  uris: string[]
 }
 
 const getDepth = (ctx: Context, anchor: string, params: Params) => {
@@ -148,5 +144,5 @@ const getDepth = (ctx: Context, anchor: string, params: Params) => {
   if (ctx.cfg.bigThreadUris.has(anchor) && ctx.cfg.bigThreadDepth) {
     maxDepth = ctx.cfg.bigThreadDepth
   }
-  return maxDepth ? Math.min(maxDepth, params.depth!) : params.depth!
+  return maxDepth ? Math.min(maxDepth, params.depth) : params.depth
 }

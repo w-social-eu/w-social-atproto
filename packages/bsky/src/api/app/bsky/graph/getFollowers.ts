@@ -1,13 +1,13 @@
 import { mapDefined } from '@atproto/common'
-import { AtUriString, DidString } from '@atproto/syntax'
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
 import {
   HydrateCtx,
   Hydrator,
   mergeStates,
 } from '../../../../hydration/hydrator'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { QueryParams } from '../../../../lexicon/types/app/bsky/graph/getFollowers'
 import {
   HydrationFnInput,
   PresentationFnInput,
@@ -26,17 +26,15 @@ export default function (server: Server, ctx: AppContext) {
     noBlocks,
     presentation,
   )
-  server.add(app.bsky.graph.getFollowers, {
+  server.app.bsky.graph.getFollowers({
     auth: ctx.authVerifier.optionalStandardOrRole,
     handler: async ({ params, auth, req }) => {
-      const { viewer, includeTakedowns, skipViewerBlocks } =
-        ctx.authVerifier.parseCreds(auth)
+      const { viewer, includeTakedowns } = ctx.authVerifier.parseCreds(auth)
       const labelers = ctx.reqLabelers(req)
       const hydrateCtx = await ctx.hydrator.createContext({
         labelers,
         viewer,
         includeTakedowns,
-        skipViewerBlocks,
       })
 
       const result = await getFollowers({ ...params, hydrateCtx }, ctx)
@@ -50,9 +48,7 @@ export default function (server: Server, ctx: AppContext) {
   })
 }
 
-const skeleton = async (
-  input: SkeletonFnInput<Context, Params>,
-): Promise<SkeletonState> => {
+const skeleton = async (input: SkeletonFnInput<Context, Params>) => {
   const { params, ctx } = input
   const [subjectDid] = await ctx.hydrator.actor.getDidsDefined([params.actor])
   if (!subjectDid) {
@@ -68,7 +64,7 @@ const skeleton = async (
   })
   return {
     subjectDid,
-    followUris: followers.map((f) => f.uri as AtUriString),
+    followUris: followers.map((f) => f.uri),
     cursor: cursor || undefined,
   }
 }
@@ -115,8 +111,7 @@ const presentation = (
 ) => {
   const { ctx, hydration, skeleton, params } = input
   const { subjectDid, followUris, cursor } = skeleton
-  const isNoHosted = (did: DidString) =>
-    ctx.views.actorIsNoHosted(did, hydration)
+  const isNoHosted = (did: string) => ctx.views.actorIsNoHosted(did, hydration)
 
   const subject = ctx.views.profile(subjectDid, hydration)
   if (
@@ -142,12 +137,12 @@ type Context = {
   views: Views
 }
 
-type Params = app.bsky.graph.getFollowers.$Params & {
+type Params = QueryParams & {
   hydrateCtx: HydrateCtx
 }
 
 type SkeletonState = {
-  subjectDid: DidString
-  followUris: AtUriString[]
+  subjectDid: string
+  followUris: string[]
   cursor?: string
 }

@@ -1,3 +1,4 @@
+import { CID } from 'multiformats/cid'
 import type { ClientOptions } from 'ws'
 import { Deferrable, createDeferrable, wait } from '@atproto/common'
 import {
@@ -5,7 +6,6 @@ import {
   IdResolver,
   parseToAtprotoDocument,
 } from '@atproto/identity'
-import { Cid } from '@atproto/lex'
 import {
   RepoVerificationError,
   cborToLexRecord,
@@ -26,9 +26,21 @@ import {
   IdentityEvt,
   SyncEvt,
 } from '../events'
-import { com } from '../lexicons/index.js'
 import { EventRunner } from '../runner'
 import { didAndSeqForEvt } from '../util'
+import {
+  type Account,
+  type Commit,
+  type Identity,
+  type RepoEvent,
+  RepoOp,
+  type Sync,
+  isAccount,
+  isCommit,
+  isIdentity,
+  isSync,
+  isValidRepoEvent,
+} from './lexicons'
 
 export type FirehoseOptions = ClientOptions & {
   idResolver: IdResolver
@@ -53,7 +65,7 @@ export type FirehoseOptions = ClientOptions & {
 }
 
 export class Firehose {
-  private sub: Subscription<com.atproto.sync.subscribeRepos.$Message>
+  private sub: Subscription<RepoEvent>
   private abortController: AbortController
   private destoryDefer: Deferrable
   private matchCollection: ((col: string) => boolean) | null = null
@@ -86,7 +98,7 @@ export class Firehose {
     this.sub = new Subscription({
       ...opts,
       service: opts.service ?? 'wss://bsky.network',
-      method: com.atproto.sync.subscribeRepos.$lxm,
+      method: 'com.atproto.sync.subscribeRepos',
       signal: this.abortController.signal,
       getParams: async () => {
         const getCursorFn = () =>
@@ -98,11 +110,10 @@ export class Firehose {
         return { cursor }
       },
       validate: (value: unknown) => {
-        const result = com.atproto.sync.subscribeRepos.$message.safeParse(value)
-        if (result.success) {
-          return result.value
-        } else {
-          this.opts.onError(new FirehoseValidationError(result.reason, value))
+        try {
+          return isValidRepoEvent(value)
+        } catch (err) {
+          this.opts.onError(new FirehoseValidationError(err, value))
         }
       },
     })
@@ -149,13 +160,9 @@ export class Firehose {
     }
   }
 
-  private async parseEvt(
-    evt: com.atproto.sync.subscribeRepos.$Message,
-  ): Promise<Event[]> {
+  private async parseEvt(evt: RepoEvent): Promise<Event[]> {
     try {
-      if (com.atproto.sync.subscribeRepos.commit.$isTypeOf(evt)) {
-        if (this.opts.excludeCommit) return []
-
+      if (isCommit(evt) && !this.opts.excludeCommit) {
         return this.opts.unauthenticatedCommits
           ? await parseCommitUnauthenticated(evt, this.matchCollection)
           : await parseCommitAuthenticated(
@@ -163,23 +170,17 @@ export class Firehose {
               evt,
               this.matchCollection,
             )
-      } else if (com.atproto.sync.subscribeRepos.account.$isTypeOf(evt)) {
-        if (this.opts.excludeAccount) return []
-
+      } else if (isAccount(evt) && !this.opts.excludeAccount) {
         const parsed = parseAccount(evt)
         return parsed ? [parsed] : []
-      } else if (com.atproto.sync.subscribeRepos.identity.$isTypeOf(evt)) {
-        if (this.opts.excludeIdentity) return []
-
+      } else if (isIdentity(evt) && !this.opts.excludeIdentity) {
         const parsed = await parseIdentity(
           this.opts.idResolver,
           evt,
           this.opts.unauthenticatedHandles,
         )
         return parsed ? [parsed] : []
-      } else if (com.atproto.sync.subscribeRepos.sync.$isTypeOf(evt)) {
-        if (this.opts.excludeSync) return []
-
+      } else if (isSync(evt) && !this.opts.excludeSync) {
         const parsed = await parseSync(evt)
         return parsed ? [parsed] : []
       } else {
@@ -191,7 +192,7 @@ export class Firehose {
     }
   }
 
-  private async processEvt(evt: com.atproto.sync.subscribeRepos.$Message) {
+  private async processEvt(evt: RepoEvent) {
     const parsed = await this.parseEvt(evt)
     for (const write of parsed) {
       try {
@@ -210,7 +211,7 @@ export class Firehose {
 
 export const parseCommitAuthenticated = async (
   idResolver: IdResolver,
-  evt: com.atproto.sync.subscribeRepos.Commit,
+  evt: Commit,
   matchCollection?: ((col: string) => boolean) | null,
   forceKeyRefresh = false,
 ): Promise<CommitEvt[]> => {
@@ -228,7 +229,7 @@ export const parseCommitAuthenticated = async (
     }
   })
   const key = await idResolver.did.resolveAtprotoKey(did, forceKeyRefresh)
-  const verifiedCids: Record<string, Cid | null> = {}
+  const verifiedCids: Record<string, CID | null> = {}
   try {
     const results = await verifyProofs(evt.blocks, claims, did, key)
     results.verified.forEach((op) => {
@@ -241,25 +242,20 @@ export const parseCommitAuthenticated = async (
     }
     throw err
   }
-  const verifiedOps: com.atproto.sync.subscribeRepos.RepoOp[] = ops.filter(
-    (op) => {
-      const verifiedCid = verifiedCids[op.path]
-      if (op.action === 'delete') {
-        return verifiedCid === null
-      } else {
-        return (
-          op.cid != null && verifiedCid != null && verifiedCid.equals(op.cid)
-        )
-      }
-    },
-  )
+  const verifiedOps: RepoOp[] = ops.filter((op) => {
+    if (op.action === 'delete') {
+      return verifiedCids[op.path] === null
+    } else {
+      return op.cid !== null && op.cid.equals(verifiedCids[op.path])
+    }
+  })
   return formatCommitOps(evt, verifiedOps, {
     skipCidVerification: true, // already checked via verifyProofs()
   })
 }
 
 export const parseCommitUnauthenticated = async (
-  evt: com.atproto.sync.subscribeRepos.Commit,
+  evt: Commit,
   matchCollection?: ((col: string) => boolean) | null,
 ): Promise<CommitEvt[]> => {
   const ops = maybeFilterOps(evt.ops, matchCollection)
@@ -267,9 +263,9 @@ export const parseCommitUnauthenticated = async (
 }
 
 const maybeFilterOps = (
-  ops: com.atproto.sync.subscribeRepos.RepoOp[],
+  ops: RepoOp[],
   matchCollection?: ((col: string) => boolean) | null,
-): com.atproto.sync.subscribeRepos.RepoOp[] => {
+): RepoOp[] => {
   if (!matchCollection) return ops
   return ops.filter((op) => {
     const { collection } = parseDataKey(op.path)
@@ -278,8 +274,8 @@ const maybeFilterOps = (
 }
 
 const formatCommitOps = async (
-  evt: com.atproto.sync.subscribeRepos.Commit,
-  ops: com.atproto.sync.subscribeRepos.RepoOp[],
+  evt: Commit,
+  ops: RepoOp[],
   options?: { skipCidVerification: boolean },
 ) => {
   const car = await readCar(evt.blocks, options)
@@ -296,7 +292,7 @@ const formatCommitOps = async (
       blocks: car.blocks,
       rev: evt.rev,
       uri,
-      did: uri.did,
+      did: uri.host,
       collection: uri.collection,
       rkey: uri.rkey,
     }
@@ -325,9 +321,7 @@ const formatCommitOps = async (
   return evts
 }
 
-export const parseSync = async (
-  evt: com.atproto.sync.subscribeRepos.Sync,
-): Promise<SyncEvt | null> => {
+export const parseSync = async (evt: Sync): Promise<SyncEvt | null> => {
   const car = await readCarWithRoot(evt.blocks)
 
   return {
@@ -343,7 +337,7 @@ export const parseSync = async (
 
 export const parseIdentity = async (
   idResolver: IdResolver,
-  evt: com.atproto.sync.subscribeRepos.Identity,
+  evt: Identity,
   unauthenticated = false,
 ): Promise<IdentityEvt | null> => {
   const res = await idResolver.did.resolve(evt.did)
@@ -375,9 +369,7 @@ const verifyHandle = async (
   return res === did ? handle : undefined
 }
 
-export const parseAccount = (
-  evt: com.atproto.sync.subscribeRepos.Account,
-): AccountEvt | undefined => {
+export const parseAccount = (evt: Account): AccountEvt | undefined => {
   if (evt.status && !isValidStatus(evt.status)) return
   return {
     event: 'account',
@@ -405,7 +397,7 @@ export class FirehoseValidationError extends Error {
 export class FirehoseParseError extends Error {
   constructor(
     err: unknown,
-    public event: com.atproto.sync.subscribeRepos.$Message,
+    public event: RepoEvent,
   ) {
     super('error in parsing and authenticating firehose event', { cause: err })
   }

@@ -1,10 +1,10 @@
-import { Server } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { DraftWithId } from '../../../../lexicon/types/app/bsky/draft/defs'
 import { Namespaces } from '../../../../stash'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(app.bsky.draft.updateDraft, {
+  server.app.bsky.draft.updateDraft({
     auth: ctx.authVerifier.standard,
     handler: async ({ input, auth }) => {
       const actorDid = auth.credentials.iss
@@ -18,7 +18,7 @@ export default function (server: Server, ctx: AppContext) {
       await ctx.stashClient.update({
         actorDid,
         namespace: Namespaces.AppBskyDraftDefsDraftWithId,
-        payload: draftWithId satisfies app.bsky.draft.defs.DraftWithId,
+        payload: draftWithId satisfies DraftWithId,
         key: draftWithId.id,
       })
     },

@@ -1,17 +1,14 @@
 import { isEmailValid } from '@hapi/address'
 import { isDisposableEmail } from 'disposable-email-domains-js'
-import {
-  ForbiddenError,
-  InvalidRequestError,
-  Server,
-} from '@atproto/xrpc-server'
+import { ForbiddenError, InvalidRequestError } from '@atproto/xrpc-server'
 import { UserAlreadyExistsError } from '../../../../account-manager/helpers/account'
 import { ACCESS_FULL } from '../../../../auth-scope'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { ids } from '../../../../lexicon/lexicons'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.server.updateEmail, {
+  server.com.atproto.server.updateEmail({
     auth: ctx.authVerifier.authorization({
       checkTakedown: true,
       scopes: ACCESS_FULL,
@@ -21,9 +18,9 @@ export default function (server: Server, ctx: AppContext) {
         )
       },
     }),
-    handler: async ({ auth, input: { body }, req }) => {
+    handler: async ({ auth, input, req }) => {
       const did = auth.credentials.did
-      const { token, email } = body
+      const { token, email } = input.body
       if (!isEmailValid(email) || isDisposableEmail(email)) {
         throw new InvalidRequestError(
           'This email address is not supported, please use a different email.',
@@ -36,18 +33,15 @@ export default function (server: Server, ctx: AppContext) {
         throw new InvalidRequestError('account not found')
       }
 
-      if (ctx.entrywayClient) {
-        const { headers } = await ctx.entrywayAuthHeaders(
-          req,
-          auth.credentials.did,
-          com.atproto.server.updateEmail.$lxm,
+      if (ctx.entrywayAgent) {
+        await ctx.entrywayAgent.com.atproto.server.updateEmail(
+          input.body,
+          await ctx.entrywayAuthHeaders(
+            req,
+            auth.credentials.did,
+            ids.ComAtprotoServerUpdateEmail,
+          ),
         )
-
-        await ctx.entrywayClient.xrpc(com.atproto.server.updateEmail, {
-          headers,
-          body,
-        })
-
         return
       }
 

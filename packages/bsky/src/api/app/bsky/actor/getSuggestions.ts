@@ -1,6 +1,6 @@
+import { AtpAgent } from '@atproto/api'
 import { mapDefined, noUndefinedVals } from '@atproto/common'
-import { Client, DidString, isDidString } from '@atproto/lex'
-import { Headers as HeadersMap, Server } from '@atproto/xrpc-server'
+import { HeadersMap } from '@atproto/xrpc'
 import { AppContext } from '../../../../context'
 import { DataPlaneClient } from '../../../../data-plane'
 import {
@@ -9,7 +9,8 @@ import {
   Hydrator,
 } from '../../../../hydration/hydrator'
 import { parseString } from '../../../../hydration/util'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { QueryParams } from '../../../../lexicon/types/app/bsky/actor/getSuggestions'
 import { createPipeline } from '../../../../pipeline'
 import { Views } from '../../../../views'
 import { resHeaders } from '../../../util'
@@ -21,7 +22,7 @@ export default function (server: Server, ctx: AppContext) {
     noBlocksOrMutes,
     presentation,
   )
-  server.add(app.bsky.actor.getSuggestions, {
+  server.app.bsky.actor.getSuggestions({
     auth: ctx.authVerifier.standardOptional,
     handler: async ({ params, auth, req }) => {
       const viewer = auth.credentials.iss
@@ -38,7 +39,7 @@ export default function (server: Server, ctx: AppContext) {
         ctx,
       )
       const suggestionsResHeaders = noUndefinedVals({
-        'content-language': resultHeaders?.get('content-language'),
+        'content-language': resultHeaders?.['content-language'],
       })
       return {
         encoding: 'application/json',
@@ -58,25 +59,20 @@ const skeleton = async (input: {
 }): Promise<Skeleton> => {
   const { ctx, params } = input
   const viewer = params.hydrateCtx.viewer
-
-  if (viewer && ctx.suggestionsClient) {
-    const res = await ctx.suggestionsClient.xrpc(
-      app.bsky.unspecced.getSuggestionsSkeleton,
-      {
-        headers: params.headers,
-        params: {
-          relativeToDid: viewer,
+  if (ctx.suggestionsAgent) {
+    const res =
+      await ctx.suggestionsAgent.api.app.bsky.unspecced.getSuggestionsSkeleton(
+        {
           viewer: viewer ?? undefined,
           limit: params.limit,
           cursor: params.cursor,
         },
-      },
-    )
+        { headers: params.headers },
+      )
     return {
-      dids: res.body.actors.map((a) => a.did),
-      cursor: res.body.cursor,
-      recId: res.body.recId,
-      recIdStr: res.body.recIdStr,
+      dids: res.data.actors.map((a) => a.did),
+      cursor: res.data.cursor,
+      recId: res.data.recId,
       resHeaders: res.headers,
     }
   } else {
@@ -86,8 +82,7 @@ const skeleton = async (input: {
       cursor: params.cursor,
       limit: params.limit,
     })
-    // @NOTE filtering to avoid type casting
-    let dids = suggestions.dids.filter(isDidString)
+    let dids = suggestions.dids
     if (viewer !== null) {
       const follows = await ctx.dataplane.getActorFollowsActors({
         actorDid: viewer,
@@ -137,27 +132,25 @@ const presentation = (input: {
     actors,
     cursor: skeleton.cursor,
     recId: skeleton.recId,
-    recIdStr: skeleton.recIdStr,
     resHeaders: skeleton.resHeaders,
   }
 }
 
 type Context = {
-  suggestionsClient: Client | undefined
+  suggestionsAgent: AtpAgent | undefined
   dataplane: DataPlaneClient
   hydrator: Hydrator
   views: Views
 }
 
-type Params = app.bsky.actor.getSuggestions.$Params & {
+type Params = QueryParams & {
   hydrateCtx: HydrateCtx
   headers: HeadersMap
 }
 
 type Skeleton = {
-  dids: DidString[]
+  dids: string[]
   cursor?: string
   recId?: number
-  recIdStr?: string
-  resHeaders?: Headers
+  resHeaders?: HeadersMap
 }

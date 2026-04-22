@@ -14,7 +14,7 @@ describe('verification', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'ozone_verification_test',
     })
-    adminAgent = network.pds.getAgent()
+    adminAgent = network.pds.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     await network.processAll()
@@ -26,7 +26,7 @@ describe('verification', () => {
       identifier: sc.accounts[sc.dids.alice].handle,
       password: sc.accounts[sc.dids.alice].password,
     })
-    triageAgent = network.pds.getAgent()
+    triageAgent = network.pds.getClient()
     await triageAgent.login({
       identifier: sc.accounts[sc.dids.carol].handle,
       password: sc.accounts[sc.dids.carol].password,
@@ -131,26 +131,6 @@ describe('verification', () => {
       await expect(attemptAsAdmin).rejects.toThrow(
         'Must be an admin or verifier to grant verifications',
       )
-    })
-
-    it('fails if the handle is invalid', async () => {
-      const {
-        data: { verifications, failedVerifications },
-      } = await adminAgent.tools.ozone.verification.grantVerifications({
-        verifications: [
-          {
-            subject: sc.dids.dan,
-            handle: 'handle.invalid',
-            displayName: 'Bob',
-          },
-        ],
-      })
-
-      expect(verifications.length).toEqual(0)
-      expect(failedVerifications.length).toEqual(1)
-      const failed = failedVerifications.at(0)
-      expect(failed!.error).toEqual('Cannot verify with invalid handle')
-      expect(failed!.subject).toEqual(sc.dids.dan)
     })
   })
 

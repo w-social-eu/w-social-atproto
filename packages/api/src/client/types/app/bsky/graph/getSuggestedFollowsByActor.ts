@@ -23,11 +23,9 @@ export type InputSchema = undefined
 
 export interface OutputSchema {
   suggestions: AppBskyActorDefs.ProfileView[]
-  /** Snowflake for this recommendation, use when submitting recommendation events. */
-  recIdStr?: string
-  /** DEPRECATED, unused. Previously: if true, response has fallen-back to generic results, and is not scoped using relativeToDid */
+  /** If true, response has fallen-back to generic results, and is not scoped using relativeToDid */
   isFallback: boolean
-  /** DEPRECATED: use recIdStr instead. */
+  /** Snowflake for this recommendation, use when submitting recommendation events. */
   recId?: number
 }
 

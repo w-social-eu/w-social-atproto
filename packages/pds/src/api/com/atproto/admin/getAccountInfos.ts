@@ -1,10 +1,9 @@
-import { Server } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 import { formatAccountInfo } from './util'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.admin.getAccountInfos, {
+  server.com.atproto.admin.getAccountInfos({
     auth: ctx.authVerifier.moderator,
     handler: async ({ params }) => {
       const [accounts, invites, invitedBy] = await Promise.all([
@@ -26,7 +25,7 @@ export default function (server: Server, ctx: AppContext) {
       })
 
       return {
-        encoding: 'application/json' as const,
+        encoding: 'application/json',
         body: { infos },
       }
     },

@@ -88,6 +88,10 @@ export class AtpAgent extends Agent {
     return this.sessionManager.hasSession
   }
 
+  get did() {
+    return this.sessionManager.did
+  }
+
   get serviceUrl() {
     return this.sessionManager.serviceUrl
   }
@@ -155,7 +159,7 @@ export class AtpAgent extends Agent {
 export class CredentialSession implements SessionManager {
   public pdsUrl?: URL // The PDS URL, driven by the did doc
   public session?: AtpSessionData
-  public refreshSessionPromise?: Promise<ComAtprotoServerRefreshSession.Response>
+  public refreshSessionPromise: Promise<void> | undefined
 
   /**
    * Private {@link ComAtprotoServerNS} used to perform session management API
@@ -368,28 +372,47 @@ export class CredentialSession implements SessionManager {
    */
   async resumeSession(
     session: AtpSessionData,
-  ): Promise<ComAtprotoServerRefreshSession.Response> {
+  ): Promise<
+    | ComAtprotoServerGetSession.Response
+    | ComAtprotoServerRefreshSession.Response
+  > {
     // Protect against multiple calls to resumeSession that would trigger a
     // refresh for the same session simultaneously.
     // Ideally, this check would be based on a session identifier, but since
     // we don't have one, we will just check the refresh token.
-    if (session.refreshJwt !== this.session?.refreshJwt) {
-      // Set the current session, and discard any pending refresh operation..
-      this.session = session
-      this.refreshSessionPromise = undefined
+    if (session.refreshJwt === this.session?.refreshJwt) {
+      // Protect against refreshes in progress
+      await this.refreshSessionPromise
+
+      // Another concurrent operation may have replaced the session while we
+      // were waiting for the refresh to complete.
+      if (session.did !== this.session?.did) {
+        throw new Error('DID mismatch on resumeSession')
+      }
+
+      return this.server.getSession(undefined, {
+        headers: { authorization: `Bearer ${this.session.accessJwt}` },
+      })
     }
 
-    // Ensure that the session is still valid by forcing a refresh. This will
-    // also ensure that persistSession handler is called.
-    const result = await this.refreshSession()
+    // Set the current session, then force a refresh, replacing any pending
+    // refresh operation.
+    this.session = session
+    this.refreshSessionPromise = undefined
 
-    // Fool-proofing: another concurrent operation may have replaced the session
-    // while we were waiting for the refresh to complete.
-    if (session.did !== this.session?.did) {
-      throw new Error('DID mismatch on resumeSession')
-    }
+    const promise = this._refreshSessionInner()
 
-    return result
+    // Discard any concurrent refresh, replacing it with this one.
+    this.refreshSessionPromise = promise
+      .then(
+        (): void => {},
+        (): void => {},
+      )
+      .finally(() => {
+        this.refreshSessionPromise = undefined
+      })
+
+    return promise
   }
 
   /**
@@ -397,23 +420,18 @@ export class CredentialSession implements SessionManager {
    * - Wraps the actual implementation in a promise-guard to ensure only
    *   one refresh is attempted at a time.
    */
-  async refreshSession(): Promise<ComAtprotoServerRefreshSession.Response> {
-    if (!this.session) {
-      throw new Error('Unexpected state: no session to refresh')
-    }
+  async refreshSession(): Promise<void> {
+    if (!this.session) return
 
     // Do not refresh if we already have a refresh in progress
-    if (this.refreshSessionPromise) return this.refreshSessionPromise
-
-    const promise = this._refreshSessionInner().finally(() => {
-      if (this.refreshSessionPromise === promise) {
+    return (this.refreshSessionPromise ||= this._refreshSessionInner()
+      .then(
+        (): void => {},
+        (): void => {},
+      )
+      .finally(() => {
         this.refreshSessionPromise = undefined
-      }
-    })
-
-    this.refreshSessionPromise = promise
-
-    return promise
+      }))
   }
 
   /**
@@ -476,7 +494,7 @@ export class CredentialSession implements SessionManager {
         emailConfirmed: data.emailConfirmed ?? session.emailConfirmed,
         emailAuthFactor: data.emailAuthFactor ?? session.emailAuthFactor,
         active: data.active ?? session.active ?? true,
-        status: data.status,
+        status: data.status ?? session.status,
       }
 
       this._updateApiEndpoint(res.data.didDoc)

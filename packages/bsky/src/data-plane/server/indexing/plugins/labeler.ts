@@ -1,19 +1,21 @@
 import { Selectable } from 'kysely'
-import { Cid } from '@atproto/lex'
+import { CID } from 'multiformats/cid'
 import { AtUri, normalizeDatetimeAlways } from '@atproto/syntax'
-import { app } from '../../../../lexicons'
+import * as lex from '../../../../lexicon/lexicons'
+import * as Labeler from '../../../../lexicon/types/app/bsky/labeler/service'
 import { BackgroundQueue } from '../../background'
 import { Database } from '../../db'
 import { DatabaseSchema, DatabaseSchemaType } from '../../db/database-schema'
 import { RecordProcessor } from '../processor'
 
+const lexId = lex.ids.AppBskyLabelerService
 type IndexedLabeler = Selectable<DatabaseSchemaType['labeler']>
 
 const insertFn = async (
   db: DatabaseSchema,
   uri: AtUri,
-  cid: Cid,
-  obj: app.bsky.labeler.service.Main,
+  cid: CID,
+  obj: Labeler.Record,
   timestamp: string,
 ): Promise<IndexedLabeler | null> => {
   if (uri.rkey !== 'self') return null
@@ -56,10 +58,14 @@ const notifsForDelete = () => {
   return { notifs: [], toDelete: [] }
 }
 
-export type PluginType = ReturnType<typeof makePlugin>
-export const makePlugin = (db: Database, background: BackgroundQueue) => {
+export type PluginType = RecordProcessor<Labeler.Record, IndexedLabeler>
+
+export const makePlugin = (
+  db: Database,
+  background: BackgroundQueue,
+): PluginType => {
   return new RecordProcessor(db, background, {
-    schema: app.bsky.labeler.service.main,
+    lexId,
     insertFn,
     findDuplicate,
     deleteFn,

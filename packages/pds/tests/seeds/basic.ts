@@ -1,5 +1,5 @@
 import { EXAMPLE_LABELER, SeedClient, TestBsky } from '@atproto/dev-env'
-import { app, com } from '../../src/lexicons/index.js'
+import { ids } from '../../src/lexicon/lexicons'
 import usersSeed from './users'
 
 export default async (
@@ -27,9 +27,10 @@ export default async (
   await sc.follow(bob, carol, createdAtMicroseconds())
   await sc.follow(dan, bob, createdAtTimezone())
   await sc.post(alice, posts.alice[0], undefined, undefined, undefined, {
-    labels: com.atproto.label.defs.selfLabels.$build({
+    labels: {
+      $type: 'com.atproto.label.defs#selfLabels',
       values: [{ val: 'self-label' }],
-    }),
+    },
   })
   await sc.post(bob, posts.bob[0], undefined, undefined, undefined, {
     langs: ['en-US', 'i-klingon'],
@@ -58,7 +59,12 @@ export default async (
     [
       {
         index: { byteStart: 0, byteEnd: 18 },
-        features: [app.bsky.richtext.facet.mention.$build({ did: alice })],
+        features: [
+          {
+            $type: `${ids.AppBskyRichtextFacet}#mention` as const,
+            did: alice,
+          },
+        ],
       },
     ],
     undefined,

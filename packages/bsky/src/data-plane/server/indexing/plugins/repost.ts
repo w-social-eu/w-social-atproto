@@ -1,7 +1,8 @@
 import { Insertable, Selectable } from 'kysely'
-import { Cid } from '@atproto/lex'
+import { CID } from 'multiformats/cid'
 import { AtUri, normalizeDatetimeAlways } from '@atproto/syntax'
-import { app } from '../../../../lexicons'
+import * as lex from '../../../../lexicon/lexicons'
+import * as Repost from '../../../../lexicon/types/app/bsky/feed/repost'
 import { BackgroundQueue } from '../../background'
 import { Database } from '../../db'
 import { DatabaseSchema, DatabaseSchemaType } from '../../db/database-schema'
@@ -9,14 +10,15 @@ import { Notification } from '../../db/tables/notification'
 import { countAll, excluded } from '../../db/util'
 import { RecordProcessor } from '../processor'
 
+const lexId = lex.ids.AppBskyFeedRepost
 type Notif = Insertable<Notification>
 type IndexedRepost = Selectable<DatabaseSchemaType['repost']>
 
 const insertFn = async (
   db: DatabaseSchema,
   uri: AtUri,
-  cid: Cid,
-  obj: app.bsky.feed.repost.Main,
+  cid: CID,
+  obj: Repost.Record,
   timestamp: string,
 ): Promise<IndexedRepost | null> => {
   const repost = {
@@ -60,7 +62,7 @@ const insertFn = async (
 const findDuplicate = async (
   db: DatabaseSchema,
   uri: AtUri,
-  obj: app.bsky.feed.repost.Main,
+  obj: Repost.Record,
 ): Promise<AtUri | null> => {
   const found = await db
     .selectFrom('repost')
@@ -157,10 +159,14 @@ const updateAggregates = async (db: DatabaseSchema, repost: IndexedRepost) => {
   await repostCountQb.execute()
 }
 
-export type PluginType = ReturnType<typeof makePlugin>
-export const makePlugin = (db: Database, background: BackgroundQueue) => {
+export type PluginType = RecordProcessor<Repost.Record, IndexedRepost>
+
+export const makePlugin = (
+  db: Database,
+  background: BackgroundQueue,
+): PluginType => {
   return new RecordProcessor(db, background, {
-    schema: app.bsky.feed.repost.main,
+    lexId,
     insertFn,
     findDuplicate,
     deleteFn,

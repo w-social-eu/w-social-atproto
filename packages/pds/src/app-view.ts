@@ -1,5 +1,5 @@
 import { format } from 'node:util'
-import { Client } from '@atproto/lex'
+import { AtpAgent } from '@atproto/api'
 
 export type AppViewOptions = {
   url: string
@@ -9,12 +9,12 @@ export type AppViewOptions = {
 
 export class AppView {
   public did: string
-  public client: Client
+  public agent: AtpAgent
   private cdnUrlPattern?: string
 
   constructor(options: AppViewOptions) {
     this.did = options.did
-    this.client = new Client({ service: options.url })
+    this.agent = new AtpAgent({ service: options.url })
     this.cdnUrlPattern = options.cdnUrlPattern
   }
 

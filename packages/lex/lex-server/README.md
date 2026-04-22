@@ -64,7 +64,7 @@ await serve(router, { port: 3000 })
   - [Custom Authentication](#custom-authentication)
   - [WWW-Authenticate Headers](#www-authenticate-headers)
 - [Error Handling](#error-handling)
-  - [LexServerError](#lexservererror)
+  - [LexError](#lexerror)
   - [LexServerAuthError](#lexserverautherror)
   - [Error Handler Callback](#error-handler-callback)
 - [Node.js Server](#nodejs-server)
@@ -100,7 +100,7 @@ lex build
 **3. Create a router and add handlers**
 
 ```typescript
-import { LexRouter, LexServerError } from '@atproto/lex-server'
+import { LexRouter, LexError } from '@atproto/lex-server'
 import { serve, upgradeWebSocket } from '@atproto/lex-server/nodejs'
 import * as app from './lexicons/app.js'
 
@@ -110,10 +110,7 @@ const router = new LexRouter({ upgradeWebSocket })
 router.add(app.bsky.actor.getProfile, async ({ params }) => {
   const profile = await db.getProfile(params.actor)
   if (!profile) {
-    throw new LexServerError(404, {
-      error: 'NotFound',
-      message: 'Profile not found',
-    })
+    throw new LexError('NotFound', 'Profile not found')
   }
   return { body: profile }
 })
@@ -137,7 +134,7 @@ const router = new LexRouter({
   // Required for WebSocket subscriptions (Node.js)
   upgradeWebSocket,
 
-  // Optional: Add logging or error reporting for unexpected errors in handlers
+  // Optional: Handle unexpected errors
   onHandlerError: ({ error, request, method }) => {
     console.error(`Error in ${method.nsid}:`, error)
   },
@@ -362,7 +359,7 @@ The auth function:
 
 1. Is called **before** parsing the request body
 2. Receives `params`, `request`, and `connection` info
-3. Should throw `LexServerError` (or `LexServerAuthError`) on failure
+3. Should throw `LexError` or `LexServerAuthError` on failure
 4. Returns credentials that are passed to the handler
 
 ### WWW-Authenticate Headers
@@ -394,30 +391,19 @@ throw new LexServerAuthError('AuthenticationRequired', 'Auth required', {
 
 ## Error Handling
 
-### LexServerError
+### LexError
 
-Throw `LexServerError` to return structured XRPC error responses:
+Throw `LexError` to return structured XRPC error responses:
 
 ```typescript
-import { LexServerError } from '@atproto/lex-server'
+import { LexError } from '@atproto/lex-server'
 
 router.add(app.bsky.actor.getProfile, async ({ params }) => {
-  try {
-    const profile = await db.getProfile(params.actor)
-    return { body: profile }
-  } catch (cause) {
-    throw new LexServerError(
-      404,
-      {
-        error: 'NotFound',
-        message: 'Profile not found',
-      },
-      {
-        'cache-control': 'max-age=600',
-      },
-      { cause },
-    )
+  const profile = await db.getProfile(params.actor)
+  if (!profile) {
+    throw new LexError('NotFound', 'Profile not found')
   }
+  return { body: profile }
 })
 ```
 
@@ -432,7 +418,7 @@ Error responses follow the XRPC format:
 
 ### LexServerAuthError
 
-`LexServerAuthError` extends `LexServerError` with `WWW-Authenticate` header support:
+`LexServerAuthError` extends `LexError` with `WWW-Authenticate` header support:
 
 ```typescript
 import { LexServerAuthError } from '@atproto/lex-server'
@@ -524,7 +510,7 @@ import { toRequestListener } from '@atproto/lex-server/nodejs'
 const app = express()
 
 // Mount the XRPC router
-app.use('/xrpc', toRequestListener(router.fetch))
+app.use('/xrpc', toRequestListener(router.handle))
 
 app.listen(3000)
 ```
@@ -544,8 +530,7 @@ const router = new LexRouter({ upgradeWebSocket })
 
 ### Custom Response Objects
 
-Return a `Response` object for full control over the response (disables any kind
-of validation of the body):
+Return a `Response` object for full control over the response:
 
 ```typescript
 router.add(schema, async ({ params }) => {
@@ -553,15 +538,13 @@ router.add(schema, async ({ params }) => {
     return Response.redirect('https://example.com', 302)
   }
 
-  return Response.json(
-    { custom: true },
-    {
-      status: 201,
-      headers: {
-        'X-Custom-Header': 'value',
-      },
+  return new Response(JSON.stringify({ custom: true }), {
+    status: 201,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Custom-Header': 'value',
     },
-  )
+  })
 })
 ```
 

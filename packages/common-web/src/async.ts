@@ -43,20 +43,17 @@ export const readFromGenerator = async <T>(
   return evts
 }
 
-export type Deferrable<T = void> = {
-  resolve: (value: T | PromiseLike<T>) => void
-  reject: (reason?: unknown) => void
-  complete: Promise<T>
+export type Deferrable = {
+  resolve: () => void
+  complete: Promise<void>
 }
 
-export function createDeferrable<T = void>(): Deferrable<T> {
-  let res: (value: T | PromiseLike<T>) => void
-  let rej: (reason?: unknown) => void
-  const promise = new Promise<T>((resolve, reject) => {
-    res = resolve
-    rej = reject
+export const createDeferrable = (): Deferrable => {
+  let resolve
+  const promise: Promise<void> = new Promise((res) => {
+    resolve = () => res()
   })
-  return { resolve: res!, reject: rej!, complete: promise }
+  return { resolve, complete: promise }
 }
 
 export const createDeferrables = (count: number): Deferrable[] => {

@@ -1,71 +1,27 @@
 import assert from 'node:assert'
-import { type Browser, Handler, type Page, Target, TargetType } from 'puppeteer'
+import { type Browser, type Page } from 'puppeteer'
 
 export class PageHelper implements AsyncDisposable {
   constructor(protected readonly page: Page) {}
 
-  async goto(url: string | URL) {
-    await this.page.goto(url.toString())
-  }
-
-  isClosed() {
-    return this.page.isClosed()
-  }
-
-  async title() {
-    await this.waitForNetworkIdle()
-    return this.page.title()
+  async goto(url: string) {
+    await this.page.goto(url)
   }
 
   async waitForNetworkIdle() {
     await this.page.waitForNetworkIdle()
   }
 
-  async waitForPopup(run: () => Promise<unknown>): Promise<PageHelper> {
-    const browser = this.page.browser()
-    const popupPromise = new Promise<Page | null>((resolve, reject) => {
-      const cleanup = () => {
-        clearTimeout(timeout)
-        browser.off('targetcreated', targetcreated)
-      }
-
-      const timeout = setTimeout(() => {
-        cleanup()
-        reject(new Error('Timeout waiting for popup'))
-      }, 5_000)
-
-      const targetcreated: Handler<Target> = async (target) => {
-        switch (target.type()) {
-          case TargetType.BACKGROUND_PAGE:
-          case TargetType.PAGE: {
-            cleanup()
-            resolve(target.page())
-          }
-        }
-      }
-
-      browser.once('targetcreated', targetcreated)
-    })
-
-    await run()
-    const popup = await popupPromise
-    assert(popup, 'Popup page not found')
-
-    return new PageHelper(popup)
-  }
-
-  async navigationAction(run: () => unknown | Promise<unknown>): Promise<void> {
-    const promise = this.page.waitForNavigation({ timeout: 10_000 })
+  async navigationAction(run: () => Promise<unknown>): Promise<void> {
+    const promise = this.page.waitForNavigation()
     await run()
     await promise
+    await this.waitForNetworkIdle()
   }
 
-  async navigationClick(text: string, tag = 'button') {
-    return this.navigationAction(() => this.clickOnText(text, tag))
-  }
-
-  async assertTitle(expected: string) {
-    await expect(this.title()).resolves.toBe(expected)
+  async checkTitle(expected: string) {
+    await this.waitForNetworkIdle()
+    await expect(this.page.title()).resolves.toBe(expected)
   }
 
   async clickOn(selector: string) {
@@ -74,12 +30,8 @@ export class PageHelper implements AsyncDisposable {
     return elementHandle
   }
 
-  async clickOnText(text: string, tag = 'button') {
-    return this.clickOn(`${tag}::-p-text(${JSON.stringify(text)})`)
-  }
-
-  async clickOnAriaLabel(label: string, tag = 'button') {
-    return this.clickOn(`${tag}[aria-label=${JSON.stringify(label)}]`)
+  async clickOnButton(text: string) {
+    return this.clickOn(`button::-p-text(${JSON.stringify(text)})`)
   }
 
   async typeIn(selector: string, text: string) {
@@ -94,22 +46,16 @@ export class PageHelper implements AsyncDisposable {
   }
 
   async ensureTextVisibility(text: string, tag = 'p') {
-    await this.page.waitForSelector(
-      `${tag}::-p-text(${JSON.stringify(text)})`,
-      {
-        visible: true,
-        timeout: 5_000,
-      },
-    )
+    await this.page.waitForSelector(`${tag}::-p-text(${JSON.stringify(text)})`)
   }
 
   protected async getVisibleElement(selector: string) {
-    const elementHandle = await this.page.waitForSelector(selector, {
-      visible: true,
-      timeout: 5_000,
-    })
+    const elementHandle = await this.page.waitForSelector(selector)
 
-    assert(elementHandle, `Element not found: ${selector}`)
+    expect(elementHandle).not.toBeNull()
+    assert(elementHandle)
+
+    await expect(elementHandle.isVisible()).resolves.toBe(true)
 
     return elementHandle
   }

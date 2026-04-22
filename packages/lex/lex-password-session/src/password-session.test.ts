@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-namespace */
 
 import { afterAll, assert, beforeAll, describe, expect, it, vi } from 'vitest'
-import { Client, XrpcAuthenticationError } from '@atproto/lex-client'
+import { Client, XrpcResponseError } from '@atproto/lex-client'
 import { l } from '@atproto/lex-schema'
 import { LexRouter, LexServerAuthError } from '@atproto/lex-server'
 import { Server, serve } from '@atproto/lex-server/nodejs'
@@ -62,7 +62,7 @@ describe(PasswordSession, () => {
       .add(com.atproto.server.createSession, async ({ input }) => {
         const session = await authVerifier.create(input.body)
 
-        const body: com.atproto.server.createSession.$OutputBody = {
+        const body: com.atproto.server.createSession.OutputBody = {
           accessJwt: session.accessJwt,
           refreshJwt: session.refreshJwt,
 
@@ -86,7 +86,7 @@ describe(PasswordSession, () => {
       .add(com.atproto.server.getSession, {
         auth: authVerifier.accessStrategy,
         handler: async ({ credentials: { session } }) => {
-          const body: com.atproto.server.getSession.$OutputBody = {
+          const body: com.atproto.server.getSession.OutputBody = {
             did: session.did,
             didDoc: {
               '@context': 'https://w3.org/ns/did/v1',
@@ -117,7 +117,7 @@ describe(PasswordSession, () => {
 
           // Note, we omit email and didDoc here to test that they are properly
           // fetched via getSession in the agent
-          const body: com.atproto.server.refreshSession.$OutputBody = {
+          const body: com.atproto.server.refreshSession.OutputBody = {
             accessJwt: session.accessJwt,
             refreshJwt: session.refreshJwt,
 
@@ -171,7 +171,7 @@ describe(PasswordSession, () => {
     const onUpdated: PasswordSessionOptions['onUpdated'] = vi.fn()
 
     await expect(
-      PasswordSession.login({
+      PasswordSession.create({
         ...defaultOptions,
         service: entrywayOrigin,
         identifier: 'alice',
@@ -181,6 +181,7 @@ describe(PasswordSession, () => {
       }),
     ).rejects.toMatchObject({
       success: false,
+      status: 401,
       error: 'AuthenticationRequired',
     })
 
@@ -192,7 +193,7 @@ describe(PasswordSession, () => {
     const onDeleted: PasswordSessionOptions['onDeleted'] = vi.fn()
     const onUpdated: PasswordSessionOptions['onUpdated'] = vi.fn()
 
-    const result = await PasswordSession.login({
+    const result = await PasswordSession.create({
       ...defaultOptions,
       service: entrywayOrigin,
       identifier: 'alice',
@@ -216,7 +217,7 @@ describe(PasswordSession, () => {
     const onDeleted: PasswordSessionOptions['onDeleted'] = vi.fn()
     const onUpdated: PasswordSessionOptions['onUpdated'] = vi.fn()
 
-    const session = await PasswordSession.login({
+    const session = await PasswordSession.create({
       ...defaultOptions,
       service: entrywayOrigin,
       identifier: 'alice',
@@ -252,12 +253,7 @@ describe(PasswordSession, () => {
 
     await expect(
       client.call(app.example.customMethod, { message: 'hello' }),
-    ).rejects.toMatchObject({
-      message: 'Unable to fulfill XRPC request',
-      cause: expect.objectContaining({
-        message: 'Logged out',
-      }),
-    })
+    ).rejects.toThrow('Logged out')
   })
 
   it('fails to perform unauthenticated call', async () => {
@@ -267,21 +263,22 @@ describe(PasswordSession, () => {
     })
 
     assert(result.success === false)
-    assert(result instanceof XrpcAuthenticationError)
+    assert(result instanceof XrpcResponseError)
     expect(result).toMatchObject({
       success: false,
+      status: 401,
       error: 'AuthenticationRequired',
     })
-    expect(result.wwwAuthenticate).toEqual({
-      Bearer: { realm: 'access token' },
-    })
+    expect(result.headers.get('www-authenticate')).toBe(
+      'Bearer realm="access token"',
+    )
   })
 
   it('refreshes expired token', async () => {
     const onDeleted: PasswordSessionOptions['onDeleted'] = vi.fn()
     const onUpdated: PasswordSessionOptions['onUpdated'] = vi.fn()
 
-    const session = await PasswordSession.login({
+    const session = await PasswordSession.create({
       ...defaultOptions,
       service: entrywayOrigin,
       identifier: 'bob',
@@ -335,7 +332,7 @@ describe(PasswordSession, () => {
     const onDeleted: PasswordSessionOptions['onDeleted'] = vi.fn()
     const onUpdated: PasswordSessionOptions['onUpdated'] = vi.fn()
 
-    const initialAgent = await PasswordSession.login({
+    const initialAgent = await PasswordSession.create({
       ...defaultOptions,
       service: entrywayOrigin,
       identifier: 'carla',
@@ -371,6 +368,7 @@ describe(PasswordSession, () => {
     await expect(initialAgent.refresh()).rejects.toMatchObject({
       success: false,
       error: 'ExpiredToken',
+      status: 401,
     })
 
     expect(onDeleted).toHaveBeenCalledTimes(1)
@@ -395,7 +393,7 @@ describe(PasswordSession, () => {
   it('silently ignores expected logout errors', async () => {
     let sessionData: SessionData | null = null
 
-    const session = await PasswordSession.login({
+    const session = await PasswordSession.create({
       ...defaultOptions,
       service: entrywayOrigin,
       identifier: 'dave',
@@ -404,6 +402,7 @@ describe(PasswordSession, () => {
       onUpdated: (data) => {
         sessionData = structuredClone(data)
       },
+      onDeleted: () => {},
     })
 
     assert(sessionData)

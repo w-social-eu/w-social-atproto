@@ -1,9 +1,8 @@
-import { Server } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.repo.listMissingBlobs, {
+  server.com.atproto.repo.listMissingBlobs({
     auth: ctx.authVerifier.authorization({
       authorize: () => {
         // always allow
@@ -18,7 +17,7 @@ export default function (server: Server, ctx: AppContext) {
       )
 
       return {
-        encoding: 'application/json' as const,
+        encoding: 'application/json',
         body: {
           blobs,
           cursor: blobs.at(-1)?.cid,

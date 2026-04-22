@@ -1,12 +1,8 @@
 import assert from 'node:assert'
-import {
-  AppBskyFeedDefs,
-  AppBskyFeedGetPostThread,
-  AtUri,
-  AtpAgent,
-  ids,
-} from '@atproto/api'
+import { AppBskyFeedGetPostThread, AtUri, AtpAgent } from '@atproto/api'
 import { SeedClient, TestNetwork, basicSeed } from '@atproto/dev-env'
+import { ids } from '../../src/lexicon/lexicons'
+import { isThreadViewPost } from '../../src/lexicon/types/app/bsky/feed/defs'
 import {
   assertIsThreadViewPost,
   forSnapshot,
@@ -28,8 +24,8 @@ describe('appview thread views', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'bsky_views_thread',
     })
-    agent = network.bsky.getAgent()
-    pdsAgent = network.pds.getAgent()
+    agent = network.bsky.getClient()
+    pdsAgent = network.pds.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     alice = sc.dids.alice
@@ -412,10 +408,8 @@ describe('appview thread views', () => {
         },
       )
 
-      assert(AppBskyFeedDefs.isThreadViewPost(threadPreTakedown.data.thread))
-      assert(
-        AppBskyFeedDefs.isThreadViewPost(threadPreTakedown.data.thread.parent),
-      )
+      assert(isThreadViewPost(threadPreTakedown.data.thread))
+      assert(isThreadViewPost(threadPreTakedown.data.thread.parent))
 
       const parent = threadPreTakedown.data.thread.parent.post
 
@@ -453,19 +447,11 @@ describe('appview thread views', () => {
         },
       )
 
-      assert(AppBskyFeedDefs.isThreadViewPost(threadPreTakedown.data.thread))
+      assert(isThreadViewPost(threadPreTakedown.data.thread))
+      assert(isThreadViewPost(threadPreTakedown.data.thread.replies?.[0]))
+      assert(isThreadViewPost(threadPreTakedown.data.thread.replies?.[1]))
       assert(
-        AppBskyFeedDefs.isThreadViewPost(
-          threadPreTakedown.data.thread.replies?.[0],
-        ),
-      )
-      assert(
-        AppBskyFeedDefs.isThreadViewPost(
-          threadPreTakedown.data.thread.replies?.[1],
-        ),
-      )
-      assert(
-        AppBskyFeedDefs.isThreadViewPost(
+        isThreadViewPost(
           threadPreTakedown.data.thread.replies?.[1].replies?.[0],
         ),
       )
@@ -581,8 +567,6 @@ describe('appview thread views', () => {
         },
         sc.getHeaders(bob),
       )
-
-      await network.processAll()
 
       const threadBeforeListTakedown = await agent.app.bsky.feed.getPostThread(
         { depth: 1, uri: reply.ref.uriStr },

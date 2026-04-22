@@ -1,7 +1,7 @@
 import { DidDocument } from '@atproto/did'
 import { Key } from '@atproto/jwk'
 import { WebcryptoKey } from '@atproto/jwk-webcrypto'
-import { InternalStateData, Session } from '@atproto/oauth-client'
+import { InternalStateData, Session, TokenSet } from '@atproto/oauth-client'
 import {
   OAuthAuthorizationServerMetadata,
   OAuthProtectedResourceMetadata,
@@ -36,8 +36,19 @@ async function decodeKey(encoded: EncodedKey): Promise<Key> {
 }
 
 export type Schema = {
-  state: Item<Omit<InternalStateData, 'dpopKey'> & { dpopKey: EncodedKey }>
-  session: Item<Omit<Session, 'dpopKey'> & { dpopKey: EncodedKey }>
+  state: Item<{
+    dpopKey: EncodedKey
+
+    iss: string
+    verifier?: string
+    appState?: string
+  }>
+  session: Item<{
+    dpopKey: EncodedKey
+
+    tokenSet: TokenSet
+  }>
+
   didCache: Item<DidDocument>
   dpopNonceCache: Item<string>
   handleCache: Item<ResolvedHandle>
@@ -177,7 +188,7 @@ export class BrowserOAuthDatabase {
     })
   }
 
-  getDpopNonceCache(): DatabaseStore<string> {
+  getDpopNonceCache(): undefined | DatabaseStore<string> {
     return this.createStore('dpopNonceCache', {
       expiresAt: (_value) => new Date(Date.now() + 600e3),
       encode: (value) => value,
@@ -185,7 +196,7 @@ export class BrowserOAuthDatabase {
     })
   }
 
-  getDidCache(): DatabaseStore<DidDocument> {
+  getDidCache(): undefined | DatabaseStore<DidDocument> {
     return this.createStore('didCache', {
       expiresAt: (_value) => new Date(Date.now() + 60e3),
       encode: (value) => value,
@@ -193,7 +204,7 @@ export class BrowserOAuthDatabase {
     })
   }
 
-  getHandleCache(): DatabaseStore<ResolvedHandle> {
+  getHandleCache(): undefined | DatabaseStore<ResolvedHandle> {
     return this.createStore('handleCache', {
       expiresAt: (_value) => new Date(Date.now() + 60e3),
       encode: (value) => value,

@@ -12,9 +12,9 @@ describe('app_passwords', () => {
     network = await TestNetworkNoAppView.create({
       dbPostgresSchema: 'app_passwords',
     })
-    accntAgent = network.pds.getAgent()
-    appAgent = network.pds.getAgent()
-    priviAgent = network.pds.getAgent()
+    accntAgent = network.pds.getClient()
+    appAgent = network.pds.getClient()
+    priviAgent = network.pds.getClient()
 
     await accntAgent.createAccount({
       handle: 'alice.test',
@@ -113,21 +113,11 @@ describe('app_passwords', () => {
   })
 
   it('restricts service auth token methods for non-privileged access tokens', async () => {
-    const attemptCaseSensitive = appAgent.api.com.atproto.server.getServiceAuth(
-      {
-        aud: 'did:example:test',
-        lxm: 'com.atproto.server.createAccount',
-      },
-    )
-    await expect(attemptCaseSensitive).rejects.toThrow(
-      /insufficient access to request a service auth token for the following method/,
-    )
-    const attemptCaseInsensitive =
-      appAgent.api.com.atproto.server.getServiceAuth({
-        aud: 'did:example:test',
-        lxm: 'com.atproto.server.createaccount',
-      })
-    await expect(attemptCaseInsensitive).rejects.toThrow(
+    const attempt = appAgent.api.com.atproto.server.getServiceAuth({
+      aud: 'did:example:test',
+      lxm: 'com.atproto.server.createAccount',
+    })
+    await expect(attempt).rejects.toThrow(
       /insufficient access to request a service auth token for the following method/,
     )
   })
@@ -252,7 +242,7 @@ describe('app_passwords', () => {
   })
 
   it('no longer allows session creation after revocation', async () => {
-    const newAgent = network.pds.getAgent()
+    const newAgent = network.pds.getClient()
     const attempt = newAgent.login({
       identifier: 'alice.test',
       password: appPass,

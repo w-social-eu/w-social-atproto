@@ -3,7 +3,6 @@ import {
   AuthorizeOptions,
   OAuthClient,
   OAuthSession,
-  RuntimeImplementation,
 } from '@atproto/oauth-client'
 import { default as NativeModule } from './ExpoAtprotoOAuthClientModule'
 import { ExpoOAuthClientInterface } from './expo-oauth-client-interface'
@@ -22,12 +21,6 @@ import {
 export const CUSTOM_URI_SCHEME_REGEX = /^(?:[^.]+(?:\.[^.]+)+):\/(?:[^/].*)?$/
 const isCustomUriScheme = (uri: string) => CUSTOM_URI_SCHEME_REGEX.test(uri)
 
-const runtimeImplementation: RuntimeImplementation = {
-  createKey: async (algs) => ExpoKey.generate(algs),
-  digest: async (bytes, { name }) => NativeModule.digest(bytes, name),
-  getRandomValues: async (length) => NativeModule.getRandomValues(length),
-}
-
 export class ExpoOAuthClient
   extends OAuthClient
   implements ExpoOAuthClientInterface
@@ -41,7 +34,11 @@ export class ExpoOAuthClient
       ...options,
       responseMode: options.responseMode ?? 'query',
       keyset: undefined,
-      runtimeImplementation,
+      runtimeImplementation: {
+        createKey: async (algs) => ExpoKey.generate(algs),
+        digest: async (bytes, { name }) => NativeModule.digest(bytes, name),
+        getRandomValues: async (length) => NativeModule.getRandomValues(length),
+      },
       sessionStore: stack.use(new SessionStore()),
       stateStore: stack.use(new StateStore()),
       didCache: stack.use(new DidCache()),
@@ -54,6 +51,8 @@ export class ExpoOAuthClient
         new ProtectedResourceMetadataCache(),
       ),
     })
+
+    stack.defer(() => super[Symbol.dispose]?.())
 
     this.#disposables = stack.move()
   }
@@ -82,10 +81,11 @@ export class ExpoOAuthClient
       display: options?.display ?? 'touch',
     })
 
-    const result = await openAuthSessionAsync(url.toString(), redirectUri, {
-      dismissButtonStyle: 'cancel', // iOS only
-      preferEphemeralSession: false, // iOS only
-    })
+    console.debug('openAuthSessionAsync', { url, redirectUri })
+
+    const result = await openAuthSessionAsync(url.toString(), redirectUri)
+
+    console.debug('AUTH SESSION RESULT', result)
 
     if (result.type === 'success') {
       const callbackUrl = new URL(result.url)
@@ -103,7 +103,7 @@ export class ExpoOAuthClient
     }
   }
 
-  async [Symbol.asyncDispose]() {
+  [Symbol.dispose]() {
     this.#disposables.dispose()
   }
 }

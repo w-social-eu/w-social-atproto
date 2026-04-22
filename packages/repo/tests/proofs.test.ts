@@ -1,7 +1,5 @@
-import { TID } from '@atproto/common-web'
+import { TID, cidForCbor, streamToBuffer } from '@atproto/common'
 import * as crypto from '@atproto/crypto'
-import { cidForLex } from '@atproto/lex-cbor'
-import { NsidString } from '@atproto/syntax'
 import { RecordCidClaim, RecordPath, Repo, RepoContents } from '../src'
 import { MemoryBlockstore } from '../src/storage'
 import * as sync from '../src/sync'
@@ -25,7 +23,7 @@ describe('Repo Proofs', () => {
   })
 
   const getProofs = async (claims: RecordPath[]) => {
-    return util.toBuffer(sync.getRecords(storage, repo.cid, claims))
+    return streamToBuffer(sync.getRecords(storage, repo.cid, claims))
   }
 
   const doVerify = (proofs: Uint8Array, claims: RecordCidClaim[]) => {
@@ -36,12 +34,12 @@ describe('Repo Proofs', () => {
     contents: RepoContents,
   ): Promise<RecordCidClaim[]> => {
     const claims: RecordCidClaim[] = []
-    for (const coll of Object.keys(contents) as NsidString[]) {
+    for (const coll of Object.keys(contents)) {
       for (const rkey of Object.keys(contents[coll])) {
         claims.push({
           collection: coll,
           rkey: rkey,
-          cid: await cidForLex(contents[coll][rkey]),
+          cid: await cidForCbor(contents[coll][rkey]),
         })
       }
     }
@@ -138,7 +136,7 @@ describe('Repo Proofs', () => {
         throw new Error('Could not find record for claim')
       }
       expect(foundClaim.cid).toEqual(
-        await cidForLex(repoData[record.collection][record.rkey]),
+        await cidForCbor(repoData[record.collection][record.rkey]),
       )
     }
   })
@@ -146,7 +144,7 @@ describe('Repo Proofs', () => {
   it('verifyProofs throws on a bad signature', async () => {
     const badRepo = await util.addBadCommit(repo, keypair)
     const claims = await contentsToClaims(repoData)
-    const proofs = await util.toBuffer(
+    const proofs = await streamToBuffer(
       sync.getRecords(storage, badRepo.cid, claims),
     )
     const fn = sync.verifyProofs(proofs, claims, repoDid, keypair.did())

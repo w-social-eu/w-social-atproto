@@ -1,15 +1,12 @@
 import { DAY, HOUR } from '@atproto/common'
-import {
-  ForbiddenError,
-  InvalidRequestError,
-  Server,
-} from '@atproto/xrpc-server'
+import { ForbiddenError, InvalidRequestError } from '@atproto/xrpc-server'
 import { ACCESS_FULL } from '../../../../auth-scope'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { ids } from '../../../../lexicon/lexicons'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.server.requestAccountDelete, {
+  server.com.atproto.server.requestAccountDelete({
     rateLimit: [
       {
         durationMs: DAY,
@@ -41,15 +38,15 @@ export default function (server: Server, ctx: AppContext) {
         throw new InvalidRequestError('account not found')
       }
 
-      if (ctx.entrywayClient) {
-        const { headers } = await ctx.entrywayAuthHeaders(
-          req,
-          auth.credentials.did,
-          com.atproto.server.requestAccountDelete.$lxm,
+      if (ctx.entrywayAgent) {
+        await ctx.entrywayAgent.com.atproto.server.requestAccountDelete(
+          undefined,
+          await ctx.entrywayAuthHeaders(
+            req,
+            auth.credentials.did,
+            ids.ComAtprotoServerRequestAccountDelete,
+          ),
         )
-        await ctx.entrywayClient.xrpc(com.atproto.server.requestAccountDelete, {
-          headers,
-        })
         return
       }
 

@@ -1,22 +1,20 @@
-import { Cid, LexMap, parseCid } from '@atproto/lex-data'
+import { CID } from 'multiformats/cid'
+import { RepoRecord } from '@atproto/lexicon'
 import { CidSet, cborToLexRecord, formatDataKey } from '@atproto/repo'
-import {
-  AtUri,
-  AtUriString,
-  DatetimeString,
-  NsidString,
-  ensureValidAtUri,
-  ensureValidDid,
-} from '@atproto/syntax'
+import * as syntax from '@atproto/syntax'
+import { AtUri, ensureValidAtUri } from '@atproto/syntax'
 import { countAll, notSoftDeletedClause } from '../../db/util'
-import { app, com } from '../../lexicons/index.js'
+import { ids } from '../../lexicon/lexicons'
+import { Record as ProfileRecord } from '../../lexicon/types/app/bsky/actor/profile'
+import { Record as PostRecord } from '../../lexicon/types/app/bsky/feed/post'
+import { StatusAttr } from '../../lexicon/types/com/atproto/admin/defs'
 import { LocalRecords } from '../../read-after-write/types'
 import { ActorDb, Backlink } from '../db'
 
 export type RecordDescript = {
   uri: string
   path: string
-  cid: Cid
+  cid: CID
 }
 
 export class RecordReader {
@@ -46,7 +44,7 @@ export class RecordReader {
         records.push({
           uri: row.uri,
           path: formatDataKey(parsed.collection, parsed.rkey),
-          cid: parseCid(row.cid),
+          cid: CID.parse(row.cid),
         })
       }
       cursor = res.at(-1)?.uri
@@ -54,14 +52,14 @@ export class RecordReader {
     return records
   }
 
-  async listCollections(): Promise<NsidString[]> {
+  async listCollections(): Promise<string[]> {
     const collections = await this.db.db
       .selectFrom('record')
       .select('collection')
       .groupBy('collection')
       .execute()
 
-    return collections.map((row) => row.collection as NsidString)
+    return collections.map((row) => row.collection)
   }
 
   async listRecordsForCollection(opts: {
@@ -72,7 +70,7 @@ export class RecordReader {
     rkeyStart?: string
     rkeyEnd?: string
     includeSoftDeleted?: boolean
-  }): Promise<{ uri: AtUriString; cid: string; value: LexMap }[]> {
+  }): Promise<{ uri: string; cid: string; value: Record<string, unknown> }[]> {
     const {
       collection,
       limit,
@@ -111,11 +109,13 @@ export class RecordReader {
       }
     }
     const res = await builder.execute()
-    return res.map((row) => ({
-      uri: row.uri as AtUriString,
-      cid: row.cid,
-      value: cborToLexRecord(row.content),
-    }))
+    return res.map((row) => {
+      return {
+        uri: row.uri,
+        cid: row.cid,
+        value: cborToLexRecord(row.content),
+      }
+    })
   }
 
   async getRecord(
@@ -125,7 +125,7 @@ export class RecordReader {
   ): Promise<{
     uri: string
     cid: string
-    value: LexMap
+    value: Record<string, unknown>
     indexedAt: string
     takedownRef: string | null
   } | null> {
@@ -172,9 +172,7 @@ export class RecordReader {
     return !!record
   }
 
-  async getRecordTakedownStatus(
-    uri: AtUri,
-  ): Promise<com.atproto.admin.defs.StatusAttr | null> {
+  async getRecordTakedownStatus(uri: AtUri): Promise<StatusAttr | null> {
     const res = await this.db.db
       .selectFrom('record')
       .select('takedownRef')
@@ -186,13 +184,13 @@ export class RecordReader {
       : { applied: false }
   }
 
-  async getCurrentRecordCid(uri: AtUri): Promise<Cid | null> {
+  async getCurrentRecordCid(uri: AtUri): Promise<CID | null> {
     const res = await this.db.db
       .selectFrom('record')
       .select('cid')
       .where('uri', '=', uri.toString())
       .executeTakeFirst()
-    return res ? parseCid(res.cid) : null
+    return res ? CID.parse(res.cid) : null
   }
 
   async getRecordBacklinks(opts: {
@@ -214,7 +212,7 @@ export class RecordReader {
   // @NOTE this logic is a placeholder until we allow users to specify these constraints themselves.
   // Ensures that we don't end-up with duplicate likes, reposts, and follows from race conditions.
 
-  async getBacklinkConflicts(uri: AtUri, record: LexMap): Promise<AtUri[]> {
+  async getBacklinkConflicts(uri: AtUri, record: RepoRecord): Promise<AtUri[]> {
     const conflicts: AtUri[] = []
 
     for (const backlink of getBacklinks(uri, record)) {
@@ -244,7 +242,7 @@ export class RecordReader {
         .limit(1000)
         .execute()
       for (const row of res) {
-        cids.add(parseCid(row.cid))
+        cids.add(CID.parse(row.cid))
       }
       cursor = res.at(-1)?.cid
     }
@@ -255,14 +253,14 @@ export class RecordReader {
     const row = await this.db.db
       .selectFrom('record')
       .leftJoin('repo_block', 'repo_block.cid', 'record.cid')
-      .where('record.collection', '=', app.bsky.actor.profile.$type)
+      .where('record.collection', '=', ids.AppBskyActorProfile)
       .where('record.rkey', '=', 'self')
       .selectAll()
       .executeTakeFirst()
 
     if (!row?.content) return null
 
-    return cborToLexRecord(row.content) as app.bsky.actor.profile.Main
+    return cborToLexRecord(row.content) as ProfileRecord
   }
 
   async getRecordsSinceRev(rev: string): Promise<LocalRecords> {
@@ -300,22 +298,19 @@ export class RecordReader {
       result.count++
 
       const uri = new AtUri(cur.uri)
-      if (
-        uri.collection === app.bsky.actor.profile.$type &&
-        uri.rkey === 'self'
-      ) {
+      if (uri.collection === ids.AppBskyActorProfile && uri.rkey === 'self') {
         result.profile = {
           uri,
-          cid: parseCid(cur.cid),
-          indexedAt: cur.indexedAt as DatetimeString,
-          record: cborToLexRecord(cur.content) as app.bsky.actor.profile.Main,
+          cid: CID.parse(cur.cid),
+          indexedAt: cur.indexedAt,
+          record: cborToLexRecord(cur.content) as ProfileRecord,
         }
-      } else if (uri.collection === app.bsky.feed.post.$type) {
+      } else if (uri.collection === ids.AppBskyFeedPost) {
         result.posts.push({
           uri,
-          cid: parseCid(cur.cid),
-          indexedAt: cur.indexedAt as DatetimeString,
-          record: cborToLexRecord(cur.content) as app.bsky.feed.post.Main,
+          cid: CID.parse(cur.cid),
+          indexedAt: cur.indexedAt,
+          record: cborToLexRecord(cur.content) as PostRecord,
         })
       }
     }
@@ -327,17 +322,17 @@ export class RecordReader {
 // @NOTE in the future this can be replaced with a more generic routine that pulls backlinks based on lex docs.
 // For now we just want to ensure we're tracking links from follows, blocks, likes, and reposts.
 
-export const getBacklinks = (uri: AtUri, record: LexMap): Backlink[] => {
+export const getBacklinks = (uri: AtUri, record: RepoRecord): Backlink[] => {
   if (
-    record?.['$type'] === app.bsky.graph.follow.$type ||
-    record?.['$type'] === app.bsky.graph.block.$type
+    record?.['$type'] === ids.AppBskyGraphFollow ||
+    record?.['$type'] === ids.AppBskyGraphBlock
   ) {
     const subject = record['subject']
     if (typeof subject !== 'string') {
       return []
     }
     try {
-      ensureValidDid(subject)
+      syntax.ensureValidDid(subject)
     } catch {
       return []
     }
@@ -350,8 +345,8 @@ export const getBacklinks = (uri: AtUri, record: LexMap): Backlink[] => {
     ]
   }
   if (
-    record?.['$type'] === app.bsky.feed.like.$type ||
-    record?.['$type'] === app.bsky.feed.repost.$type
+    record?.['$type'] === ids.AppBskyFeedLike ||
+    record?.['$type'] === ids.AppBskyFeedRepost
   ) {
     const subject = record['subject']
     if (typeof subject?.['uri'] !== 'string') {

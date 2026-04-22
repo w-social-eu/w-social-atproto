@@ -1,6 +1,6 @@
 {
   "name": "@atproto/lex-resolver",
-  "version": "0.0.22",
+  "version": "0.0.12",
   "license": "MIT",
   "description": "Lexicon document resolver utility for AT Lexicons",
   "keywords": [
@@ -30,9 +30,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "browser": "./dist/index.js",
       "import": "./dist/index.js",
-      "default": "./dist/index.js"
+      "require": "./dist/index.js"
     }
   },
   "dependencies": {

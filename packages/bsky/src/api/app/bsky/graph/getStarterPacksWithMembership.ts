@@ -1,13 +1,16 @@
 import { mapDefined } from '@atproto/common'
-import { AtUriString, DidString } from '@atproto/syntax'
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
 import {
-  HydrateCtxWithViewer,
+  HydrateCtx,
   Hydrator,
   mergeManyStates,
 } from '../../../../hydration/hydrator'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import {
+  OutputSchema,
+  QueryParams,
+} from '../../../../lexicon/types/app/bsky/graph/getStarterPacksWithMembership'
 import {
   HydrationFnInput,
   PresentationFnInput,
@@ -25,7 +28,7 @@ export default function (server: Server, ctx: AppContext) {
     noRules,
     presentation,
   )
-  server.add(app.bsky.graph.getStarterPacksWithMembership, {
+  server.app.bsky.graph.getStarterPacksWithMembership({
     auth: ctx.authVerifier.standard,
     handler: async ({ params, auth, req }) => {
       const viewer = auth.credentials.iss
@@ -35,7 +38,7 @@ export default function (server: Server, ctx: AppContext) {
         viewer,
       })
       const result = await getStarterPacksWithMembership(
-        { ...params, hydrateCtx },
+        { ...params, hydrateCtx: hydrateCtx.copy({ viewer }) },
         ctx,
       )
 
@@ -66,11 +69,7 @@ const skeleton = async (
       limit: params.limit,
     })
 
-  return {
-    actorDid,
-    starterPackUris: starterPackUris as AtUriString[],
-    cursor: cursor || undefined,
-  }
+  return { actorDid, starterPackUris, cursor: cursor || undefined }
 }
 
 const hydration = async (
@@ -97,7 +96,7 @@ const hydration = async (
 
 const presentation = (
   input: PresentationFnInput<Context, Params, SkeletonState>,
-): app.bsky.graph.getStarterPacksWithMembership.$OutputBody => {
+): OutputSchema => {
   const { ctx, skeleton, hydration } = input
   const { actorDid, starterPackUris, cursor } = skeleton
 
@@ -125,12 +124,12 @@ type Context = {
   views: Views
 }
 
-type Params = app.bsky.graph.getStarterPacksWithMembership.$Params & {
-  hydrateCtx: HydrateCtxWithViewer
+type Params = QueryParams & {
+  hydrateCtx: HydrateCtx & { viewer: string }
 }
 
 type SkeletonState = {
-  actorDid: DidString
-  starterPackUris: AtUriString[]
+  actorDid: string
+  starterPackUris: string[]
   cursor?: string
 }

@@ -1,8 +1,8 @@
-import { TID } from '@atproto/common-web'
+import * as cbor from '@ipld/dag-cbor'
+import { TID, cborDecode, check, cidForCbor, schema } from '@atproto/common'
 import * as crypto from '@atproto/crypto'
 import { Keypair } from '@atproto/crypto'
-import * as cbor from '@atproto/lex-cbor'
-import { Cid, LexMap, LexValue, isPlainObject } from '@atproto/lex-data'
+import { LexValue, RepoRecord, ipldToLex, lexToIpld } from '@atproto/lexicon'
 import { DataDiff } from './data-diff'
 import {
   Commit,
@@ -66,9 +66,9 @@ export const ensureCreates = (
 }
 
 export const parseDataKey = (key: string): RecordPath => {
-  const { length, 0: collection, 1: rkey } = key.split('/')
-  if (length !== 2) throw new Error(`Invalid record key: ${key}`)
-  return { collection, rkey }
+  const parts = key.split('/')
+  if (parts.length !== 2) throw new Error(`Invalid record key: ${key}`)
+  return { collection: parts[0], rkey: parts[1] }
 }
 
 export const formatDataKey = (collection: string, rkey: string): string => {
@@ -100,17 +100,21 @@ export const verifyCommitSig = async (
   return crypto.verifySignature(didKey, encoded, sig)
 }
 
-export const cborToLex: (val: Uint8Array) => LexValue = cbor.decode
+export const cborToLex = (val: Uint8Array): LexValue => {
+  return ipldToLex(cborDecode(val))
+}
 
-export const cborToLexRecord = (val: Uint8Array): LexMap => {
+export const cborToLexRecord = (val: Uint8Array): RepoRecord => {
   const parsed = cborToLex(val)
-  if (!isPlainObject(parsed)) {
+  if (!check.is(parsed, schema.map)) {
     throw new Error('lexicon records be a json object')
   }
   return parsed
 }
 
-export const cidForRecord: (val: LexValue) => Promise<Cid> = cbor.cidForLex
+export const cidForRecord = async (val: LexValue) => {
+  return cidForCbor(lexToIpld(val))
+}
 
 export const ensureV3Commit = (commit: LegacyV2Commit | Commit): Commit => {
   if (commit.version === 3) {
@@ -122,25 +126,4 @@ export const ensureV3Commit = (commit: LegacyV2Commit | Commit): Commit => {
       rev: commit.rev ?? TID.nextStr(),
     }
   }
-}
-
-export async function concatBytesAsync(iterable: AsyncIterable<Uint8Array>) {
-  const chunks: Uint8Array[] = []
-  for await (const chunk of iterable) chunks.push(chunk)
-  return concatBytes(chunks)
-}
-
-/**
- * This is the same as {@link Buffer.concat}, without the `totalLength` argument.
- */
-export function concatBytes(chunks: readonly Uint8Array[]): Uint8Array {
-  let totalLength = 0
-  for (const chunk of chunks) totalLength += chunk.byteLength
-  const result = new Uint8Array(totalLength)
-  let offset = 0
-  for (const chunk of chunks) {
-    result.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return result
 }

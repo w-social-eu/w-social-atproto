@@ -77,14 +77,14 @@ export class LexiconAuthorityProfile extends ServiceProfile {
       password: 'hunter2',
     },
   ) {
-    const agent = pds.getAgent()
-    await agent.createAccount(userDetails)
+    const client = pds.getClient()
+    await client.createAccount(userDetails)
 
-    return new LexiconAuthorityProfile(pds, agent, userDetails)
+    return new LexiconAuthorityProfile(pds, client, userDetails)
   }
 
   async createRecords() {
-    await this.agent.app.bsky.actor.profile.create(
+    await this.client.app.bsky.actor.profile.create(
       { repo: this.did },
       {
         displayName: 'Lexicon Authority',
@@ -93,7 +93,7 @@ export class LexiconAuthorityProfile extends ServiceProfile {
     )
 
     for (const doc of LEXICONS) {
-      await this.agent.com.atproto.repo.createRecord({
+      await this.client.com.atproto.repo.createRecord({
         repo: this.did,
         collection: 'com.atproto.lexicon.schema',
         rkey: doc.id,

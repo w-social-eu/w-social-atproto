@@ -4,8 +4,6 @@
   "defs": {
     "main": {
       "type": "query",
-      "description": "Gets an existing conversation by its ID.",
-      "errors": [{ "name": "InvalidConvo" }],
       "parameters": {
         "type": "params",
         "required": ["convoId"],

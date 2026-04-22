@@ -5,8 +5,8 @@ import {
   mockResolvers,
 } from '@atproto/dev-env'
 import { IdResolver } from '@atproto/identity'
-import { DidString } from '@atproto/syntax'
-import { Create, Event, Firehose, FirehoseOptions, MemoryRunner } from '..'
+import { Firehose, FirehoseOptions, MemoryRunner } from '../src'
+import { Create, Event } from '../src/events'
 
 describe('firehose', () => {
   let network: TestNetworkNoAppView
@@ -47,20 +47,17 @@ describe('firehose', () => {
         }
       },
       onError: (err) => {
-        defer.reject(err)
+        throw err
       },
       ...opts,
     })
-    try {
-      firehose.start()
-      await defer.complete
-      return evts
-    } finally {
-      await firehose.destroy()
-    }
+    firehose.start()
+    await defer.complete
+    await firehose.destroy()
+    return evts
   }
 
-  let alice: DidString
+  let alice: string
 
   it('reads events from firehose', async () => {
     const evtsPromise = createAndReadFirehose(6)

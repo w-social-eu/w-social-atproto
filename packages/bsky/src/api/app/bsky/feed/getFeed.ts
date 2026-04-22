@@ -1,16 +1,10 @@
+import { AppBskyFeedGetFeedSkeleton, AtpAgent } from '@atproto/api'
 import { mapDefined, noUndefinedVals } from '@atproto/common'
+import { ResponseType, XRPCError } from '@atproto/xrpc'
 import {
-  XrpcInvalidResponseError,
-  XrpcResponseError,
-  xrpcSafe,
-} from '@atproto/lex'
-import {
-  Headers as HeadersMap,
   InvalidRequestError,
-  Server,
   ServerTimer,
   UpstreamFailureError,
-  XRPCError,
   serverTimingHeader,
 } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
@@ -22,7 +16,11 @@ import {
 } from '../../../../data-plane'
 import { FeedItem } from '../../../../hydration/feed'
 import { HydrateCtx } from '../../../../hydration/hydrator'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { ids } from '../../../../lexicon/lexicons'
+import { isSkeletonReasonRepost } from '../../../../lexicon/types/app/bsky/feed/defs'
+import { QueryParams as GetFeedParams } from '../../../../lexicon/types/app/bsky/feed/getFeed'
+import { OutputSchema as SkeletonOutput } from '../../../../lexicon/types/app/bsky/feed/getFeedSkeleton'
 import {
   HydrationFnInput,
   PresentationFnInput,
@@ -40,12 +38,12 @@ export default function (server: Server, ctx: AppContext) {
     noBlocksOrMutes,
     presentation,
   )
-  server.add(app.bsky.feed.getFeed, {
+  server.app.bsky.feed.getFeed({
     auth: ctx.authVerifier.standardOptionalParameterized({
       lxmCheck: (method) => {
         return (
-          method === app.bsky.feed.getFeedSkeleton.$lxm ||
-          method === app.bsky.feed.getFeed.$lxm
+          method === ids.AppBskyFeedGetFeedSkeleton ||
+          method === ids.AppBskyFeedGetFeed
         )
       },
       skipAudCheck: true,
@@ -74,7 +72,7 @@ export default function (server: Server, ctx: AppContext) {
         encoding: 'application/json',
         body: result,
         headers: {
-          ...feedResHeaders,
+          ...(feedResHeaders ?? {}),
           ...resHeaders({ labelers: hydrateCtx.labelers }),
           'server-timing': serverTimingHeader([timerSkele, timerHydr]),
         },
@@ -160,16 +158,16 @@ const presentation = (
 
 type Context = AppContext
 
-type Params = app.bsky.feed.getFeed.$Params & {
+type Params = GetFeedParams & {
   hydrateCtx: HydrateCtx
-  headers: HeadersMap
+  headers: Record<string, string>
 }
 
 type Skeleton = {
   items: AlgoResponseItem[]
   reqId?: string
   passthrough: Record<string, unknown> // pass through additional items in feedgen response
-  resHeaders?: HeadersMap
+  resHeaders?: Record<string, string>
   cursor?: string
   timerSkele: ServerTimer
   timerHydr: ServerTimer
@@ -207,66 +205,69 @@ const skeletonFromFeedGen = async (
     )
   }
 
-  // @TODO currently passthrough auth headers from pds
-  const result = await xrpcSafe(fgEndpoint, app.bsky.feed.getFeedSkeleton, {
-    strictResponseProcessing: false,
-    headers,
-    params: {
-      feed: params.feed,
-      // The feedgen is not guaranteed to honor the limit, but we try it.
-      limit: params.limit,
-      cursor: params.cursor,
-    },
-  })
+  const agent = new AtpAgent({ service: fgEndpoint })
 
-  if (!result.success) {
-    const cause = result.reason
+  let skeleton: SkeletonOutput
+  let resHeaders: Record<string, string> | undefined = undefined
+  try {
+    // @TODO currently passthrough auth headers from pds
+    const result = await agent.api.app.bsky.feed.getFeedSkeleton(
+      {
+        feed: params.feed,
+        // The feedgen is not guaranteed to honor the limit, but we try it.
+        limit: params.limit,
+        cursor: params.cursor,
+      },
+      {
+        headers,
+      },
+    )
 
-    // Pass through structurally valid XRPC error response (4xx/5xx), such as
-    // auth errors
-    if (cause instanceof XrpcResponseError) {
-      const { status, body } = cause.toDownstreamError()
-      throw new XRPCError(status, body.message, body.error, { cause })
+    skeleton = result.data
+
+    if (result.data.cursor === params.cursor) {
+      // Prevents loops if the custom feed echoes the input cursor back.
+      skeleton.cursor = undefined
     }
 
-    // The response does not match the schema
-    if (cause instanceof XrpcInvalidResponseError) {
-      throw new UpstreamFailureError(
-        'feed provided an invalid response',
-        'InvalidFeedResponse',
-        { cause },
-      )
+    if (result.headers['content-language']) {
+      resHeaders = {
+        'content-language': result.headers['content-language'],
+      }
     }
-
-    // Typically a network error.
-    throw new UpstreamFailureError('feed unavailable', undefined, { cause })
+  } catch (err) {
+    if (err instanceof AppBskyFeedGetFeedSkeleton.UnknownFeedError) {
+      throw new InvalidRequestError(err.message, 'UnknownFeed')
+    }
+    if (err instanceof XRPCError) {
+      if (err.status === ResponseType.Unknown) {
+        throw new UpstreamFailureError('feed unavailable')
+      }
+      if (err.status === ResponseType.InvalidResponse) {
+        throw new UpstreamFailureError(
+          'feed provided an invalid response',
+          'InvalidFeedResponse',
+        )
+      }
+    }
+    throw err
   }
 
-  const { feed: feedSkele, cursor, ...skele } = result.body
+  const { feed: feedSkele, ...skele } = skeleton
   const feedItems = feedSkele.slice(0, params.limit).map((item) => ({
     post: { uri: item.post },
-    repost:
-      item.reason != null &&
-      app.bsky.feed.defs.skeletonReasonRepost.$isTypeOf(item.reason)
-        ? { uri: item.reason.repost }
-        : undefined,
+    repost: isSkeletonReasonRepost(item.reason)
+      ? { uri: item.reason.repost }
+      : undefined,
     feedContext: item.feedContext,
   }))
 
-  const contentLang = result.headers.get('content-language')
-
-  return {
-    ...skele,
-    resHeaders: contentLang ? { 'content-language': contentLang } : undefined,
-    feedItems,
-    // Prevents loops if the custom feed echoes the input cursor back.
-    cursor: cursor === params.cursor ? undefined : cursor,
-  }
+  return { ...skele, resHeaders, feedItems }
 }
 
 export type AlgoResponse = {
   feedItems: AlgoResponseItem[]
-  resHeaders?: HeadersMap
+  resHeaders?: Record<string, string>
   cursor?: string
   reqId?: string
 }

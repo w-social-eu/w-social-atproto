@@ -1,4 +1,3 @@
-import { labels } from './code/labels.mjs'
-export { labels }
+import './code/labels.mjs'
 
-labels()
+export {}

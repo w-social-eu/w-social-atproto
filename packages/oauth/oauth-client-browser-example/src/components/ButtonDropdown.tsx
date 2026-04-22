@@ -14,11 +14,11 @@ import { Button, ButtonProps } from './Button.tsx'
 export type Item = {
   label?: ReactNode
   onClick?: MouseEventHandler<HTMLButtonElement>
-  items?: readonly (Item | null | undefined | false)[]
+  items?: readonly Item[]
 }
 
 export type DropdownProps = ButtonProps & {
-  menu: readonly (Item | null | undefined | false)[]
+  menu: readonly Item[]
 }
 export function ButtonDropdown({
   menu,
@@ -63,17 +63,15 @@ export function ButtonDropdown({
           role="menu"
           aria-labelledby={id}
         >
-          {menu
-            .filter((item) => !!item)
-            .map((item, index) => (
-              <Item
-                key={`item-${index}`}
-                item={item}
-                className={
-                  index > 0 ? 'mt-1 border-t border-gray-200 pt-1' : undefined
-                }
-              />
-            ))}
+          {menu.map((item, index) => (
+            <Item
+              key={`item-${index}`}
+              item={item}
+              className={
+                index > 0 ? 'mt-1 border-t border-gray-200 pt-1' : undefined
+              }
+            />
+          ))}
         </div>
       )}
     </div>
@@ -103,9 +101,7 @@ function Item({ item: { label, onClick, items }, ...props }: ItemProps) {
         </button>
       )}
 
-      {items
-        ?.filter((item) => !!item)
-        .map((item, index) => <Item key={index} item={item} />)}
+      {items?.map((item, index) => <Item key={index} item={item} />)}
     </div>
   )
 }

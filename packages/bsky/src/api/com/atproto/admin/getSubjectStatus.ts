@@ -1,14 +1,15 @@
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { OutputSchema } from '../../../../lexicon/types/com/atproto/admin/getSubjectStatus'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(com.atproto.admin.getSubjectStatus, {
+  server.com.atproto.admin.getSubjectStatus({
     auth: ctx.authVerifier.roleOrModService,
     handler: async ({ params }) => {
       const { did, uri, blob } = params
 
-      let body: com.atproto.admin.getSubjectStatus.$OutputBody | null = null
+      let body: OutputSchema | null = null
       if (blob) {
         if (!did) {
           throw new InvalidRequestError(

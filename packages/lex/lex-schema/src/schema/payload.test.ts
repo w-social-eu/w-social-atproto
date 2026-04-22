@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { integer } from './integer.js'
-import { lexMap } from './lex-map.js'
 import { object } from './object.js'
 import { payload } from './payload.js'
 import { string } from './string.js'
+import { unknown } from './unknown.js'
 
 describe('Payload', () => {
   describe('basic construction', () => {
@@ -113,7 +113,7 @@ describe('Payload', () => {
     })
 
     it('creates payload with unknown schema', () => {
-      const schema = object({})
+      const schema = unknown()
       const def = payload('application/json', schema)
       expect(def.encoding).toBe('application/json')
       expect(def.schema).toBe(schema)
@@ -224,7 +224,7 @@ describe('Payload', () => {
         'application/json',
         object({
           success: string(),
-          data: lexMap(),
+          data: unknown(),
         }),
       )
       expect(def.encoding).toBe('application/json')

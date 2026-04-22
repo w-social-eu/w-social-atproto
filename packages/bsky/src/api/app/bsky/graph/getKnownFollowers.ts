@@ -1,9 +1,9 @@
 import { mapDefined } from '@atproto/common'
-import { DidString } from '@atproto/lex'
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { HydrateCtxWithViewer, Hydrator } from '../../../../hydration/hydrator'
-import { app } from '../../../../lexicons/index.js'
+import { HydrateCtx, Hydrator } from '../../../../hydration/hydrator'
+import { Server } from '../../../../lexicon'
+import { QueryParams } from '../../../../lexicon/types/app/bsky/graph/getKnownFollowers'
 import {
   HydrationFnInput,
   PresentationFnInput,
@@ -21,7 +21,7 @@ export default function (server: Server, ctx: AppContext) {
     noBlocks,
     presentation,
   )
-  server.add(app.bsky.graph.getKnownFollowers, {
+  server.app.bsky.graph.getKnownFollowers({
     auth: ctx.authVerifier.standard,
     handler: async ({ params, auth, req }) => {
       const viewer = auth.credentials.iss
@@ -31,7 +31,10 @@ export default function (server: Server, ctx: AppContext) {
         viewer,
       })
 
-      const result = await getKnownFollowers({ ...params, hydrateCtx }, ctx)
+      const result = await getKnownFollowers(
+        { ...params, hydrateCtx: hydrateCtx.copy({ viewer }) },
+        ctx,
+      )
 
       return {
         encoding: 'application/json',
@@ -42,9 +45,7 @@ export default function (server: Server, ctx: AppContext) {
   })
 }
 
-const skeleton = async (
-  input: SkeletonFnInput<Context, Params>,
-): Promise<SkeletonState> => {
+const skeleton = async (input: SkeletonFnInput<Context, Params>) => {
   const { params, ctx } = input
   const [subjectDid] = await ctx.hydrator.actor.getDidsDefined([params.actor])
   if (!subjectDid) {
@@ -59,9 +60,7 @@ const skeleton = async (
     targetDids: [subjectDid],
   })
   const result = res.results.at(0)
-  const knownFollowers = result
-    ? (result.dids.slice(0, params.limit) as DidString[])
-    : []
+  const knownFollowers = result ? result.dids.slice(0, params.limit) : []
 
   return {
     subjectDid,
@@ -109,12 +108,12 @@ type Context = {
   views: Views
 }
 
-type Params = app.bsky.graph.getKnownFollowers.$Params & {
-  hydrateCtx: HydrateCtxWithViewer
+type Params = QueryParams & {
+  hydrateCtx: HydrateCtx & { viewer: string }
 }
 
 type SkeletonState = {
-  subjectDid: DidString
-  knownFollowers: DidString[]
+  subjectDid: string
+  knownFollowers: string[]
   cursor?: string
 }

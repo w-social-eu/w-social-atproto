@@ -56,7 +56,7 @@ describe('account-strikes', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'ozone_account_strikes',
     })
-    agent = network.ozone.getAgent()
+    agent = network.ozone.getClient()
     sc = network.getSeedClient()
     modClient = network.ozone.getModClient()
     await basicSeed(sc)

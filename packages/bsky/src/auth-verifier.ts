@@ -4,7 +4,6 @@ import * as jose from 'jose'
 import KeyEncoder from 'key-encoder'
 import * as ui8 from 'uint8arrays'
 import { SECP256K1_JWT_ALG, parseDidKey } from '@atproto/crypto'
-import { DidString, isDidString } from '@atproto/lex'
 import {
   AuthRequiredError,
   VerifySignatureWithKeyFn,
@@ -47,7 +46,7 @@ type StandardOutput = {
   credentials: {
     type: 'standard'
     aud: string
-    iss: DidString | `${DidString}#${string}`
+    iss: string
   }
 }
 
@@ -109,7 +108,7 @@ export class AuthVerifier {
       if (isBasicToken(ctx.req)) {
         const aud = this.ownDid
         const iss = ctx.req.headers['appview-as-did']
-        if (typeof iss !== 'string' || !isDidString(iss)) {
+        if (typeof iss !== 'string' || !iss.startsWith('did:')) {
           throw new AuthRequiredError('bad issuer')
         }
         if (!this.parseRoleCreds(ctx.req).admin) {
@@ -260,7 +259,7 @@ export class AuthVerifier {
       credentials: {
         type: 'standard',
         aud: this.ownDid,
-        iss: sub as DidString | `${DidString}#${string}`,
+        iss: sub,
       },
     }
   }
@@ -303,10 +302,7 @@ export class AuthVerifier {
       aud: string | null
       lxmCheck?: (method?: string) => boolean
     },
-  ): Promise<{
-    iss: DidString | `${DidString}#${string}`
-    aud: string
-  }> {
+  ) {
     const getSigningKey = async (
       iss: string,
       _forceRefresh: boolean, // @TODO consider propagating to dataplane
@@ -411,7 +407,6 @@ export class AuthVerifier {
       include3pBlocks: includeTakedownsAnd3pBlocks,
       canPerformTakedown,
       isModService,
-      skipViewerBlocks: isModService && viewer !== null,
     }
   }
 }

@@ -1,8 +1,5 @@
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
-import {
-  CodeDetail,
-  selectInviteCodesQb,
-} from '../../../../account-manager/helpers/invite'
+import { InvalidRequestError } from '@atproto/xrpc-server'
+import { selectInviteCodesQb } from '../../../../account-manager/helpers/invite'
 import { AppContext } from '../../../../context'
 import {
   Cursor,
@@ -10,50 +7,50 @@ import {
   LabeledResult,
   paginate,
 } from '../../../../db/pagination'
-import { com } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 
 export default function (server: Server, ctx: AppContext) {
-  if (ctx.cfg.entryway) {
-    server.add(com.atproto.admin.getInviteCodes, () => {
-      throw new InvalidRequestError(
-        'Account invites are managed by the entryway service',
-      )
-    })
-    return
-  }
-
-  server.add(com.atproto.admin.getInviteCodes, {
+  server.com.atproto.admin.getInviteCodes({
     auth: ctx.authVerifier.moderator,
-    handler: async ({
-      params,
-    }): Promise<com.atproto.admin.getInviteCodes.$Output> => {
+    handler: async ({ params }) => {
+      if (ctx.cfg.entryway) {
+        throw new InvalidRequestError(
+          'Account invites are managed by the entryway service',
+        )
+      }
       const { sort, limit, cursor } = params
       const db = ctx.accountManager.db
-      const keyset = createKeyset(ctx, sort)
+      const ref = db.db.dynamic.ref
+      let keyset
+      if (sort === 'recent') {
+        keyset = new TimeCodeKeyset(ref('createdAt'), ref('code'))
+      } else if (sort === 'usage') {
+        keyset = new UseCodeKeyset(ref('uses'), ref('code'))
+      } else {
+        throw new InvalidRequestError(`unknown sort method: ${sort}`)
+      }
 
-      const builder = selectInviteCodesQb(db)
-
-      const res = await paginate(builder, {
+      let builder = selectInviteCodesQb(db)
+      builder = paginate(builder, {
         limit,
         cursor,
         keyset,
-      }).execute()
+      })
+
+      const res = await builder.execute()
 
       const codes = res.map((row) => row.code)
       const uses = await ctx.accountManager.getInviteCodesUses(codes)
 
       const resultCursor = keyset.packFromResult(res)
-      const codeDetails = res.map(
-        ({ disabled, createdAt, ...row }): CodeDetail => ({
-          ...row,
-          createdAt,
-          disabled: disabled === 1,
-          uses: uses[row.code] ?? [],
-        }),
-      )
+      const codeDetails = res.map((row) => ({
+        ...row,
+        disabled: row.disabled === 1,
+        uses: uses[row.code] ?? [],
+      }))
 
       return {
-        encoding: 'application/json' as const,
+        encoding: 'application/json',
         body: {
           cursor: resultCursor,
           codes: codeDetails,
@@ -61,20 +58,6 @@ export default function (server: Server, ctx: AppContext) {
       }
     },
   })
-}
-
-function createKeyset(ctx: AppContext, sort?: string): GenericKeyset<any, any> {
-  const { ref } = ctx.accountManager.db.db.dynamic
-
-  if (sort === 'recent') {
-    return new TimeCodeKeyset(ref('createdAt'), ref('code'))
-  }
-
-  if (sort === 'usage') {
-    return new UseCodeKeyset(ref('uses'), ref('code'))
-  }
-
-  throw new InvalidRequestError(`unknown sort method: ${sort}`)
 }
 
 type TimeCodeResult = { createdAt: string; code: string }

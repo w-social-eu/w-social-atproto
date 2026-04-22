@@ -1,4 +1,4 @@
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
 import {
   Code,
@@ -6,12 +6,12 @@ import {
   isDataplaneError,
   unpackIdentityServices,
 } from '../../../../data-plane'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 import { GetIdentityByDidResponse } from '../../../../proto/bsky_pb'
 import { resHeaders } from '../../../util'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(app.bsky.feed.getFeedGenerator, {
+  server.app.bsky.feed.getFeedGenerator({
     auth: ctx.authVerifier.standardOptional,
     handler: async ({ params, auth, req }) => {
       const { feed } = params

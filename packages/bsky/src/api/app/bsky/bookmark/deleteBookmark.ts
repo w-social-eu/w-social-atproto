@@ -1,11 +1,10 @@
-import { Server } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 import { Namespaces } from '../../../../stash'
 import { validateUri } from './util'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(app.bsky.bookmark.deleteBookmark, {
+  server.app.bsky.bookmark.deleteBookmark({
     auth: ctx.authVerifier.standard,
     handler: async ({ input, auth }) => {
       const actorDid = auth.credentials.iss

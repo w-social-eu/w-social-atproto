@@ -44,7 +44,7 @@ describe('entryway auth', () => {
         entrywayJwtPublicKeyHex,
       },
     })
-    agent = network.bsky.getAgent()
+    agent = network.bsky.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     await network.processAll()

@@ -1,28 +1,24 @@
-import type { ApiEndpoints } from '@atproto/oauth-provider-api'
+import {
+  API_ENDPOINT_PREFIX,
+  ApiEndpoints,
+  CSRF_COOKIE_NAME,
+  CSRF_HEADER_NAME,
+} from '@atproto/oauth-provider-api'
 import { readCookie } from './cookies.ts'
 import {
   JsonClient,
-  JsonClientOptions,
   JsonErrorPayload,
   JsonErrorResponse,
 } from './json-client.ts'
 
 export type { Options } from './json-client.ts'
-const CSRF_COOKIE_NAME = 'csrf-token'
-const CSRF_HEADER_NAME = 'x-csrf-token'
-
-const API_ENDPOINT_PREFIX = '/@atproto/oauth-provider/~api'
 
 export class Api extends JsonClient<ApiEndpoints> {
-  constructor(options?: JsonClientOptions) {
+  constructor() {
     const baseUrl = new URL(API_ENDPOINT_PREFIX, window.origin).toString()
-    super(baseUrl, {
-      ...options,
-      headers: async () => ({
-        ...(await options?.headers?.()),
-        [CSRF_HEADER_NAME]: readCookie(CSRF_COOKIE_NAME),
-      }),
-    })
+    super(baseUrl, () => ({
+      [CSRF_HEADER_NAME]: readCookie(CSRF_COOKIE_NAME),
+    }))
   }
 
   // Override the parent's parseError method to handle expected error responses
@@ -31,9 +27,6 @@ export class Api extends JsonClient<ApiEndpoints> {
     json: unknown,
   ): undefined | JsonErrorResponse {
     // @NOTE Most specific errors first !
-    if (UnauthorizedError.is(json)) {
-      return new UnauthorizedError(json)
-    }
     if (SecondAuthenticationFactorRequiredError.is(json)) {
       return new SecondAuthenticationFactorRequiredError(json)
     }
@@ -62,19 +55,6 @@ export class Api extends JsonClient<ApiEndpoints> {
       return new AccessDeniedError(json)
     }
     return super.parseError(json)
-  }
-}
-
-export type UnauthorizedPayload = JsonErrorPayload<'unauthorized'>
-export class UnauthorizedError<
-  P extends UnauthorizedPayload = UnauthorizedPayload,
-> extends JsonErrorResponse<P> {
-  constructor(payload: P) {
-    super(payload, payload.error_description || 'Unauthorized')
-  }
-
-  static is(json: unknown): json is UnauthorizedPayload {
-    return super.is(json) && json.error === 'unauthorized'
   }
 }
 

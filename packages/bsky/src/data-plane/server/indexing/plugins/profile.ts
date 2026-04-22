@@ -1,18 +1,20 @@
-import { Cid, getBlobCidString } from '@atproto/lex'
+import { CID } from 'multiformats/cid'
 import { AtUri } from '@atproto/syntax'
-import { app } from '../../../../lexicons'
+import * as lex from '../../../../lexicon/lexicons'
+import * as Profile from '../../../../lexicon/types/app/bsky/actor/profile'
 import { BackgroundQueue } from '../../background'
 import { Database } from '../../db'
 import { DatabaseSchema, DatabaseSchemaType } from '../../db/database-schema'
 import { RecordProcessor } from '../processor'
 
+const lexId = lex.ids.AppBskyActorProfile
 type IndexedProfile = DatabaseSchemaType['profile']
 
 const insertFn = async (
   db: DatabaseSchema,
   uri: AtUri,
-  cid: Cid,
-  obj: app.bsky.actor.profile.Main,
+  cid: CID,
+  obj: Profile.Record,
   timestamp: string,
 ): Promise<IndexedProfile | null> => {
   if (uri.rkey !== 'self') return null
@@ -24,8 +26,8 @@ const insertFn = async (
       creator: uri.host,
       displayName: obj.displayName,
       description: obj.description,
-      avatarCid: getBlobCidString(obj.avatar),
-      bannerCid: getBlobCidString(obj.banner),
+      avatarCid: obj.avatar?.ref.toString(),
+      bannerCid: obj.banner?.ref.toString(),
       joinedViaStarterPackUri: obj.joinedViaStarterPack?.uri,
       createdAt: obj.createdAt ?? new Date().toISOString(),
       indexedAt: timestamp,
@@ -72,10 +74,14 @@ const notifsForDelete = () => {
   return { notifs: [], toDelete: [] }
 }
 
-export type PluginType = ReturnType<typeof makePlugin>
-export const makePlugin = (db: Database, background: BackgroundQueue) => {
+export type PluginType = RecordProcessor<Profile.Record, IndexedProfile>
+
+export const makePlugin = (
+  db: Database,
+  background: BackgroundQueue,
+): PluginType => {
   return new RecordProcessor(db, background, {
-    schema: app.bsky.actor.profile.main,
+    lexId,
     insertFn,
     findDuplicate,
     deleteFn,

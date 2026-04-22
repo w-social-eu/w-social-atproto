@@ -1,6 +1,4 @@
 import { mapDefined } from '@atproto/common'
-import { AtUriString, DidString } from '@atproto/syntax'
-import { Server } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
 import { DataPlaneClient } from '../../../../data-plane'
 import { FeedItem } from '../../../../hydration/feed'
@@ -11,7 +9,8 @@ import {
   mergeStates,
 } from '../../../../hydration/hydrator'
 import { parseString } from '../../../../hydration/util'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { QueryParams } from '../../../../lexicon/types/app/bsky/feed/getListFeed'
 import { createPipeline } from '../../../../pipeline'
 import { uriToDid } from '../../../../util/uris'
 import { Views } from '../../../../views'
@@ -24,7 +23,7 @@ export default function (server: Server, ctx: AppContext) {
     noBlocksOrMutes,
     presentation,
   )
-  server.add(app.bsky.feed.getListFeed, {
+  server.app.bsky.feed.getListFeed({
     auth: ctx.authVerifier.standardOptional,
     handler: async ({ params, auth, req }) => {
       const viewer = auth.credentials.iss
@@ -59,9 +58,9 @@ export const skeleton = async (inputs: {
   })
   return {
     items: res.items.map((item) => ({
-      post: { uri: item.uri as AtUriString, cid: item.cid || undefined },
+      post: { uri: item.uri, cid: item.cid || undefined },
       repost: item.repost
-        ? { uri: item.repost as AtUriString, cid: item.repostCid || undefined }
+        ? { uri: item.repost, cid: item.repostCid || undefined }
         : undefined,
     })),
     cursor: parseString(res.cursor),
@@ -125,7 +124,7 @@ const getBlocks = async (input: {
   params: Params
 }) => {
   const { ctx, skeleton, params } = input
-  const pairs: Map<DidString, DidString[]> = new Map()
+  const pairs: Map<string, string[]> = new Map()
   pairs.set(
     uriToDid(params.list),
     skeleton.items.map((item) => uriToDid(item.post.uri)),
@@ -139,7 +138,7 @@ type Context = {
   dataplane: DataPlaneClient
 }
 
-type Params = app.bsky.feed.getListFeed.$Params & { hydrateCtx: HydrateCtx }
+type Params = QueryParams & { hydrateCtx: HydrateCtx }
 
 type Skeleton = {
   items: FeedItem[]

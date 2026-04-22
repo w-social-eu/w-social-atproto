@@ -1,13 +1,13 @@
+import { CID } from 'multiformats/cid'
 import { request } from 'undici'
 import { cidForCbor, verifyCidForBytes } from '@atproto/common'
 import { randomBytes } from '@atproto/crypto'
 import { TestNetwork, basicSeed } from '@atproto/dev-env'
-import { Cid } from '@atproto/lex'
 
 describe('blob resolver', () => {
   let network: TestNetwork
   let fileDid: string
-  let fileCid: Cid
+  let fileCid: CID
   let fileSize: number
 
   beforeAll(async () => {

@@ -1,14 +1,6 @@
 import { DAY } from '@atproto/common'
-import {
-  AtIdentifierString,
-  DatetimeString,
-  DidString,
-  HandleString,
-  currentDatetimeString,
-  isDidIdentifier,
-} from '@atproto/lex'
 import { isErrUniqueViolation, notSoftDeletedClause } from '../../db'
-import { com } from '../../lexicons/index.js'
+import { StatusAttr } from '../../lexicon/types/com/atproto/admin/defs'
 import { AccountDb, ActorEntry } from '../db'
 
 export class UserAlreadyExistsError extends Error {}
@@ -57,12 +49,12 @@ export const selectAccountQB = (db: AccountDb, flags?: AvailabilityFlags) => {
 
 export const getAccount = async (
   db: AccountDb,
-  handleOrDid: AtIdentifierString,
+  handleOrDid: string,
   flags?: AvailabilityFlags,
 ): Promise<ActorAccount | null> => {
   const found = await selectAccountQB(db, flags)
     .where((qb) => {
-      if (isDidIdentifier(handleOrDid)) {
+      if (handleOrDid.startsWith('did:')) {
         return qb.where('actor.did', '=', handleOrDid)
       } else {
         return qb.where('actor.handle', '=', handleOrDid)
@@ -74,7 +66,7 @@ export const getAccount = async (
 
 export const getAccounts = async (
   db: AccountDb,
-  dids: DidString[],
+  dids: string[],
   flags?: AvailabilityFlags,
 ): Promise<Map<string, ActorAccount>> => {
   const results = new Map<string, ActorAccount>()
@@ -108,8 +100,8 @@ export const getAccountByEmail = async (
 export const registerActor = async (
   db: AccountDb,
   opts: {
-    did: DidString
-    handle: HandleString
+    did: string
+    handle: string
     deactivated?: boolean
   },
 ) => {
@@ -164,7 +156,7 @@ export const registerAccount = async (
 
 export const deleteAccount = async (
   db: AccountDb,
-  did: DidString,
+  did: string,
 ): Promise<void> => {
   // Not done in transaction because it would be too long, prone to contention.
   // Also, this can safely be run multiple times if it fails.
@@ -190,8 +182,8 @@ export const deleteAccount = async (
 
 export const updateHandle = async (
   db: AccountDb,
-  did: DidString,
-  handle: HandleString,
+  did: string,
+  handle: string,
 ) => {
   const [res] = await db.executeWithRetry(
     db.db
@@ -209,7 +201,7 @@ export const updateHandle = async (
 
 export const updateEmail = async (
   db: AccountDb,
-  did: DidString,
+  did: string,
   email: string,
 ) => {
   try {
@@ -232,8 +224,8 @@ export const updateEmail = async (
 
 export const setEmailConfirmedAt = async (
   db: AccountDb,
-  did: DidString,
-  emailConfirmedAt: DatetimeString,
+  did: string,
+  emailConfirmedAt: string,
 ) => {
   await db.executeWithRetry(
     db.db
@@ -245,11 +237,8 @@ export const setEmailConfirmedAt = async (
 
 export const getAccountAdminStatus = async (
   db: AccountDb,
-  did: DidString,
-): Promise<{
-  takedown: com.atproto.admin.defs.StatusAttr
-  deactivated: com.atproto.admin.defs.StatusAttr
-} | null> => {
+  did: string,
+): Promise<{ takedown: StatusAttr; deactivated: StatusAttr } | null> => {
   const res = await db.db
     .selectFrom('actor')
     .select(['takedownRef', 'deactivatedAt'])
@@ -265,11 +254,11 @@ export const getAccountAdminStatus = async (
 
 export const updateAccountTakedownStatus = async (
   db: AccountDb,
-  did: DidString,
-  takedown: com.atproto.admin.defs.StatusAttr,
+  did: string,
+  takedown: StatusAttr,
 ) => {
   const takedownRef = takedown.applied
-    ? takedown.ref ?? currentDatetimeString()
+    ? takedown.ref ?? new Date().toISOString()
     : null
   await db.executeWithRetry(
     db.db.updateTable('actor').set({ takedownRef }).where('did', '=', did),
@@ -278,21 +267,21 @@ export const updateAccountTakedownStatus = async (
 
 export const deactivateAccount = async (
   db: AccountDb,
-  did: DidString,
+  did: string,
   deleteAfter: string | null,
 ) => {
   await db.executeWithRetry(
     db.db
       .updateTable('actor')
       .set({
-        deactivatedAt: currentDatetimeString(),
+        deactivatedAt: new Date().toISOString(),
         deleteAfter,
       })
       .where('did', '=', did),
   )
 }
 
-export const activateAccount = async (db: AccountDb, did: DidString) => {
+export const activateAccount = async (db: AccountDb, did: string) => {
   await db.executeWithRetry(
     db.db
       .updateTable('actor')

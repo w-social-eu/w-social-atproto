@@ -1,10 +1,10 @@
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
 import { MuteOperation_Type } from '../../../../proto/bsync_pb'
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(app.bsky.graph.muteActor, {
+  server.app.bsky.graph.muteActor({
     auth: ctx.authVerifier.standard,
     handler: async ({ auth, input }) => {
       const { actor } = input.body

@@ -1,19 +1,19 @@
-import { mapDefined, noUndefinedVals } from '@atproto/common'
-import { Client } from '@atproto/lex'
-import { AtUri, AtUriString, DidString } from '@atproto/syntax'
-import { MethodNotImplementedError, Server } from '@atproto/xrpc-server'
+import AtpAgent, { AtUri } from '@atproto/api'
+import { dedupeStrs, mapDefined, noUndefinedVals } from '@atproto/common'
+import { InternalServerError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
 import {
   HydrateCtx,
   Hydrator,
   mergeManyStates,
 } from '../../../../hydration/hydrator'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { QueryParams } from '../../../../lexicon/types/app/bsky/unspecced/getOnboardingSuggestedStarterPacks'
 import {
-  HydrationFn,
-  PresentationFn,
-  RulesFn,
-  SkeletonFn,
+  HydrationFnInput,
+  PresentationFnInput,
+  RulesFnInput,
+  SkeletonFnInput,
   createPipeline,
 } from '../../../../pipeline'
 import { Views } from '../../../../views'
@@ -25,7 +25,7 @@ export default function (server: Server, ctx: AppContext) {
     noBlocks,
     presentation,
   )
-  server.add(app.bsky.unspecced.getOnboardingSuggestedStarterPacks, {
+  server.app.bsky.unspecced.getOnboardingSuggestedStarterPacks({
     auth: ctx.authVerifier.standardOptional,
     handler: async ({ auth, params, req }) => {
       const viewer = auth.credentials.iss
@@ -53,37 +53,45 @@ export default function (server: Server, ctx: AppContext) {
   })
 }
 
-const skeleton: SkeletonFn<Context, Params, SkeletonState> = async (
-  input,
-): Promise<SkeletonState> => {
+const skeleton = async (input: SkeletonFnInput<Context, Params>) => {
   const { params, ctx } = input
+  if (ctx.topicsAgent) {
+    const res =
+      await ctx.topicsAgent.app.bsky.unspecced.getOnboardingSuggestedStarterPacksSkeleton(
+        {
+          limit: params.limit,
+          viewer: params.hydrateCtx.viewer ?? undefined,
+        },
+        {
+          headers: params.headers,
+        },
+      )
 
-  if (!ctx.topicsClient) {
-    // Use 501 instead of 500 as these are not considered retry-able by clients
-    throw new MethodNotImplementedError('Topics agent not available')
+    return res.data
+  } else {
+    throw new InternalServerError('Topics agent not available')
   }
-
-  const skeleton = await ctx.topicsClient.call(
-    app.bsky.unspecced.getOnboardingSuggestedStarterPacksSkeleton,
-    { limit: params.limit, viewer: params.hydrateCtx.viewer ?? undefined },
-    { headers: params.headers },
-  )
-
-  // @TODO Make sure upstream always provides this
-  skeleton.starterPacks ??= []
-
-  return skeleton
 }
 
-const hydration: HydrationFn<Context, Params, SkeletonState> = async (
-  input,
+const hydration = async (
+  input: HydrationFnInput<Context, Params, SkeletonState>,
 ) => {
   const { ctx, params, skeleton } = input
-
-  const pairs: Map<DidString, DidString[]> = new Map()
+  let dids: string[] = []
+  for (const uri of skeleton.starterPacks) {
+    let aturi: AtUri | undefined
+    try {
+      aturi = new AtUri(uri)
+    } catch {
+      continue
+    }
+    dids.push(aturi.hostname)
+  }
+  dids = dedupeStrs(dids)
+  const pairs: Map<string, string[]> = new Map()
   const viewer = params.hydrateCtx.viewer
   if (viewer) {
-    pairs.set(viewer, getUniqueDidsFromStarterPacks(skeleton.starterPacks))
+    pairs.set(viewer, dids)
   }
   const [starterPacksState, bidirectionalBlocks] = await Promise.all([
     ctx.hydrator.hydrateStarterPacks(skeleton.starterPacks, params.hydrateCtx),
@@ -93,7 +101,7 @@ const hydration: HydrationFn<Context, Params, SkeletonState> = async (
   return mergeManyStates(starterPacksState, { bidirectionalBlocks })
 }
 
-const noBlocks: RulesFn<Context, Params, SkeletonState> = (input) => {
+const noBlocks = (input: RulesFnInput<Context, Params, SkeletonState>) => {
   const { skeleton, params, hydration } = input
   const viewer = params.hydrateCtx.viewer
   if (!viewer) {
@@ -103,23 +111,22 @@ const noBlocks: RulesFn<Context, Params, SkeletonState> = (input) => {
   const blocks = hydration.bidirectionalBlocks?.get(viewer)
   const filteredSkeleton: SkeletonState = {
     starterPacks: skeleton.starterPacks.filter((uri) => {
+      let aturi: AtUri | undefined
       try {
-        return !blocks?.get(new AtUri(uri).did)
+        aturi = new AtUri(uri)
       } catch {
         return false
       }
+      return !blocks?.get(aturi.hostname)
     }),
   }
 
   return filteredSkeleton
 }
 
-const presentation: PresentationFn<
-  Context,
-  Params,
-  SkeletonState,
-  app.bsky.unspecced.getOnboardingSuggestedStarterPacks.$OutputBody
-> = (input) => {
+const presentation = (
+  input: PresentationFnInput<Context, Params, SkeletonState>,
+) => {
   const { ctx, skeleton, hydration } = input
 
   return {
@@ -132,31 +139,14 @@ const presentation: PresentationFn<
 type Context = {
   hydrator: Hydrator
   views: Views
-  topicsClient: Client | undefined
+  topicsAgent: AtpAgent | undefined
 }
 
-type Params = app.bsky.unspecced.getOnboardingSuggestedStarterPacks.$Params & {
-  hydrateCtx: HydrateCtx
+type Params = QueryParams & {
+  hydrateCtx: HydrateCtx & { viewer: string | null }
   headers: Record<string, string>
 }
 
-type SkeletonState =
-  app.bsky.unspecced.getOnboardingSuggestedStarterPacksSkeleton.$OutputBody
-
-function getUniqueDidsFromStarterPacks(
-  starterPacks?: AtUriString[],
-): DidString[] {
-  if (!starterPacks) return []
-
-  const dids = new Set<DidString>()
-
-  for (const uri of starterPacks) {
-    try {
-      dids.add(new AtUri(uri).did)
-    } catch {
-      continue
-    }
-  }
-
-  return Array.from(dids)
+type SkeletonState = {
+  starterPacks: string[]
 }

@@ -1,5 +1,4 @@
-import assert from 'node:assert'
-import { Cid, parseCid } from '@atproto/lex-data'
+import { CID } from 'multiformats'
 import { DataAdd, DataDelete, DataDiff, DataUpdate } from '../src/data-diff'
 import { MST } from '../src/mst'
 import { InvalidMstKeyError, countPrefixLen } from '../src/mst/util'
@@ -9,8 +8,8 @@ import * as util from './_util'
 describe('Merkle Search Tree', () => {
   let blockstore: MemoryBlockstore
   let mst: MST
-  let mapping: Record<string, Cid>
-  let shuffled: [string, Cid][]
+  let mapping: Record<string, CID>
+  let shuffled: [string, CID][]
 
   beforeAll(async () => {
     blockstore = new MemoryBlockstore()
@@ -25,8 +24,7 @@ describe('Merkle Search Tree', () => {
     }
     for (const entry of shuffled) {
       const got = await mst.get(entry[0])
-      assert(got !== null)
-      expect(entry[1].equals(got)).toBe(true)
+      expect(entry[1].equals(got)).toBeTruthy()
     }
 
     const totalSize = await mst.leafCount()
@@ -37,7 +35,7 @@ describe('Merkle Search Tree', () => {
     let editedMst = mst
     const toEdit = shuffled.slice(0, 100)
 
-    const edited: [string, Cid][] = []
+    const edited: [string, CID][] = []
     for (const entry of toEdit) {
       const newCid = await util.randomCid()
       editedMst = await editedMst.update(entry[0], newCid)
@@ -46,8 +44,7 @@ describe('Merkle Search Tree', () => {
 
     for (const entry of edited) {
       const got = await editedMst.get(entry[0])
-      assert(got !== null)
-      expect(entry[1].equals(got)).toBe(true)
+      expect(entry[1].equals(got)).toBeTruthy()
     }
 
     const totalSize = await editedMst.leafCount()
@@ -71,8 +68,7 @@ describe('Merkle Search Tree', () => {
     }
     for (const entry of theRest) {
       const got = await deletedMst.get(entry[0])
-      assert(got !== null)
-      expect(entry[1].equals(got)).toBe(true)
+      expect(entry[1].equals(got)).toBeTruthy()
     }
   })
 
@@ -146,7 +142,12 @@ describe('Merkle Search Tree', () => {
 
     // ensure we correctly report all added CIDs
     for await (const entry of toDiff.walk()) {
-      const cid = entry.isTree() ? await entry.getPointer() : entry.value
+      let cid: CID
+      if (entry.isTree()) {
+        cid = await entry.getPointer()
+      } else {
+        cid = entry.value
+      }
       const found =
         (await blockstore.has(cid)) ||
         diff.newMstBlocks.has(cid) ||
@@ -176,12 +177,12 @@ describe('Merkle Search Tree', () => {
   describe('MST Interop Allowable Keys', () => {
     let blockstore: MemoryBlockstore
     let mst: MST
-    let cid1: Cid
+    let cid1: CID
 
     beforeAll(async () => {
       blockstore = new MemoryBlockstore()
       mst = await MST.create(blockstore)
-      cid1 = parseCid(
+      cid1 = CID.parse(
         'bafyreie5cvv4h45feadgeuwhbcutmh6t2ceseocckahdoe6uat64zmz454',
       )
     })
@@ -256,11 +257,11 @@ describe('Merkle Search Tree', () => {
   describe('MST Interop Known Maps', () => {
     let blockstore: MemoryBlockstore
     let mst: MST
-    let cid1: Cid
+    let cid1: CID
 
     beforeAll(async () => {
       blockstore = new MemoryBlockstore()
-      cid1 = parseCid(
+      cid1 = CID.parse(
         'bafyreie5cvv4h45feadgeuwhbcutmh6t2ceseocckahdoe6uat64zmz454',
       )
     })
@@ -309,11 +310,11 @@ describe('Merkle Search Tree', () => {
   describe('MST Interop Edge Cases', () => {
     let blockstore: MemoryBlockstore
     let mst: MST
-    let cid1: Cid
+    let cid1: CID
 
     beforeAll(async () => {
       blockstore = new MemoryBlockstore()
-      cid1 = parseCid(
+      cid1 = CID.parse(
         'bafyreie5cvv4h45feadgeuwhbcutmh6t2ceseocckahdoe6uat64zmz454',
       )
     })

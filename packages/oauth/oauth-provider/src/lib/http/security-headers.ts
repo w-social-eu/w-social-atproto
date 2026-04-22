@@ -50,46 +50,37 @@ export type SecurityHeadersOptions = {
   hsts?: HTTPStrictTransportSecurityConfig | false
 }
 
-export function* buildSecurityHeaders({
-  csp = { 'default-src': ["'none'"] },
-  coep = CrossOriginEmbedderPolicy.requireCorp,
-  corp = CrossOriginResourcePolicy.sameOrigin,
-  coop = CrossOriginOpenerPolicy.sameOrigin,
-  hsts = { maxAge: 63072000 },
-}: SecurityHeadersOptions): Generator<[string, string], void, unknown> {
+export function setSecurityHeaders(
+  res: ServerResponse,
+  {
+    csp = { 'default-src': ["'none'"] },
+    coep = CrossOriginEmbedderPolicy.requireCorp,
+    corp = CrossOriginResourcePolicy.sameOrigin,
+    coop = CrossOriginOpenerPolicy.sameOrigin,
+    hsts = { maxAge: 63072000 },
+  }: SecurityHeadersOptions,
+): void {
   // @NOTE Never set CSP through http-equiv meta as not all directives will
   // be honored. Always set it through the Content-Security-Policy header.
   const cspString = buildCsp(csp)
   if (cspString) {
-    yield ['Content-Security-Policy', cspString]
+    res.setHeader('Content-Security-Policy', cspString)
   }
 
-  yield ['Cross-Origin-Embedder-Policy', coep]
-  yield ['Cross-Origin-Resource-Policy', corp]
-  yield ['Cross-Origin-Opener-Policy', coop]
+  res.setHeader('Cross-Origin-Embedder-Policy', coep)
+  res.setHeader('Cross-Origin-Resource-Policy', corp)
+  res.setHeader('Cross-Origin-Opener-Policy', coop)
 
   if (hsts) {
-    yield ['Strict-Transport-Security', buildHstsValue(hsts)]
+    res.setHeader('Strict-Transport-Security', buildHstsValue(hsts))
   }
 
   // @TODO make these headers configurable (?)
-  yield ['Permissions-Policy', 'otp-credentials=*, document-domain=()']
-  yield ['Referrer-Policy', 'same-origin']
-  yield ['X-Frame-Options', 'DENY']
-  yield ['X-Content-Type-Options', 'nosniff']
-  yield ['X-XSS-Protection', '0']
-}
-
-export function setSecurityHeaders(
-  res: ServerResponse,
-  options: SecurityHeadersOptions,
-): void {
-  for (const [header, value] of buildSecurityHeaders(options)) {
-    // Only set the header if it is not already set
-    if (!res.hasHeader(header)) {
-      res.setHeader(header, value)
-    }
-  }
+  res.setHeader('Permissions-Policy', 'otp-credentials=*, document-domain=()')
+  res.setHeader('Referrer-Policy', 'same-origin')
+  res.setHeader('X-Frame-Options', 'DENY')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('X-XSS-Protection', '0')
 }
 
 function buildHstsValue(config: HTTPStrictTransportSecurityConfig): string {

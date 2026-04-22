@@ -1,12 +1,18 @@
 import assert from 'node:assert'
-import {
-  $Typed,
-  AtpAgent,
-  ComAtprotoAdminDefs,
-  ComAtprotoRepoStrongRef,
-} from '@atproto/api'
+import { AtpAgent } from '@atproto/api'
 import { ImageRef, SeedClient, TestNetworkNoAppView } from '@atproto/dev-env'
 import { BlobNotFoundError } from '@atproto/repo'
+import {
+  RepoBlobRef,
+  RepoRef,
+  isRepoBlobRef,
+  isRepoRef,
+} from '../src/lexicon/types/com/atproto/admin/defs'
+import {
+  Main as StrongRef,
+  isMain as isStrongRef,
+} from '../src/lexicon/types/com/atproto/repo/strongRef'
+import { $Typed } from '../src/lexicon/util'
 import basicSeed from './seeds/basic'
 
 describe('moderation', () => {
@@ -14,9 +20,9 @@ describe('moderation', () => {
   let agent: AtpAgent
   let sc: SeedClient
 
-  let repoSubject: $Typed<ComAtprotoAdminDefs.RepoRef>
-  let recordSubject: $Typed<ComAtprotoRepoStrongRef.Main>
-  let blobSubject: $Typed<ComAtprotoAdminDefs.RepoBlobRef>
+  let repoSubject: $Typed<RepoRef>
+  let recordSubject: $Typed<StrongRef>
+  let blobSubject: $Typed<RepoBlobRef>
   let blobRef: ImageRef
 
   beforeAll(async () => {
@@ -24,7 +30,7 @@ describe('moderation', () => {
       dbPostgresSchema: 'moderation',
     })
 
-    agent = network.pds.getAgent()
+    agent = network.pds.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     await network.processAll()
@@ -67,7 +73,7 @@ describe('moderation', () => {
       },
       { headers: network.pds.adminAuthHeaders() },
     )
-    assert(ComAtprotoAdminDefs.isRepoRef(res.data.subject))
+    assert(isRepoRef(res.data.subject))
     expect(res.data.subject.did).toEqual(sc.dids.bob)
     expect(res.data.takedown?.applied).toBe(true)
     expect(res.data.takedown?.ref).toBe('test-repo')
@@ -90,7 +96,7 @@ describe('moderation', () => {
       },
       { headers: network.pds.adminAuthHeaders() },
     )
-    assert(ComAtprotoAdminDefs.isRepoRef(res.data.subject))
+    assert(isRepoRef(res.data.subject))
     expect(res.data.subject.did).toEqual(sc.dids.bob)
     expect(res.data.takedown?.applied).toBe(false)
     expect(res.data.takedown?.ref).toBeUndefined()
@@ -113,7 +119,7 @@ describe('moderation', () => {
       },
       { headers: network.pds.adminAuthHeaders() },
     )
-    assert(ComAtprotoRepoStrongRef.isMain(res.data.subject))
+    assert(isStrongRef(res.data.subject))
     expect(res.data.subject.uri).toEqual(recordSubject.uri)
     expect(res.data.takedown?.applied).toBe(true)
     expect(res.data.takedown?.ref).toBe('test-record')
@@ -136,7 +142,7 @@ describe('moderation', () => {
       },
       { headers: network.pds.adminAuthHeaders() },
     )
-    assert(ComAtprotoRepoStrongRef.isMain(res.data.subject))
+    assert(isStrongRef(res.data.subject))
     expect(res.data.subject.uri).toEqual(recordSubject.uri)
     expect(res.data.takedown?.applied).toBe(false)
     expect(res.data.takedown?.ref).toBeUndefined()
@@ -161,9 +167,9 @@ describe('moderation', () => {
         },
         { headers: network.pds.adminAuthHeaders() },
       )
-      assert(ComAtprotoAdminDefs.isRepoBlobRef(res.data.subject))
+      assert(isRepoBlobRef(res.data.subject))
       expect(res.data.subject.did).toEqual(blobSubject.did)
-      assert(ComAtprotoAdminDefs.isRepoBlobRef(res.data.subject))
+      assert(isRepoBlobRef(res.data.subject))
       expect(res.data.subject.cid).toEqual(blobSubject.cid)
       expect(res.data.takedown?.applied).toBe(true)
       expect(res.data.takedown?.ref).toBe('test-blob')

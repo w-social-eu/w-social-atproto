@@ -1,5 +1,9 @@
 import { sql } from 'kysely'
-import { GateRecord, PostRecord, PostReplyRef } from '../../views/types'
+import {
+  Record as PostRecord,
+  ReplyRef,
+} from '../../lexicon/types/app/bsky/feed/post'
+import { Record as GateRecord } from '../../lexicon/types/app/bsky/feed/threadgate'
 import { parseThreadGate } from '../../views/util'
 import { DatabaseSchema } from './db/database-schema'
 import { valuesList } from './db/util'
@@ -68,7 +72,7 @@ export const getAncestorsAndSelfQb = (
 }
 
 export const invalidReplyRoot = (
-  reply: PostReplyRef,
+  reply: ReplyRef,
   parent: {
     record: PostRecord
     invalidReplyRoot: boolean | null

@@ -18,11 +18,9 @@ yarn add @atproto/api
 Then in your application:
 
 ```typescript
-import { Agent, CredentialSession } from '@atproto/api'
+import { AtpAgent } from '@atproto/api'
 
-const session = new CredentialSession(new URL('https://bsky.social'))
-await session.login(account)
-const agent = new Agent(session)
+const agent = new AtpAgent({ service: 'https://example.com' })
 ```
 
 ## Usage
@@ -37,7 +35,7 @@ manage sessions:
 
 #### App password based session management
 
-Username / password based authentication can be performed using the `Agent`
+Username / password based authentication can be performed using the `AtpAgent`
 class.
 
 > [!CAUTION]
@@ -47,26 +45,34 @@ class.
 > `@atproto/oauth-client-*` packages).
 
 ```typescript
-import { Agent, CredentialSession, type AtpAgentLoginOpts } from '@atproto/api'
+import { AtpAgent, AtpSessionEvent, AtpSessionData } from '@atproto/api'
 
-// Configure connection to the server with authentification
-const account: AtpAgentLoginOpts = {
-  identifier: 'your.bsky.social',
-  password: 'xxxx-xxxx-xxxx-xxxx',
-}
+// configure connection to the server, without account authentication
+const agent = new AtpAgent({
+  service: 'https://example.com',
+  persistSession: (evt: AtpSessionEvent, sess?: AtpSessionData) => {
+    // store the session-data for reuse
+  },
+})
 
-async function authenticate(account: AtpAgentLoginOpts): Promise<Agent> {
-  const session = new CredentialSession(new URL('https://example.com'))
-  await session.login(account)
-  const agent = new Agent(session)
-  return agent
-}
+// Change the agent state to an authenticated state either by:
 
-;(async () => {
-  console.log('Authenticating...')
-  const agent = await authenticate(account)
-  console.log(`Authenticated as from: ${agent.sessionManager.did}`)
-})()
+// 1) creating a new account on the server.
+await agent.createAccount({
+  email: 'alice@mail.com',
+  password: 'hunter2',
+  handle: 'alice.example.com',
+  inviteCode: 'some-code-12345-abcde',
+})
+
+// 2) if an existing session was securely stored previously, then reuse that to resume the session.
+await agent.resumeSession(savedSessionData)
+
+// 3) if no old session was available, create a new one by logging in with password (App Password)
+await agent.login({
+  identifier: 'alice@mail.com',
+  password: 'hunter2',
+})
 ```
 
 #### OAuth based session management

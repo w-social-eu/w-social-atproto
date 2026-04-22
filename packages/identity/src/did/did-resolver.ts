@@ -5,28 +5,24 @@ import { DidPlcResolver } from './plc-resolver'
 import { DidWebResolver } from './web-resolver'
 
 export class DidResolver extends BaseResolver {
-  methods: Map<string, BaseResolver>
+  methods: Record<string, BaseResolver>
 
   constructor(opts: DidResolverOpts) {
     super(opts.didCache)
     const { timeout = 3000, plcUrl = 'https://plc.directory' } = opts
     // do not pass cache to sub-methods or we will be double caching
-    this.methods = new Map([
-      ['plc', new DidPlcResolver(plcUrl, timeout)],
-      ['web', new DidWebResolver(timeout)],
-    ])
+    this.methods = {
+      plc: new DidPlcResolver(plcUrl, timeout),
+      web: new DidWebResolver(timeout),
+    }
   }
 
   async resolveNoCheck(did: string): Promise<unknown> {
-    if (!did.startsWith('did:')) {
+    const split = did.split(':')
+    if (split[0] !== 'did') {
       throw new PoorlyFormattedDidError(did)
     }
-    const methodSepIdx = did.indexOf(':', 4)
-    if (methodSepIdx === -1) {
-      throw new PoorlyFormattedDidError(did)
-    }
-    const methodName = did.slice(4, methodSepIdx)
-    const method = this.methods.get(methodName)
+    const method = this.methods[split[1]]
     if (!method) {
       throw new UnsupportedDidMethodError(did)
     }

@@ -1,42 +1,29 @@
+import { AppBskyNotificationDeclaration } from '@atproto/api'
 import { mapDefined } from '@atproto/common'
-import {
-  AtIdentifierString,
-  AtUriString,
-  DatetimeString,
-  DidString,
-  HandleString,
-  isDidIdentifier,
-  isHandleIdentifier,
-  normalizeHandle,
-} from '@atproto/syntax'
 import { DataPlaneClient } from '../data-plane/client'
-import { app, chat, com } from '../lexicons/index.js'
+import { Record as ProfileRecord } from '../lexicon/types/app/bsky/actor/profile'
+import { Record as StatusRecord } from '../lexicon/types/app/bsky/actor/status'
+import { Record as NotificationDeclarationRecord } from '../lexicon/types/app/bsky/notification/declaration'
+import { Record as ChatDeclarationRecord } from '../lexicon/types/chat/bsky/actor/declaration'
+import { Record as GermDeclarationRecord } from '../lexicon/types/com/germnetwork/declaration'
 import { ActivitySubscription, VerificationMeta } from '../proto/bsky_pb'
-import {
-  ChatDeclarationRecord,
-  GermDeclarationRecord,
-  NotificationDeclarationRecord,
-  ProfileRecord,
-  StatusRecord,
-} from '../views/types.js'
 import {
   HydrationMap,
   RecordInfo,
   isActivitySubscriptionEnabled,
-  parseDate,
   parseRecord,
   parseString,
   safeTakedownRef,
 } from './util'
 
 type AllowActivitySubscriptions = Extract<
-  app.bsky.notification.declaration.Main['allowSubscriptions'],
+  AppBskyNotificationDeclaration.Record['allowSubscriptions'],
   'followers' | 'mutuals' | 'none'
 >
 
 export type Actor = {
-  did: DidString
-  handle?: HandleString
+  did: string
+  handle?: string
   profile?: ProfileRecord
   profileCid?: string
   profileTakedownRef?: string
@@ -45,7 +32,6 @@ export type Actor = {
   takedownRef?: string
   isLabeler: boolean
   allowIncomingChatsFrom?: string
-  allowGroupChatInvitesFrom?: string
   upstreamStatus?: string
   createdAt?: Date
   priorityNotifications: boolean
@@ -58,55 +44,49 @@ export type Actor = {
    * Debug information for internal development
    */
   debug?: {
-    pagerank?: string
+    pagerank?: number
     accountTags?: string[]
     profileTags?: string[]
+    [key: string]: unknown
   }
 }
 
 export type VerificationHydrationState = {
-  issuer: DidString
-  uri: AtUriString
-  handle: HandleString
+  issuer: string
+  uri: string
+  handle: string
   displayName: string
-  createdAt: DatetimeString
+  createdAt: string
 }
 
 export type VerificationMetaRequired = Required<VerificationMeta>
 
-export type Actors = HydrationMap<DidString, Actor>
+export type Actors = HydrationMap<Actor>
 
 export type ChatDeclaration = RecordInfo<ChatDeclarationRecord>
-export type ChatDeclarations = HydrationMap<AtUriString, ChatDeclaration>
+export type ChatDeclarations = HydrationMap<ChatDeclaration>
 
 export type GermDeclaration = RecordInfo<GermDeclarationRecord>
-export type GermDeclarations = HydrationMap<AtUriString, GermDeclaration>
+export type GermDeclarations = HydrationMap<GermDeclaration>
 
 export type NotificationDeclaration = RecordInfo<NotificationDeclarationRecord>
-export type NotificationDeclarations = HydrationMap<
-  AtUriString,
-  NotificationDeclaration
->
+export type NotificationDeclarations = HydrationMap<NotificationDeclaration>
 
 export type Status = RecordInfo<StatusRecord>
-export type Statuses = HydrationMap<AtUriString, Status>
+export type Statuses = HydrationMap<Status>
 
 export type ProfileViewerState = {
-  did: DidString
   muted?: boolean
-  mutedByList?: AtUriString
-  blockedBy?: AtUriString
-  blocking?: AtUriString
-  blockedByList?: AtUriString
-  blockingByList?: AtUriString
-  following?: AtUriString
-  followedBy?: AtUriString
+  mutedByList?: string
+  blockedBy?: string
+  blocking?: string
+  blockedByList?: string
+  blockingByList?: string
+  following?: string
+  followedBy?: string
 }
 
-export type ProfileViewerStates = HydrationMap<
-  AtIdentifierString,
-  ProfileViewerState
->
+export type ProfileViewerStates = HydrationMap<ProfileViewerState>
 
 type ActivitySubscriptionState = {
   post: boolean
@@ -114,19 +94,15 @@ type ActivitySubscriptionState = {
 }
 
 export type ActivitySubscriptionStates = HydrationMap<
-  DidString,
   ActivitySubscriptionState | undefined
 >
 
 type KnownFollowersState = {
   count: number
-  followers: DidString[]
+  followers: string[]
 }
 
-export type KnownFollowersStates = HydrationMap<
-  DidString,
-  KnownFollowersState | undefined
->
+export type KnownFollowersStates = HydrationMap<KnownFollowersState | undefined>
 
 export type ProfileAgg = {
   followers: number
@@ -137,7 +113,7 @@ export type ProfileAgg = {
   starterPacks: number
 }
 
-export type ProfileAggs = HydrationMap<DidString, ProfileAgg>
+export type ProfileAggs = HydrationMap<ProfileAgg>
 
 export class ActorHydrator {
   constructor(public dataplane: DataPlaneClient) {}
@@ -152,56 +128,49 @@ export class ActorHydrator {
     }
   }
 
-  /**
-   * @note handles do not need to be normalized
-   */
   async getDids(
-    handleOrDids: AtIdentifierString[],
+    handleOrDids: string[],
     opts?: { lookupUnidirectional?: boolean },
-  ): Promise<(DidString | undefined)[]> {
-    const didByHandle = new Map<HandleString, DidString>()
-
-    const handles = handleOrDids.filter(isHandleIdentifier)
-    if (handles.length) {
-      const { dids } = await this.dataplane.getDidsByHandles({
-        handles: handles.map(normalizeHandle),
-        lookupUnidirectional: opts?.lookupUnidirectional,
-      })
-
-      for (let i = 0; i < handles.length; i++) {
-        const did = parseString<DidString>(dids[i])
-        if (did) didByHandle.set(handles[i], did)
-      }
-    }
-
+  ): Promise<(string | undefined)[]> {
+    const handles = handleOrDids.filter((actor) => !actor.startsWith('did:'))
+    const res = handles.length
+      ? await this.dataplane.getDidsByHandles({
+          handles,
+          lookupUnidirectional: opts?.lookupUnidirectional,
+        })
+      : { dids: [] }
+    const didByHandle = handles.reduce(
+      (acc, cur, i) => {
+        const did = res.dids[i]
+        if (did && did.length > 0) {
+          return acc.set(cur, did)
+        }
+        return acc
+      },
+      new Map() as Map<string, string>,
+    )
     return handleOrDids.map((id) =>
-      isDidIdentifier(id) ? id : didByHandle.get(id),
+      id.startsWith('did:') ? id : didByHandle.get(id),
     )
   }
 
-  async getDidsDefined(
-    handleOrDids: AtIdentifierString[],
-  ): Promise<DidString[]> {
+  async getDidsDefined(handleOrDids: string[]): Promise<string[]> {
     const res = await this.getDids(handleOrDids)
-    return res.filter((v) => v != null)
+    // @ts-ignore
+    return res.filter((did) => did !== undefined)
   }
 
   async getActors(
-    dids: DidString[],
+    dids: string[],
     opts: {
       includeTakedowns?: boolean
-      skipCacheForDids?: DidString[]
+      skipCacheForDids?: string[]
     } = {},
   ): Promise<Actors> {
-    const map: Actors = new HydrationMap()
-    if (!dids.length) return map
-
     const { includeTakedowns = false, skipCacheForDids } = opts
-
+    if (!dids.length) return new HydrationMap<Actor>()
     const res = await this.dataplane.getActors({ dids, skipCacheForDids })
-    for (let i = 0; i < dids.length; i++) {
-      const did = dids[i]
-
+    return dids.reduce((acc, did, i) => {
       const actor = res.actors[i]
       const isNoHosted =
         actor.takenDown ||
@@ -211,21 +180,15 @@ export class ActorHydrator {
         (isNoHosted && !includeTakedowns) ||
         !!actor.tombstonedAt
       ) {
-        map.set(did, null)
-        continue
+        return acc.set(did, null)
       }
 
       const profile = actor.profile?.record
-        ? parseRecord(
-            app.bsky.actor.profile.main,
-            actor.profile,
-            includeTakedowns,
-          )
+        ? parseRecord<ProfileRecord>(actor.profile, includeTakedowns)
         : undefined
 
       const status = actor.statusRecord
-        ? parseRecord(
-            app.bsky.actor.status.main,
+        ? parseRecord<StatusRecord>(
             actor.statusRecord,
             /*
              * Always true, we filter this out in the `Views.status()`. If we
@@ -236,18 +199,12 @@ export class ActorHydrator {
         : undefined
 
       const germ = actor.germRecord
-        ? parseRecord(
-            com.germnetwork.declaration.main,
-            actor.germRecord,
-            includeTakedowns,
-          )
+        ? parseRecord<GermDeclarationRecord>(actor.germRecord, includeTakedowns)
         : undefined
 
       const verifications = mapDefined(
-        Object.entries(actor.verifiedBy) as [DidString, VerificationMeta][],
-        ([actorDid, verificationMeta]):
-          | VerificationHydrationState
-          | undefined => {
+        Object.entries(actor.verifiedBy),
+        ([actorDid, verificationMeta]) => {
           if (
             verificationMeta.handle &&
             verificationMeta.rkey &&
@@ -256,11 +213,9 @@ export class ActorHydrator {
             return {
               issuer: actorDid,
               uri: `at://${actorDid}/app.bsky.graph.verification/${verificationMeta.rkey}`,
-              handle: verificationMeta.handle as HandleString,
+              handle: verificationMeta.handle,
               displayName: verificationMeta.displayName,
-              createdAt: (
-                parseDate(verificationMeta.sortedAt) ?? new Date(0)
-              ).toISOString() as DatetimeString,
+              createdAt: verificationMeta.sortedAt.toDate().toISOString(),
             }
           }
           // Filter out the verification meta that doesn't contain all info.
@@ -283,14 +238,14 @@ export class ActorHydrator {
       }
 
       const debug = {
-        pagerank: actor.pagerank ? actor.pagerank.toString() : undefined,
+        pagerank: actor.pagerank,
         accountTags: actor.tags,
         profileTags: actor.profileTags,
       }
 
-      map.set(did, {
+      return acc.set(did, {
         did,
-        handle: parseString<HandleString>(actor.handle),
+        handle: parseString(actor.handle),
         profile: profile?.record,
         profileCid: profile?.cid,
         profileTakedownRef: profile?.takedownRef,
@@ -299,9 +254,8 @@ export class ActorHydrator {
         takedownRef: safeTakedownRef(actor),
         isLabeler: actor.labeler ?? false,
         allowIncomingChatsFrom: actor.allowIncomingChatsFrom || undefined,
-        allowGroupChatInvitesFrom: actor.allowGroupChatInvitesFrom || undefined,
         upstreamStatus: actor.upstreamStatus || undefined,
-        createdAt: parseDate(actor.createdAt),
+        createdAt: actor.createdAt?.toDate(),
         priorityNotifications: actor.priorityNotifications,
         trustedVerifier: actor.trustedVerifier,
         verifications,
@@ -312,258 +266,162 @@ export class ActorHydrator {
         ),
         debug,
       })
-    }
-
-    return map
+    }, new HydrationMap<Actor>())
   }
 
   async getChatDeclarations(
-    uris: AtUriString[],
+    uris: string[],
     includeTakedowns = false,
   ): Promise<ChatDeclarations> {
-    const map: ChatDeclarations = new HydrationMap()
-    if (!uris.length) return map
-
+    if (!uris.length) return new HydrationMap<ChatDeclaration>()
     const res = await this.dataplane.getActorChatDeclarationRecords({ uris })
-    for (let i = 0; i < uris.length; i++) {
-      const uri = uris[i]
-      const record = parseRecord(
-        chat.bsky.actor.declaration.main,
+    return uris.reduce((acc, uri, i) => {
+      const record = parseRecord<ChatDeclarationRecord>(
         res.records[i],
         includeTakedowns,
       )
-      map.set(uri, record ?? null)
-    }
-
-    return map
+      return acc.set(uri, record ?? null)
+    }, new HydrationMap<ChatDeclaration>())
   }
 
   async getGermDeclarations(
-    uris: AtUriString[],
+    uris: string[],
     includeTakedowns = false,
   ): Promise<GermDeclarations> {
-    const map: GermDeclarations = new HydrationMap()
-    if (!uris.length) return map
-
+    if (!uris.length) return new HydrationMap<GermDeclaration>()
     const res = await this.dataplane.getGermDeclarationRecords({ uris })
-    for (let i = 0; i < uris.length; i++) {
-      const record = parseRecord(
-        com.germnetwork.declaration.main,
+    return uris.reduce((acc, uri, i) => {
+      const record = parseRecord<GermDeclarationRecord>(
         res.records[i],
         includeTakedowns,
       )
-      map.set(uris[i], record ?? null)
-    }
-
-    return map
+      return acc.set(uri, record ?? null)
+    }, new HydrationMap<GermDeclaration>())
   }
 
   async getNotificationDeclarations(
-    uris: AtUriString[],
+    uris: string[],
     includeTakedowns = false,
   ): Promise<NotificationDeclarations> {
-    const map: NotificationDeclarations = new HydrationMap()
-    if (!uris.length) return map
-
-    const res = await this.dataplane.getNotificationDeclarationRecords({
-      uris,
-    })
-    for (let i = 0; i < uris.length; i++) {
-      const uri = uris[i]
-      const record = parseRecord(
-        app.bsky.notification.declaration.main,
+    if (!uris.length) return new HydrationMap<NotificationDeclaration>()
+    const res = await this.dataplane.getNotificationDeclarationRecords({ uris })
+    return uris.reduce((acc, uri, i) => {
+      const record = parseRecord<NotificationDeclarationRecord>(
         res.records[i],
         includeTakedowns,
       )
-      map.set(uri, record ?? null)
-    }
-
-    return map
+      return acc.set(uri, record ?? null)
+    }, new HydrationMap<NotificationDeclaration>())
   }
 
-  async getStatus(
-    uris: AtUriString[],
-    includeTakedowns = false,
-  ): Promise<Statuses> {
-    const map: Statuses = new HydrationMap()
-    if (!uris.length) return map
-
+  async getStatus(uris: string[], includeTakedowns = false): Promise<Statuses> {
+    if (!uris.length) return new HydrationMap<Status>()
     const res = await this.dataplane.getStatusRecords({ uris })
-    for (let i = 0; i < uris.length; i++) {
-      const uri = uris[i]
-      const record = parseRecord(
-        app.bsky.actor.status.main,
-        res.records[i],
-        includeTakedowns,
-      )
-      map.set(uri, record ?? null)
-    }
-
-    return map
+    return uris.reduce((acc, uri, i) => {
+      const record = parseRecord<StatusRecord>(res.records[i], includeTakedowns)
+      return acc.set(uri, record ?? null)
+    }, new HydrationMap<Status>())
   }
 
   // "naive" because this method does not verify the existence of the list itself
   // a later check in the main hydrator will remove list uris that have been deleted or
   // repurposed to "curate lists"
   async getProfileViewerStatesNaive(
-    actors: AtIdentifierString[],
-    viewer: DidString,
+    dids: string[],
+    viewer: string,
   ): Promise<ProfileViewerStates> {
-    const map: ProfileViewerStates = new HydrationMap()
-    if (!actors.length) return map
-
-    // @TODO we could use "await this.getDids(actors)" here to resolve the
-    // handles (no other code change should be needed). This was not done as
-    // part of this PR to avoid changing the behavior of this method.
-    const actorDids = actors.map((a) => (isDidIdentifier(a) ? a : undefined))
-
-    // getRelationships requires DidString so we remove anything that isn't one
-    const actorDidsDefined = Array.from(
-      new Set(
-        actorDids
-          .filter((did) => did != null)
-          // Since we special case self-relationship below, we can skip querying
-          // the dataplane for the viewer's own DID if it's included in the
-          // input.
-          .filter((did) => did !== viewer),
-      ),
-    )
-
+    if (!dids.length) return new HydrationMap<ProfileViewerState>()
     const res = await this.dataplane.getRelationships({
       actorDid: viewer,
-      targetDids: actorDidsDefined,
+      targetDids: dids,
     })
 
-    const actorToDid = new Map<AtIdentifierString, DidString | undefined>(
-      actors.map((actor, i) => [actor, actorDids[i]]),
-    )
-
-    for (let i = 0; i < actors.length; i++) {
-      const actor = actors[i]
-
-      const did = actorToDid.get(actor)
-      // ignore unresolved handles
-      if (!did) continue
-
-      if (did === viewer) {
+    return dids.reduce((acc, did, i) => {
+      const rels = res.relationships[i]
+      if (viewer === did) {
         // ignore self-follows, self-mutes, self-blocks, self-activity-subscriptions
-        map.set(actor, { did })
-        continue
+        return acc.set(did, {})
       }
-
-      // Get the index that was used to query the relationships for this actor
-      const index = actorDidsDefined.indexOf(did)
-      if (index === -1) continue
-
-      const rels = res.relationships[index]
-      map.set(actor, {
-        did,
+      return acc.set(did, {
         muted: rels.muted ?? false,
         mutedByList: parseString(rels.mutedByList),
         blockedBy: parseString(rels.blockedBy),
-        blocking: parseString<AtUriString>(rels.blocking),
+        blocking: parseString(rels.blocking),
         blockedByList: parseString(rels.blockedByList),
         blockingByList: parseString(rels.blockingByList),
-        following: parseString<AtUriString>(rels.following),
+        following: parseString(rels.following),
         followedBy: parseString(rels.followedBy),
       })
-    }
-
-    return map
+    }, new HydrationMap<ProfileViewerState>())
   }
 
   async getKnownFollowers(
-    dids: DidString[],
-    viewer: DidString | null,
+    dids: string[],
+    viewer: string | null,
   ): Promise<KnownFollowersStates> {
-    const map: KnownFollowersStates = new HydrationMap()
-    if (!viewer) return map
-    if (!dids.length) return map
-
-    try {
-      const { results: knownFollowersResults } =
-        await this.dataplane.getFollowsFollowing(
-          {
-            actorDid: viewer,
-            targetDids: dids,
-          },
-          {
-            signal: AbortSignal.timeout(100),
-          },
-        )
-
-      for (let i = 0; i < dids.length; i++) {
-        const did = dids[i]
-
-        const result = knownFollowersResults[i]?.dids
-
-        map.set(
-          did,
-          result && result.length > 0
-            ? {
-                count: result.length,
-                followers: result.slice(0, 5) as DidString[],
-              }
-            : undefined,
-        )
-      }
-    } catch {
-      // ignore errors and return empty map
-    }
-
-    return map
+    if (!viewer) return new HydrationMap<KnownFollowersState | undefined>()
+    const { results: knownFollowersResults } = await this.dataplane
+      .getFollowsFollowing(
+        {
+          actorDid: viewer,
+          targetDids: dids,
+        },
+        {
+          signal: AbortSignal.timeout(100),
+        },
+      )
+      .catch(() => ({ results: [] }))
+    return dids.reduce((acc, did, i) => {
+      const result = knownFollowersResults[i]?.dids
+      return acc.set(
+        did,
+        result && result.length > 0
+          ? {
+              count: result.length,
+              followers: result.slice(0, 5),
+            }
+          : undefined,
+      )
+    }, new HydrationMap<KnownFollowersState | undefined>())
   }
 
   async getActivitySubscriptions(
-    dids: DidString[],
-    viewer: DidString | null,
+    dids: string[],
+    viewer: string | null,
   ): Promise<ActivitySubscriptionStates> {
-    const map: ActivitySubscriptionStates = new HydrationMap()
-    if (!viewer) return map
-    if (!dids.length) return map
-
-    try {
-      const { subscriptions } =
-        await this.dataplane.getActivitySubscriptionsByActorAndSubjects(
-          { actorDid: viewer, subjectDids: dids },
-          { signal: AbortSignal.timeout(100) },
-        )
-
-      for (let i = 0; i < dids.length; i++) {
-        // @NOTE Although not typed as nullable, the code here used to defend
-        // against potentially missing subscription objects in the response, so
-        // we keep that defense in place.
-        const subscription = subscriptions[i] as
-          | ActivitySubscription
-          | undefined
-
-        const state = {
-          post: subscription?.post != null,
-          reply: subscription?.reply != null,
-        }
-
-        const did = dids[i]!
-        if (isActivitySubscriptionEnabled(state)) {
-          map.set(did, state)
-        } else {
-          map.set(did, undefined)
-        }
-      }
-    } catch {
-      // ignore errors and return empty map
+    if (!viewer) {
+      return new HydrationMap<ActivitySubscriptionState | undefined>()
     }
 
-    return map
+    const activitySubscription = (val: ActivitySubscription | undefined) => {
+      if (!val) return undefined
+
+      const result = {
+        post: !!val.post,
+        reply: !!val.reply,
+      }
+      if (!isActivitySubscriptionEnabled(result)) return undefined
+
+      return result
+    }
+
+    const { subscriptions } = await this.dataplane
+      .getActivitySubscriptionsByActorAndSubjects(
+        { actorDid: viewer, subjectDids: dids },
+        { signal: AbortSignal.timeout(100) },
+      )
+      .catch(() => ({ subscriptions: [] }))
+
+    return dids.reduce((acc, did, i) => {
+      return acc.set(did, activitySubscription(subscriptions[i]))
+    }, new HydrationMap<ActivitySubscriptionState | undefined>())
   }
 
-  async getProfileAggregates(dids: DidString[]): Promise<ProfileAggs> {
-    const map: ProfileAggs = new HydrationMap()
-    if (!dids.length) return map
-
+  async getProfileAggregates(dids: string[]): Promise<ProfileAggs> {
+    if (!dids.length) return new HydrationMap<ProfileAgg>()
     const counts = await this.dataplane.getCountsForUsers({ dids })
-    for (let i = 0; i < dids.length; i++) {
-      const did = dids[i]
-      map.set(did, {
+    return dids.reduce((acc, did, i) => {
+      return acc.set(did, {
         followers: counts.followers[i] ?? 0,
         follows: counts.following[i] ?? 0,
         posts: counts.posts[i] ?? 0,
@@ -571,8 +429,6 @@ export class ActorHydrator {
         feeds: counts.feeds[i] ?? 0,
         starterPacks: counts.starterPacks[i] ?? 0,
       })
-    }
-
-    return map
+    }, new HydrationMap<ProfileAgg>())
   }
 }

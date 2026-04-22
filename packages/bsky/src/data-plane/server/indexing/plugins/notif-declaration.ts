@@ -1,17 +1,18 @@
-import { Cid } from '@atproto/lex'
+import { CID } from 'multiformats/cid'
 import { AtUri } from '@atproto/syntax'
-import { app } from '../../../../lexicons'
+import * as lex from '../../../../lexicon/lexicons'
 import { BackgroundQueue } from '../../background'
 import { Database } from '../../db'
 import { DatabaseSchema } from '../../db/database-schema'
 import { RecordProcessor } from '../processor'
 
 // @NOTE this indexer is a placeholder to ensure it gets indexed in the generic records table
+const lexId = lex.ids.AppBskyNotificationDeclaration
 
 const insertFn = async (
   _db: DatabaseSchema,
   uri: AtUri,
-  _cid: Cid,
+  _cid: CID,
   _obj: unknown,
   _timestamp: string,
 ): Promise<unknown | null> => {
@@ -39,10 +40,14 @@ const notifsForDelete = () => {
   return { notifs: [], toDelete: [] }
 }
 
-export type PluginType = ReturnType<typeof makePlugin>
-export const makePlugin = (db: Database, background: BackgroundQueue) => {
+export type PluginType = RecordProcessor<unknown, unknown>
+
+export const makePlugin = (
+  db: Database,
+  background: BackgroundQueue,
+): PluginType => {
   return new RecordProcessor(db, background, {
-    schema: app.bsky.notification.declaration.main,
+    lexId,
     insertFn,
     findDuplicate,
     deleteFn,

@@ -1,6 +1,6 @@
 {
   "name": "@atproto/lex-server",
-  "version": "0.0.17",
+  "version": "0.0.7",
   "license": "MIT",
   "description": "Request router for Atproto Lexicon protocols and schemas",
   "keywords": [
@@ -33,7 +33,7 @@
       "types": "./dist/index.d.ts",
       "browser": "./dist/index.js",
       "import": "./dist/index.js",
-      "default": "./dist/index.js"
+      "require": "./dist/index.js"
     },
     "./nodejs": {
       "types": "./dist/nodejs.d.ts",
@@ -46,7 +46,6 @@
     "@atproto/crypto": "workspace:^",
     "@atproto/did": "workspace:^",
     "@atproto/lex-cbor": "workspace:^",
-    "@atproto/lex-client": "workspace:^",
     "@atproto/lex-data": "workspace:^",
     "@atproto/lex-json": "workspace:^",
     "@atproto/lex-schema": "workspace:^",

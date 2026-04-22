@@ -1,6 +1,4 @@
 import { mapDefined } from '@atproto/common'
-import { AtUriString } from '@atproto/syntax'
-import { Server } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
 import {
   HydrateCtx,
@@ -8,7 +6,8 @@ import {
   Hydrator,
 } from '../../../../hydration/hydrator'
 import { parseString } from '../../../../hydration/util'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { QueryParams } from '../../../../lexicon/types/app/bsky/feed/getQuotes'
 import { createPipeline } from '../../../../pipeline'
 import { uriToDid } from '../../../../util/uris'
 import { Views } from '../../../../views'
@@ -21,17 +20,15 @@ export default function (server: Server, ctx: AppContext) {
     noBlocksOrNeedsReview,
     presentation,
   )
-  server.add(app.bsky.feed.getQuotes, {
+  server.app.bsky.feed.getQuotes({
     auth: ctx.authVerifier.standardOptional,
     handler: async ({ params, auth, req }) => {
-      const { viewer, includeTakedowns, skipViewerBlocks } =
-        ctx.authVerifier.parseCreds(auth)
+      const { viewer, includeTakedowns } = ctx.authVerifier.parseCreds(auth)
       const labelers = ctx.reqLabelers(req)
       const hydrateCtx = await ctx.hydrator.createContext({
         labelers,
         viewer,
         includeTakedowns,
-        skipViewerBlocks,
       })
       const result = await getQuotes({ ...params, hydrateCtx }, ctx)
       return {
@@ -57,7 +54,7 @@ const skeleton = async (inputs: {
     limit: params.limit,
   })
   return {
-    uris: quotesRes.uris as AtUriString[],
+    uris: quotesRes.uris,
     cursor: parseString(quotesRes.cursor),
   }
 }
@@ -66,7 +63,7 @@ const hydration = async (inputs: {
   ctx: Context
   params: Params
   skeleton: Skeleton
-}): Promise<HydrationState> => {
+}) => {
   const { ctx, params, skeleton } = inputs
   return await ctx.hydrator.hydratePosts(
     skeleton.uris.map((uri) => ({ uri })),
@@ -114,9 +111,9 @@ type Context = {
   views: Views
 }
 
-type Params = app.bsky.feed.getQuotes.$Params & { hydrateCtx: HydrateCtx }
+type Params = QueryParams & { hydrateCtx: HydrateCtx }
 
 type Skeleton = {
-  uris: AtUriString[]
+  uris: string[]
   cursor?: string
 }

@@ -1,12 +1,11 @@
 import { Router } from 'express'
-import { HandleString } from '@atproto/syntax'
 import { AppContext } from './context'
 
 export const createRouter = (ctx: AppContext): Router => {
   const router = Router()
 
   router.get('/.well-known/atproto-did', async function (req, res) {
-    const handle = req.hostname as HandleString
+    const handle = req.hostname
     const supportedHandle = ctx.cfg.identity.serviceHandleDomains.some(
       (host) => handle.endsWith(host) || handle === host.slice(1),
     )

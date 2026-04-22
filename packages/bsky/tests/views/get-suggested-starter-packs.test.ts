@@ -2,12 +2,10 @@ import { once } from 'node:events'
 import { Server, createServer } from 'node:http'
 import { AddressInfo } from 'node:net'
 import express, { Application } from 'express'
-import {
-  AppBskyUnspeccedGetSuggestedStarterPacksSkeleton,
-  AtpAgent,
-  ids,
-} from '@atproto/api'
+import AtpAgent from '@atproto/api'
 import { SeedClient, TestNetwork } from '@atproto/dev-env'
+import { ids } from '../../src/lexicon/lexicons'
+import { OutputSchema } from '../../src/lexicon/types/app/bsky/unspecced/getSuggestedStarterPacksSkeleton'
 import {
   StarterPacks,
   Users,
@@ -33,7 +31,7 @@ describe('getSuggestedStarterPacks', () => {
         topicsApiKey: 'test',
       },
     })
-    agent = network.bsky.getAgent()
+    agent = network.bsky.getClient()
     sc = network.getSeedClient()
 
     const result = await starterPacksSeed(sc)
@@ -92,10 +90,7 @@ class MockServer {
   app: Application
   server: Server
 
-  mockedStarterPackUris = new Map<
-    string,
-    AppBskyUnspeccedGetSuggestedStarterPacksSkeleton.OutputSchema['starterPacks'][0]
-  >()
+  mockedStarterPackUris = new Map<string, OutputSchema['starterPacks'][0]>()
 
   constructor() {
     this.app = this.createApp()
@@ -122,10 +117,9 @@ class MockServer {
     app.get(
       '/xrpc/app.bsky.unspecced.getSuggestedStarterPacksSkeleton',
       (req, res) => {
-        const skeleton: AppBskyUnspeccedGetSuggestedStarterPacksSkeleton.OutputSchema =
-          {
-            starterPacks: Array.from(this.mockedStarterPackUris.values()),
-          }
+        const skeleton: OutputSchema = {
+          starterPacks: Array.from(this.mockedStarterPackUris.values()),
+        }
         return res.json(skeleton)
       },
     )

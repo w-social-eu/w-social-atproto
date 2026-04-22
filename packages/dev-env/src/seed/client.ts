@@ -14,9 +14,8 @@ import {
   AtpAgent,
   ComAtprotoModerationCreateReport,
 } from '@atproto/api'
-import { CidString, Client } from '@atproto/lex'
 import { BlobRef } from '@atproto/lexicon'
-import { AtUri, AtUriString, DidString } from '@atproto/syntax'
+import { AtUri } from '@atproto/syntax'
 import { TestNetworkNoAppView } from '../network-no-appview'
 
 // Makes it simple to create data via the XRPC client,
@@ -45,18 +44,18 @@ export class RecordRef {
     this.cid = CID.parse(cid.toString())
   }
 
-  get raw(): { uri: AtUriString; cid: CidString } {
+  get raw(): { uri: string; cid: string } {
     return {
       uri: this.uri.toString(),
       cid: this.cid.toString(),
     }
   }
 
-  get uriStr(): AtUriString {
+  get uriStr(): string {
     return this.uri.toString()
   }
 
-  get cidStr(): CidString {
+  get cidStr(): string {
     return this.cid.toString()
   }
 }
@@ -67,7 +66,7 @@ export class SeedClient<
   accounts: Record<
     string,
     {
-      did: DidString
+      did: string
       accessJwt: string
       refreshJwt: string
       handle: string
@@ -121,12 +120,11 @@ export class SeedClient<
 
   verifications: Record<string, Record<string, AtUri>>
 
-  dids: Record<string, DidString>
+  dids: Record<string, string>
 
   constructor(
     public network: Network,
     public agent: AtpAgent,
-    public client: Client,
   ) {
     this.accounts = {}
     this.profiles = {}
@@ -155,11 +153,9 @@ export class SeedClient<
   ) {
     const { data: account } =
       await this.agent.com.atproto.server.createAccount(params)
-    const did = account.did as DidString
-    this.dids[shortName] = did
+    this.dids[shortName] = account.did
     this.accounts[account.did] = {
       ...account,
-      did,
       email: params.email,
       password: params.password,
     }

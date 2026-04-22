@@ -25,7 +25,6 @@ export interface ModerationEvent {
     | 'tools.ozone.moderation.defs#modEventPriorityScore'
     | 'tools.ozone.moderation.defs#ageAssuranceEvent'
     | 'tools.ozone.moderation.defs#ageAssuranceOverrideEvent'
-    | 'tools.ozone.moderation.defs#ageAssurancePurgeEvent'
     | 'tools.ozone.moderation.defs#revokeAccountCredentialsEvent'
   subjectType:
     | 'com.atproto.admin.defs#repoRef'

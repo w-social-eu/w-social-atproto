@@ -1,11 +1,6 @@
 import { mapDefined } from '@atproto/common'
-import {
-  AtUriString,
-  DatetimeString,
-  DidString,
-  normalizeDatetimeAlways,
-} from '@atproto/syntax'
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { normalizeDatetimeAlways } from '@atproto/syntax'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
 import {
   HydrateCtx,
@@ -13,7 +8,8 @@ import {
   Hydrator,
 } from '../../../../hydration/hydrator'
 import { parseString } from '../../../../hydration/util'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { QueryParams } from '../../../../lexicon/types/app/bsky/feed/getLikes'
 import { RulesFnInput, createPipeline } from '../../../../pipeline'
 import { uriToDid as creatorFromUri } from '../../../../util/uris'
 import { Views } from '../../../../views'
@@ -21,17 +17,15 @@ import { clearlyBadCursor, resHeaders } from '../../../util'
 
 export default function (server: Server, ctx: AppContext) {
   const getLikes = createPipeline(skeleton, hydration, noBlocks, presentation)
-  server.add(app.bsky.feed.getLikes, {
+  server.app.bsky.feed.getLikes({
     auth: ctx.authVerifier.standardOptional,
     handler: async ({ params, auth, req }) => {
-      const { viewer, includeTakedowns, skipViewerBlocks } =
-        ctx.authVerifier.parseCreds(auth)
+      const { viewer, includeTakedowns } = ctx.authVerifier.parseCreds(auth)
       const labelers = ctx.reqLabelers(req)
       const hydrateCtx = await ctx.hydrator.createContext({
         labelers,
         viewer,
         includeTakedowns,
-        skipViewerBlocks,
       })
       const result = await getLikes({ ...params, hydrateCtx }, ctx)
 
@@ -66,7 +60,7 @@ const skeleton = async (inputs: {
   })
   return {
     authorDid,
-    likes: likesRes.uris as AtUriString[],
+    likes: likesRes.uris,
     cursor: parseString(likesRes.cursor),
   }
 }
@@ -105,7 +99,7 @@ const presentation = (inputs: {
   params: Params
   skeleton: Skeleton
   hydration: HydrationState
-}): app.bsky.feed.getLikes.$OutputBody => {
+}) => {
   const { ctx, params, skeleton, hydration } = inputs
   const likeViews = mapDefined(skeleton.likes, (uri) => {
     const like = hydration.likes?.get(uri)
@@ -120,7 +114,7 @@ const presentation = (inputs: {
     return {
       actor,
       createdAt: normalizeDatetimeAlways(like.record.createdAt),
-      indexedAt: like.sortedAt.toISOString() as DatetimeString,
+      indexedAt: like.sortedAt.toISOString(),
     }
   })
   return {
@@ -136,11 +130,11 @@ type Context = {
   views: Views
 }
 
-type Params = app.bsky.feed.getLikes.$Params & { hydrateCtx: HydrateCtx }
+type Params = QueryParams & { hydrateCtx: HydrateCtx }
 
 type Skeleton = {
-  authorDid: DidString
-  likes: AtUriString[]
+  authorDid: string
+  likes: string[]
   cursor?: string
 }
 

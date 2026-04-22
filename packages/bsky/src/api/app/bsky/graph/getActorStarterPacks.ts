@@ -1,11 +1,11 @@
 import { mapDefined } from '@atproto/common'
-import { AtUriString } from '@atproto/syntax'
-import { InvalidRequestError, Server } from '@atproto/xrpc-server'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
 import { DataPlaneClient } from '../../../../data-plane'
 import { HydrateCtx, Hydrator } from '../../../../hydration/hydrator'
 import { parseString } from '../../../../hydration/util'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { QueryParams } from '../../../../lexicon/types/app/bsky/graph/getActorStarterPacks'
 import {
   HydrationFnInput,
   PresentationFnInput,
@@ -23,17 +23,15 @@ export default function (server: Server, ctx: AppContext) {
     noRules,
     presentation,
   )
-  server.add(app.bsky.graph.getActorStarterPacks, {
+  server.app.bsky.graph.getActorStarterPacks({
     auth: ctx.authVerifier.standardOptional,
     handler: async ({ params, auth, req }) => {
-      const { viewer, includeTakedowns, skipViewerBlocks } =
-        ctx.authVerifier.parseCreds(auth)
+      const { viewer, includeTakedowns } = ctx.authVerifier.parseCreds(auth)
       const labelers = ctx.reqLabelers(req)
       const hydrateCtx = await ctx.hydrator.createContext({
         labelers,
         viewer,
         includeTakedowns,
-        skipViewerBlocks,
       })
       const result = await getActorStarterPacks({ ...params, hydrateCtx }, ctx)
       return {
@@ -59,7 +57,7 @@ const skeleton = async (
     limit: params.limit,
   })
   return {
-    starterPackUris: starterPacks.uris as AtUriString[],
+    starterPackUris: starterPacks.uris,
     cursor: parseString(starterPacks.cursor),
   }
 }
@@ -93,11 +91,9 @@ type Context = {
   dataplane: DataPlaneClient
 }
 
-type Params = app.bsky.graph.getActorStarterPacks.$Params & {
-  hydrateCtx: HydrateCtx
-}
+type Params = QueryParams & { hydrateCtx: HydrateCtx }
 
 type SkeletonState = {
-  starterPackUris: AtUriString[]
+  starterPackUris: string[]
   cursor?: string
 }

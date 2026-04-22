@@ -1,8 +1,6 @@
 import EventEmitter from 'node:events'
 import TypedEmitter from 'typed-emitter'
-import { SECOND, wait } from '@atproto/common'
-import { decode as cborDecode } from '@atproto/lex-cbor'
-import { DatetimeString, DidString, HandleString } from '@atproto/syntax'
+import { SECOND, cborDecode, wait } from '@atproto/common'
 import { AccountStatus } from '../account-manager/helpers/account'
 import { Crawlers } from '../crawlers'
 import { seqLogger as log } from '../logger'
@@ -170,32 +168,29 @@ export class Sequencer extends (EventEmitter as new () => SequencerEmitter) {
   }
 
   async sequenceCommit(
-    did: DidString,
+    did: string,
     commitData: CommitDataWithOps,
   ): Promise<number> {
     const evt = await formatSeqCommit(did, commitData)
-    return this.sequenceEvt(evt)
+    return await this.sequenceEvt(evt)
   }
 
-  async sequenceSyncEvt(did: DidString, data: SyncEvtData) {
+  async sequenceSyncEvt(did: string, data: SyncEvtData) {
     const evt = await formatSeqSyncEvt(did, data)
-    return this.sequenceEvt(evt)
+    return await this.sequenceEvt(evt)
   }
 
-  async sequenceIdentityEvt(
-    did: DidString,
-    handle?: HandleString,
-  ): Promise<number> {
+  async sequenceIdentityEvt(did: string, handle?: string): Promise<number> {
     const evt = await formatSeqIdentityEvt(did, handle)
-    return this.sequenceEvt(evt)
+    return await this.sequenceEvt(evt)
   }
 
   async sequenceAccountEvt(
-    did: DidString,
+    did: string,
     status: AccountStatus,
   ): Promise<number> {
     const evt = await formatSeqAccountEvt(did, status)
-    return this.sequenceEvt(evt)
+    return await this.sequenceEvt(evt)
   }
 
   async deleteAllForUser(did: string, excludingSeqs: number[] = []) {
@@ -222,28 +217,28 @@ export const parseRepoSeqRows = (rows: RepoSeqEntry[]): SeqEvt[] => {
       seqEvts.push({
         type: 'commit',
         seq: row.seq,
-        time: row.sequencedAt as DatetimeString,
+        time: row.sequencedAt,
         evt: evt as CommitEvt,
       })
     } else if (row.eventType === 'sync') {
       seqEvts.push({
         type: 'sync',
         seq: row.seq,
-        time: row.sequencedAt as DatetimeString,
+        time: row.sequencedAt,
         evt: evt as SyncEvt,
       })
     } else if (row.eventType === 'identity') {
       seqEvts.push({
         type: 'identity',
         seq: row.seq,
-        time: row.sequencedAt as DatetimeString,
+        time: row.sequencedAt,
         evt: evt as IdentityEvt,
       })
     } else if (row.eventType === 'account') {
       seqEvts.push({
         type: 'account',
         seq: row.seq,
-        time: row.sequencedAt as DatetimeString,
+        time: row.sequencedAt,
         evt: evt as AccountEvt,
       })
     }

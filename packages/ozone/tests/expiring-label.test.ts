@@ -18,7 +18,7 @@ describe('expiring label', () => {
       dbPostgresSchema: 'ozone_expiring_label_test',
     })
     sc = network.getSeedClient()
-    agent = network.ozone.getAgent()
+    agent = network.ozone.getClient()
     modClient = network.ozone.getModClient()
     await basicSeed(sc)
     await network.processAll()

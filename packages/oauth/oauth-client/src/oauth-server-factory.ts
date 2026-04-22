@@ -2,7 +2,10 @@ import { Key, Keyset } from '@atproto/jwk'
 import { OAuthAuthorizationServerMetadata } from '@atproto/oauth-types'
 import { Fetch } from '@atproto-labs/fetch'
 import { GetCachedOptions } from './oauth-authorization-server-metadata-resolver.js'
-import { ClientAuthMethod } from './oauth-client-auth.js'
+import {
+  ClientAuthMethod,
+  negotiateClientAuthMethod,
+} from './oauth-client-auth.js'
 import { OAuthResolver } from './oauth-resolver.js'
 import { DpopNonceCache, OAuthServerAgent } from './oauth-server-agent.js'
 import { Runtime } from './runtime.js'
@@ -29,7 +32,7 @@ export class OAuthServerFactory {
    */
   async fromIssuer(
     issuer: string,
-    authMethod: ClientAuthMethod,
+    authMethod: 'legacy' | ClientAuthMethod,
     dpopKey: Key,
     options?: GetCachedOptions,
   ) {
@@ -37,6 +40,17 @@ export class OAuthServerFactory {
       issuer,
       options,
     )
+
+    if (authMethod === 'legacy') {
+      // @NOTE Because we were previously not storing the authMethod in the
+      // session data, we provide a backwards compatible implementation by
+      // computing it here.
+      authMethod = negotiateClientAuthMethod(
+        serverMetadata,
+        this.clientMetadata,
+        this.keyset,
+      )
+    }
 
     return this.fromMetadata(serverMetadata, authMethod, dpopKey)
   }

@@ -1,4 +1,7 @@
-import { app } from '../../lexicons/index.js'
+export const PERSONAL_DETAILS_PREF = 'app.bsky.actor.defs#personalDetailsPref'
+export const DECLARED_AGE_PREF = 'app.bsky.actor.defs#declaredAgePref'
+
+const FULL_ACCESS_ONLY_PREFS = new Set([PERSONAL_DETAILS_PREF])
 
 export type PrefAllowedOptions = {
   hasAccessFull?: boolean
@@ -12,19 +15,13 @@ export function prefAllowed(
     return true
   }
 
-  return !isFullAccessOnlyPref(prefType)
+  return !FULL_ACCESS_ONLY_PREFS.has(prefType)
 }
 
-export function isFullAccessOnlyPref(
-  type: string,
-): type is typeof app.bsky.actor.defs.personalDetailsPref.$type {
-  return type === app.bsky.actor.defs.personalDetailsPref.$type
-}
+const READ_ONLY_PREFS = new Set([DECLARED_AGE_PREF])
 
-export function isReadOnlyPref(
-  type: string,
-): type is typeof app.bsky.actor.defs.declaredAgePref.$type {
-  return type === app.bsky.actor.defs.declaredAgePref.$type
+export function isReadOnlyPref(prefType: string) {
+  return READ_ONLY_PREFS.has(prefType)
 }
 
 export function getAgeFromDatestring(birthDate: string): number {

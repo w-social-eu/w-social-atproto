@@ -1,25 +1,27 @@
-import { mapDefined, noUndefinedVals } from '@atproto/common'
-import { Client, DidString } from '@atproto/lex'
-import { MethodNotImplementedError, Server } from '@atproto/xrpc-server'
+import AtpAgent from '@atproto/api'
+import { dedupeStrs, mapDefined, noUndefinedVals } from '@atproto/common'
+import { InternalServerError } from '@atproto/xrpc-server'
 import { AppContext } from '../../../../context'
 import {
   HydrateCtx,
   Hydrator,
   mergeManyStates,
 } from '../../../../hydration/hydrator'
-import { app } from '../../../../lexicons/index.js'
+import { Server } from '../../../../lexicon'
+import { SkeletonTrend } from '../../../../lexicon/types/app/bsky/unspecced/defs'
+import { QueryParams } from '../../../../lexicon/types/app/bsky/unspecced/getTrends'
 import {
-  HydrationFn,
-  PresentationFn,
-  RulesFn,
-  SkeletonFn,
+  HydrationFnInput,
+  PresentationFnInput,
+  RulesFnInput,
+  SkeletonFnInput,
   createPipeline,
 } from '../../../../pipeline'
 import { Views } from '../../../../views'
 
 export default function (server: Server, ctx: AppContext) {
   const getTrends = createPipeline(skeleton, hydration, noBlocks, presentation)
-  server.add(app.bsky.unspecced.getTrends, {
+  server.app.bsky.unspecced.getTrends({
     auth: ctx.authVerifier.standardOptional,
     handler: async ({ auth, params, req }) => {
       const viewer = auth.credentials.iss
@@ -47,40 +49,38 @@ export default function (server: Server, ctx: AppContext) {
   })
 }
 
-const skeleton: SkeletonFn<Context, Params, SkeletonState> = async (input) => {
+const skeleton = async (input: SkeletonFnInput<Context, Params>) => {
   const { params, ctx } = input
-
-  if (!ctx.topicsClient) {
-    // Use 501 instead of 500 as these are not considered retry-able by clients
-    throw new MethodNotImplementedError('Topics agent not available')
+  if (ctx.topicsAgent) {
+    const res = await ctx.topicsAgent.app.bsky.unspecced.getTrendsSkeleton(
+      {
+        limit: params.limit,
+        viewer: params.hydrateCtx.viewer ?? undefined,
+      },
+      {
+        headers: params.headers,
+      },
+    )
+    return res.data
+  } else {
+    throw new InternalServerError('Topics agent not available')
   }
-
-  const skeleton = await ctx.topicsClient.call(
-    app.bsky.unspecced.getTrendsSkeleton,
-    {
-      limit: params.limit,
-      viewer: params.hydrateCtx.viewer ?? undefined,
-    },
-    {
-      headers: params.headers,
-    },
-  )
-
-  // @TODO Make sure upstream always provides this
-  for (const trend of skeleton.trends) trend.dids ??= []
-
-  return skeleton
 }
 
-const hydration: HydrationFn<Context, Params, SkeletonState> = async (
-  input,
+const hydration = async (
+  input: HydrationFnInput<Context, Params, SkeletonState>,
 ) => {
   const { ctx, params, skeleton } = input
-  const dids = getUniqueDidsFromTrends(skeleton.trends)
-  const pairs: Map<DidString, DidString[]> = new Map()
+  let dids: string[] = []
+  for (const trend of skeleton.trends) {
+    dids.push(...trend.dids)
+  }
+  dids = dedupeStrs(dids)
+  const pairs: Map<string, string[]> = new Map()
   const viewer = params.hydrateCtx.viewer
-  if (viewer) pairs.set(viewer, dids)
-
+  if (viewer) {
+    pairs.set(viewer, dids)
+  }
   const [profileState, bidirectionalBlocks] = await Promise.all([
     ctx.hydrator.hydrateProfilesBasic(dids, params.hydrateCtx),
     ctx.hydrator.hydrateBidirectionalBlocks(pairs, params.hydrateCtx),
@@ -89,7 +89,7 @@ const hydration: HydrationFn<Context, Params, SkeletonState> = async (
   return mergeManyStates(profileState, { bidirectionalBlocks })
 }
 
-const noBlocks: RulesFn<Context, Params, SkeletonState> = (input) => {
+const noBlocks = (input: RulesFnInput<Context, Params, SkeletonState>) => {
   const { skeleton, params, hydration } = input
   const viewer = params.hydrateCtx.viewer
   if (!viewer) {
@@ -97,21 +97,19 @@ const noBlocks: RulesFn<Context, Params, SkeletonState> = (input) => {
   }
 
   const blocks = hydration.bidirectionalBlocks?.get(viewer)
-
-  return {
+  const filteredSkeleton: SkeletonState = {
     trends: skeleton.trends.map((t) => ({
       ...t,
       dids: t.dids.filter((did) => !blocks?.get(did)),
     })),
   }
+
+  return filteredSkeleton
 }
 
-const presentation: PresentationFn<
-  Context,
-  Params,
-  SkeletonState,
-  app.bsky.unspecced.getTrends.$OutputBody
-> = (input) => {
+const presentation = (
+  input: PresentationFnInput<Context, Params, SkeletonState>,
+) => {
   const { ctx, skeleton, hydration } = input
 
   return {
@@ -133,30 +131,14 @@ const presentation: PresentationFn<
 type Context = {
   hydrator: Hydrator
   views: Views
-  topicsClient: Client | undefined
+  topicsAgent: AtpAgent | undefined
 }
 
-type Params = app.bsky.unspecced.getTrendingTopics.$Params & {
+type Params = QueryParams & {
   hydrateCtx: HydrateCtx & { viewer: string | null }
   headers: Record<string, string>
 }
 
-type SkeletonState = app.bsky.unspecced.getTrendsSkeleton.$OutputBody
-
-function getUniqueDidsFromTrends(
-  trends?: app.bsky.unspecced.defs.$defs.SkeletonTrend[],
-): DidString[] {
-  if (!trends) return []
-
-  const dids = new Set<DidString>()
-
-  for (const trend of trends) {
-    if (trend.dids) {
-      for (const did of trend.dids) {
-        dids.add(did)
-      }
-    }
-  }
-
-  return Array.from(dids)
+type SkeletonState = {
+  trends: SkeletonTrend[]
 }

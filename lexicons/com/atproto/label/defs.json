@@ -140,13 +140,16 @@
       "type": "string",
       "knownValues": [
         "!hide",
+        "!no-promote",
         "!warn",
         "!no-unauthenticated",
+        "dmca-violation",
+        "doxxing",
         "porn",
         "sexual",
         "nudity",
-        "graphic-media",
-        "bot"
+        "nsfl",
+        "gore"
       ]
     }
   }

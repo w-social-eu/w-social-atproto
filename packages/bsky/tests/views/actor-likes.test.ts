@@ -1,5 +1,6 @@
-import { AtUri, AtpAgent, ids } from '@atproto/api'
+import { AtUri, AtpAgent } from '@atproto/api'
 import { SeedClient, TestNetwork, basicSeed } from '@atproto/dev-env'
+import { ids } from '../../src/lexicon/lexicons'
 
 describe('bsky actor likes feed views', () => {
   let network: TestNetwork
@@ -16,8 +17,8 @@ describe('bsky actor likes feed views', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'bsky_views_actor_likes',
     })
-    agent = network.bsky.getAgent()
-    pdsAgent = network.pds.getAgent()
+    agent = network.bsky.getClient()
+    pdsAgent = network.pds.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc)
     await network.processAll()

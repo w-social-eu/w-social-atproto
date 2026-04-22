@@ -1,15 +1,15 @@
 import assert from 'node:assert'
 import util from 'node:util'
 import { request } from 'undici'
-import {
-  AppBskyEmbedExternal,
-  AppBskyEmbedImages,
-  AppBskyEmbedRecord,
-  AppBskyFeedDefs,
-  AtpAgent,
-} from '@atproto/api'
+import { AtpAgent } from '@atproto/api'
 import { RecordRef, SeedClient, TestNetwork } from '@atproto/dev-env'
-import { app } from '../../src/lexicons/index.js'
+import { isView as isExternalEmbedView } from '../../src/lexicon/types/app/bsky/embed/external'
+import { isView as isImagesEmbedView } from '../../src/lexicon/types/app/bsky/embed/images'
+import { isView as isRecordEmbedView } from '../../src/lexicon/types/app/bsky/embed/record'
+import {
+  ThreadViewPost,
+  isThreadViewPost,
+} from '../../src/lexicon/types/app/bsky/feed/defs'
 import basicSeed from '../seeds/basic'
 
 describe('proxy read after write', () => {
@@ -24,7 +24,7 @@ describe('proxy read after write', () => {
     network = await TestNetwork.create({
       dbPostgresSchema: 'proxy_read_after_write',
     })
-    agent = network.pds.getAgent()
+    agent = network.pds.getClient()
     sc = network.getSeedClient()
     await basicSeed(sc, { addModLabels: network.bsky })
     await network.processAll()
@@ -104,11 +104,11 @@ describe('proxy read after write', () => {
       { uri: sc.posts[alice][0].ref.uriStr },
       { headers: { ...sc.getHeaders(alice) } },
     )
-    const thread = res.data.thread as app.bsky.feed.defs.ThreadViewPost
-    const layerOne = thread.replies as app.bsky.feed.defs.ThreadViewPost[]
+    const thread = res.data.thread as ThreadViewPost
+    const layerOne = thread.replies as ThreadViewPost[]
     expect(layerOne.length).toBe(1)
     expect(layerOne[0].post.uri).toEqual(reply1.ref.uriStr)
-    const layerTwo = layerOne[0].replies as app.bsky.feed.defs.ThreadViewPost[]
+    const layerTwo = layerOne[0].replies as ThreadViewPost[]
     expect(layerTwo.length).toBe(1)
     expect(layerTwo[0].post.uri).toEqual(reply2.ref.uriStr)
 
@@ -127,15 +127,15 @@ describe('proxy read after write', () => {
       { uri: replyRef1.uriStr },
       { headers: { ...sc.getHeaders(alice) } },
     )
-    const thread = res.data.thread as app.bsky.feed.defs.ThreadViewPost
+    const thread = res.data.thread as ThreadViewPost
     expect(thread.post.uri).toEqual(replyRef1.uriStr)
-    expect(
-      (thread.parent as app.bsky.feed.defs.ThreadViewPost).post.uri,
-    ).toEqual(sc.posts[alice][0].ref.uriStr)
+    expect((thread.parent as ThreadViewPost).post.uri).toEqual(
+      sc.posts[alice][0].ref.uriStr,
+    )
     expect(thread.replies?.length).toEqual(1)
-    expect(
-      (thread.replies?.at(0) as app.bsky.feed.defs.ThreadViewPost).post.uri,
-    ).toEqual(replyRef2.uriStr)
+    expect((thread.replies?.at(0) as ThreadViewPost).post.uri).toEqual(
+      replyRef2.uriStr,
+    )
 
     const aliceHandle = sc.accounts[alice].handle
     const handleUriStr = thread.post.uri.replace(alice, aliceHandle)
@@ -205,16 +205,16 @@ describe('proxy read after write', () => {
       { uri: sc.posts[alice][2].ref.uriStr },
       { headers: { ...sc.getHeaders(alice) } },
     )
-    assert(AppBskyFeedDefs.isThreadViewPost(res.data.thread))
+    assert(isThreadViewPost(res.data.thread))
     // @ts-ignore "pnpm verify:types" fails though VSCode doesn't complain
     assert(res.data.thread.replies, 'replies is undefined')
     // @ts-ignore "pnpm verify:types" fails though VSCode doesn't complain
     const { replies } = res.data.thread
     expect(replies.length).toBe(1)
-    assert(AppBskyFeedDefs.isThreadViewPost(replies[0]))
+    assert(isThreadViewPost(replies[0]))
     expect(replies[0].post.uri).toEqual(replyRes1.uri)
     const { embed } = replies[0].post
-    assert(AppBskyEmbedImages.isView(embed))
+    assert(isImagesEmbedView(embed))
     expect(embed.images[0].fullsize).toEqual(
       util.format(
         network.pds.ctx.cfg.bskyAppView.cdnUrlPattern,
@@ -227,11 +227,10 @@ describe('proxy read after write', () => {
     expect(embed.images[0].alt).toBe('alt text')
     assert(replies[0].replies, 'replies[0].replies is undefined')
     expect(replies[0].replies.length).toBe(1)
-    assert(AppBskyFeedDefs.isThreadViewPost(replies[0].replies[0]))
+    assert(isThreadViewPost(replies[0].replies[0]))
     expect(replies[0].replies[0].post.uri).toEqual(replyRes2.uri)
     const external = replies[0].replies[0].post.embed
-    assert(external)
-    assert(AppBskyEmbedExternal.isView(external))
+    assert(isExternalEmbedView(external))
     expect(external.external.title).toEqual('TestImage')
     expect(external.external.thumb).toEqual(
       util.format(
@@ -264,17 +263,16 @@ describe('proxy read after write', () => {
       { uri: sc.posts[carol][0].ref.uriStr },
       { headers: { ...sc.getHeaders(alice) } },
     )
-    assert(AppBskyFeedDefs.isThreadViewPost(res.data.thread))
+    assert(isThreadViewPost(res.data.thread))
     assert(res.data.thread.replies, 'replies is undefined')
     const { replies } = res.data.thread
     expect(replies.length).toBe(1)
-    assert(AppBskyFeedDefs.isThreadViewPost(replies[0]))
+    assert(isThreadViewPost(replies[0]))
     expect(replies[0].post.uri).toEqual(replyRes.uri)
     const embed = replies[0].post.embed
-    assert(AppBskyEmbedRecord.isView(embed))
-    const { record } = embed
-    assert('uri' in record) // @TODO: assert based in "$type"
-    expect(record.uri).toEqual(sc.posts[alice][0].ref.uriStr)
+    assert(isRecordEmbedView(embed))
+    assert('uri' in embed.record) // @TODO: assert based in "$type"
+    expect(embed.record.uri).toEqual(sc.posts[alice][0].ref.uriStr)
   })
 
   it('handles read after write on getTimeline', async () => {

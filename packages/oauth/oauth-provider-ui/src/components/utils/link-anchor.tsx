@@ -1,7 +1,6 @@
 import { JSX } from 'react'
 import type { LinkDefinition } from '@atproto/oauth-provider-api'
-import { Override } from '#/lib/util.ts'
-import { LinkExternal } from './link-external.tsx'
+import { Override } from '../../lib/util.ts'
 import { LinkTitle } from './link-title.tsx'
 
 export type LinkAnchorProps = Override<
@@ -15,13 +14,15 @@ export function LinkAnchor({
 
   // a
   children = <LinkTitle link={link} />,
+  role = 'link',
+  target = '_blank',
   href = link.href,
   rel = link.rel,
   ...props
 }: LinkAnchorProps) {
   return (
-    <LinkExternal {...props} href={href} rel={rel}>
+    <a {...props} role={role} target={target} href={href} rel={rel}>
       {children}
-    </LinkExternal>
+    </a>
   )
 }

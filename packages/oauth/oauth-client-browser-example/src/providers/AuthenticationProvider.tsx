@@ -13,6 +13,7 @@ import { Spinner } from '../components/Spinner.tsx'
 import { SIGN_UP_URL } from '../constants.ts'
 import * as app from '../lexicons/app.ts'
 import { useAbortableEffect } from '../lib/use-abortable-effect.ts'
+import { oauthClient } from '../oauthClient.ts'
 import { OAuthProvider, useOAuthContext } from './OAuthProvider.tsx'
 
 export type AuthenticatedClient = Client & { did: DidString }
@@ -26,7 +27,7 @@ AuthenticationContext.displayName = 'AuthenticationContext'
 
 export function AuthenticationProvider({ children }: { children?: ReactNode }) {
   return (
-    <OAuthProvider>
+    <OAuthProvider client={oauthClient}>
       <AuthenticationProviderInternal>
         {children}
       </AuthenticationProviderInternal>
@@ -141,7 +142,6 @@ async function getPreferences(client: Client, signal: AbortSignal) {
       return await client.call(app.bsky.actor.getPreferences, {}, { signal })
     } catch (err) {
       // TODO handle 403 ?
-      console.warn('Failed to get preferences, retrying...', err)
       signal.throwIfAborted()
       await new Promise((resolve) =>
         setTimeout(resolve, Math.min(200 * 1.5 ** attempt, 5000)),
