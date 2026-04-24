@@ -2,6 +2,7 @@ import { InvalidRequestError } from '@atproto/oauth-provider'
 import type { Fetch } from '@atproto-labs/fetch-node'
 import type { QuickLoginSessionStore } from '../../api/io/trustanchor/quicklogin/store'
 import type { QuickLoginConfig } from '../../config/config'
+import { oauthLogger } from '../../logger'
 
 /**
  * Bridges the OAuth sign-in flow to the real QuickLogin (WID) session machinery.
@@ -38,15 +39,26 @@ export class QuickLoginOAuthBridge {
     const tempSessionId = randomUUID()
     const providerUrl = `${this.cfg.apiBaseUrl}/QuickLogin`
 
+    oauthLogger.info(
+      { providerUrl, callbackUrl },
+      'QuickLogin OAuth bridge: step 1 — registering callback with WID provider',
+    )
+
     // Step 1: Register callback with Neuro provider to get a serviceId
+    const t1 = Date.now()
     const providerRes = await this.safeFetch.call(undefined, providerUrl, {
       method: 'POST',
+      redirect: 'error',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ service: callbackUrl, sessionId: tempSessionId }),
     })
 
     if (!providerRes.ok) {
       const body = await providerRes.text().catch(() => '')
+      oauthLogger.error(
+        { status: providerRes.status, body, durationMs: Date.now() - t1 },
+        'QuickLogin OAuth bridge: step 1 failed — WID provider returned non-OK',
+      )
       throw new InvalidRequestError(
         `Failed to initialize QuickLogin session (provider ${providerRes.status}: ${body})`,
       )
@@ -55,10 +67,18 @@ export class QuickLoginOAuthBridge {
     const providerData = (await providerRes.json()) as Record<string, unknown>
     const serviceId = providerData.serviceId
     if (typeof serviceId !== 'string' || !serviceId) {
+      oauthLogger.error(
+        { providerData, durationMs: Date.now() - t1 },
+        'QuickLogin OAuth bridge: step 1 failed — missing serviceId in response',
+      )
       throw new InvalidRequestError(
         'Invalid response from Neuro provider: missing serviceId',
       )
     }
+    oauthLogger.info(
+      { durationMs: Date.now() - t1 },
+      'QuickLogin OAuth bridge: step 1 OK — serviceId received',
+    )
 
     // Step 2: Create a session in the local store (allowCreate=true — callback
     // handler already enforces invitation requirements independently)
@@ -75,6 +95,12 @@ export class QuickLoginOAuthBridge {
     if (this.cfg.attachmentFilter !== undefined)
       qrBody.attachmentFilter = this.cfg.attachmentFilter
 
+    oauthLogger.info(
+      { sessionId: session.sessionId },
+      'QuickLogin OAuth bridge: step 2 — requesting QR code image',
+    )
+
+    const t2 = Date.now()
     const qrRes = await this.safeFetch.call(undefined, providerUrl, {
       method: 'POST',
       redirect: 'manual',
@@ -84,6 +110,10 @@ export class QuickLoginOAuthBridge {
 
     if (!qrRes.ok) {
       const body = await qrRes.text().catch(() => '')
+      oauthLogger.error(
+        { status: qrRes.status, body, durationMs: Date.now() - t2 },
+        'QuickLogin OAuth bridge: step 2 failed — QR code generation failed',
+      )
       throw new InvalidRequestError(
         `QR code generation failed (provider ${qrRes.status}: ${body})`,
       )
@@ -91,10 +121,18 @@ export class QuickLoginOAuthBridge {
 
     const qrData = (await qrRes.json()) as Record<string, unknown>
     if (!qrData.src || !qrData.signUrl) {
+      oauthLogger.error(
+        { keys: Object.keys(qrData), durationMs: Date.now() - t2 },
+        'QuickLogin OAuth bridge: step 2 failed — missing src or signUrl in QR response',
+      )
       throw new InvalidRequestError(
         'Invalid QR response from Neuro provider: missing src or signUrl',
       )
     }
+    oauthLogger.info(
+      { durationMs: Date.now() - t2 },
+      'QuickLogin OAuth bridge: step 2 OK — QR code received',
+    )
 
     // Step 4: Extract the signKey from signUrl ("tagsign:provider,KEY") and
     // store it on the session so the callback can look it up via Key field

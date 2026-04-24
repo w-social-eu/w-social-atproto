@@ -16,9 +16,16 @@ export class ServerMailer {
     transporter.use('compile', htmlToText())
   }
 
-  // The returned config can be used inside email templates.
-  static getEmailConfig(_config: ServerConfig) {
-    return {}
+  // The returned config can be used inside email templates as {{config.xxx}}.
+  static getEmailConfig(config: ServerConfig) {
+    return {
+      appName: config.emailBranding.appName,
+      appUrl: config.emailBranding.appUrl,
+      logoUrl: config.emailBranding.logoUrl,
+      iconUrl: config.emailBranding.iconUrl,
+      tagline: config.emailBranding.tagline,
+      accentColor: config.emailBranding.accentColor,
+    }
   }
 
   async sendResetPassword(

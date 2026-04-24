@@ -1,7 +1,7 @@
 """
 Configuration management for PDS Admin Tool.
 
-Handles environment detection, Vault authentication, and secret fetching.
+Handles environment detection and secret fetching from Kubernetes.
 """
 
 import os
@@ -64,7 +64,7 @@ class Config:
     @classmethod
     def _from_k8s(cls, env: str) -> "Config":
         """
-        Fetch all secrets from the Kubernetes 'pds' secret via kubectl.
+        Fetch all secrets from the k8s 'pds' secret in the pds namespace.
 
         Args:
             env: Environment name (dev, stage, prod)
@@ -109,21 +109,19 @@ class Config:
             k: base64.b64decode(v).decode() for k, v in raw.items()
         }
 
-        def get(key: str) -> str | None:
-            return secrets.get(key) or None
+        brevo_template_raw = secrets.get("PDS_BREVO_INVITATION_TEMPLATE_ID")
 
-        # Construct config from secrets
         return cls(
             pds_host=f"https://{secrets['PDS_HOSTNAME']}",
             admin_password=secrets["PDS_ADMIN_PASSWORD"],
             environment=env,
-            brevo_api_key=get("PDS_BREVO_API_KEY"),
-            brevo_template_id=int(secrets["PDS_BREVO_INVITATION_TEMPLATE_ID"]) if "PDS_BREVO_INVITATION_TEMPLATE_ID" in secrets else None,
-            invitation_email_from=get("PDS_INVITATION_EMAIL_FROM"),
-            invitation_mail_from_name=get("PDS_INVITATION_EMAIL_FROM_NAME"),
-            invitation_email_hash_salt=get("PDS_INVITATION_EMAIL_HASH_SALT"),
-            bsky_app_view_url=get("PDS_BSKY_APP_VIEW_URL"),
-            bsky_app_view_did=get("PDS_BSKY_APP_VIEW_DID"),
+            brevo_api_key=secrets.get("PDS_BREVO_API_KEY"),
+            brevo_template_id=int(brevo_template_raw) if brevo_template_raw else None,
+            invitation_email_from=secrets.get("PDS_INVITATION_EMAIL_FROM"),
+            invitation_mail_from_name=secrets.get("PDS_INVITATION_MAIL_FROM_NAME"),
+            invitation_email_hash_salt=secrets.get("PDS_INVITATION_EMAIL_HASH_SALT"),
+            bsky_app_view_url=secrets.get("PDS_BSKY_APP_VIEW_URL"),
+            bsky_app_view_did=secrets.get("PDS_BSKY_APP_VIEW_DID"),
             nomad_addr=None,
             nomad_job_name=None,
             k8s_cluster_id=env,

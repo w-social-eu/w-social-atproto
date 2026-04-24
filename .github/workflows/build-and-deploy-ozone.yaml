@@ -1,4 +1,4 @@
-name: Build & Deploy PDS
+name: Build & Deploy Ozone
 
 on:
   push:
@@ -7,6 +7,23 @@ on:
       - main
     tags:
       - 'v*'
+    paths:
+      - 'packages/ozone/**'
+      - 'packages/api/**'
+      - 'packages/aws/**'
+      - 'packages/common/**'
+      - 'packages/common-web/**'
+      - 'packages/crypto/**'
+      - 'packages/did/**'
+      - 'packages/identity/**'
+      - 'packages/lexicon/**'
+      - 'packages/lexicon-resolver/**'
+      - 'packages/syntax/**'
+      - 'packages/ws-client/**'
+      - 'packages/xrpc/**'
+      - 'packages/xrpc-server/**'
+      - 'services/ozone/**'
+      - 'lexicons/**'
   workflow_dispatch:
     inputs:
       environment:
@@ -20,10 +37,8 @@ on:
           - prod
 
 env:
-  NODE_VERSION: '20'
-  PNPM_VERSION: '8.15.9'
   REGISTRY: ghcr.io
-  PDS_IMAGE: ghcr.io/w-social-eu/w-social-atproto/pds
+  OZONE_IMAGE: ghcr.io/w-social-eu/w-social-atproto/ozone
 
 jobs:
   build-and-deploy:
@@ -60,23 +75,10 @@ jobs:
             prod)  echo "kubeconfig_secret=KUBECONFIG_PROD" >> $GITHUB_OUTPUT ;;
           esac
 
-      # --- Step 1: Checkout & build ---
+      # --- Build Ozone Docker image ---
 
       - name: Checkout atproto
         uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: ${{ env.PNPM_VERSION }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
-
-      # --- Step 2: Build PDS Docker image ---
 
       - name: Setup Docker buildx
         uses: docker/setup-buildx-action@v3
@@ -92,19 +94,15 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: ./services/ozone/Dockerfile
           push: true
-          file: services/pds/Dockerfile
-          build-args: |
-            GIT_HASH=${{ steps.config.outputs.short_sha }}
-            GIT_HASH_FULL=${{ github.sha }}
-            BUILD_TIME=${{ github.event.head_commit.timestamp }}
           tags: |
-            ${{ env.PDS_IMAGE }}:${{ steps.config.outputs.image_tag }}
-            ${{ env.PDS_IMAGE }}:${{ steps.config.outputs.environment }}-latest
-            ${{ github.ref_type == 'tag' && format('{0}:{1}', env.PDS_IMAGE, github.ref_name) || '' }}
+            ${{ env.OZONE_IMAGE }}:${{ steps.config.outputs.image_tag }}
+            ${{ env.OZONE_IMAGE }}:${{ steps.config.outputs.environment }}-latest
+            ${{ github.ref_type == 'tag' && format('{0}:{1}', env.OZONE_IMAGE, github.ref_name) || '' }}
           no-cache: true
 
-      # --- Step 3: Deploy to K8s via Helm ---
+      # --- Deploy to K8s via Helm ---
 
       - name: Checkout infrastructure
         uses: actions/checkout@v4
@@ -122,19 +120,17 @@ jobs:
           echo "${{ secrets[steps.config.outputs.kubeconfig_secret] }}" > ~/.kube/config
           chmod 600 ~/.kube/config
 
-      - name: Deploy PDS
+      - name: Deploy Ozone
         run: |
           ENV="${{ steps.config.outputs.environment }}"
           TAG="${{ steps.config.outputs.image_tag }}"
-          CHART="infrastructure/fleet/bundles/pds"
+          CHART="infrastructure/fleet/bundles/ozone"
 
-          helm upgrade --install pds "$CHART" \
+          helm upgrade --install ozone "$CHART" \
             -f "$CHART/values.yaml" \
             -f "$CHART/values-${ENV}.yaml" \
-            --set image.repository=${{ env.PDS_IMAGE }} \
             --set image.tag="${TAG}" \
-            --set-string podAnnotations.deployedAt="$(date +%s)" \
-            -n pds \
+            -n ozone \
             --wait --timeout 5m
 
       # --- Summary ---
@@ -142,11 +138,11 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          echo "## PDS Build & Deploy" >> $GITHUB_STEP_SUMMARY
+          echo "## Ozone Build & Deploy" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Step | Result |" >> $GITHUB_STEP_SUMMARY
           echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Environment | **${{ steps.config.outputs.environment }}** |" >> $GITHUB_STEP_SUMMARY
-          echo "| Atproto commit | \`${{ steps.config.outputs.short_sha }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Docker image | \`${{ env.PDS_IMAGE }}:${{ steps.config.outputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | \`${{ steps.config.outputs.short_sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker image | \`${{ env.OZONE_IMAGE }}:${{ steps.config.outputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Deploy | \`helm upgrade\` to \`${{ steps.config.outputs.environment }}\` cluster |" >> $GITHUB_STEP_SUMMARY

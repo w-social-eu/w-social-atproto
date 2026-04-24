@@ -127,7 +127,15 @@ export class Firehose {
           if (!parsed) {
             continue
           }
-          this.opts.runner.trackEvent(parsed.did, parsed.seq, async () => {
+          // Await `trackEvent` so backpressure from the runner (bounded
+          // queue) propagates up through this for-await loop and pauses
+          // reads from the subscription — otherwise events are pulled off
+          // the WebSocket faster than the runner can index them and
+          // accumulate in closures, causing OOM on high-volume firehoses
+          // such as `wss://bsky.network`. In bounded mode, `trackEvent`
+          // resolves once the event is enqueued, so parallel partition
+          // processing is preserved.
+          await this.opts.runner.trackEvent(parsed.did, parsed.seq, async () => {
             const parsed = await this.parseEvt(evt)
             for (const write of parsed) {
               try {
