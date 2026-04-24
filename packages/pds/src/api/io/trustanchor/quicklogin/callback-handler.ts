@@ -1,3 +1,4 @@
+import { sql } from 'kysely'
 import type { EmailTokenPurpose } from '../../../../account-manager/db'
 import { AppContext } from '../../../../context'
 import {
@@ -248,10 +249,9 @@ export async function handleQuickLoginCallback(
     )
   }
 
-  // WP1/WID protocol update: parse test-user status.
-  // Priority:
-  // 1) explicit istestuser ('true'/'false') when present
-  // 2) fallback inference from JID prefix 'test_' for new JID-only contract
+  // WP1/WID protocol update: parse test-user status from explicit param only.
+  // JID prefix 'test_' is no longer used as inference — accountType on actor
+  // is the authoritative source; istestuser flag drives creation.
   const jidLocalPart = jid.split('@')[0] ?? ''
   const isTestUser =
     payload.istestuser === 'true'
@@ -288,15 +288,21 @@ export async function handleQuickLoginCallback(
     'QuickLogin: valid session with callback payload',
   )
 
-  // WP3: Resolve link by pseudonymous JID key (privacy-separated)
-  // Real users: lookup by userJid (isTestUser=0)
-  // Test users: lookup by testUserJid (isTestUser=1)
-  const existingLink = await ctx.accountManager.db.db
+  // WP3: Resolve links by pseudonymous JID (many-to-many, ordered by lastLoginAt DESC)
+  const existingLinks = await ctx.accountManager.db.db
     .selectFrom('neuro_identity_link')
-    .selectAll()
-    .where(isTestUser === 1 ? 'testUserJid' : 'userJid', '=', jid)
-    .where('isTestUser', '=', isTestUser)
-    .executeTakeFirst()
+    .innerJoin('actor', 'actor.did', 'neuro_identity_link.did')
+    .select([
+      'neuro_identity_link.did',
+      'neuro_identity_link.lastLoginAt',
+      'actor.accountType',
+    ])
+    .where('neuro_identity_link.jid', '=', jid)
+    .orderBy(
+      sql<string>`COALESCE(neuro_identity_link.lastLoginAt, '1970-01-01T00:00:00.000Z')`,
+      'desc',
+    )
+    .execute()
 
   let did: string
   let accessJwt: string
@@ -304,20 +310,35 @@ export async function handleQuickLoginCallback(
   let handle: string
   let created = false
 
-  if (existingLink) {
-    // Existing link - login with existing account
+  if (existingLinks.length > 0) {
+    // Existing links found - login with most-recently-used account
+    const existingLink = existingLinks[0]
     log.info(
       { sessionId: session.sessionId },
       'Existing Neuro identity link found',
     )
 
+    // Gate test-user login: check accountType on the actor
+    if (existingLink.accountType === 'test' && !ctx.cfg.allowTestUserLogin) {
+      log.info(
+        { sessionId: session.sessionId },
+        'Test user login denied by config (existing account)',
+      )
+      ctx.quickloginStore.updateSession(session.sessionId, {
+        status: 'failed',
+        error: 'TestUserDenied',
+      })
+      throw new Error('Login to test accounts not allowed on this server')
+    }
+
     did = existingLink.did
     handle = await getHandleForDid(ctx, did)
 
-    // Update last login timestamp
+    // Update last login timestamp for this specific (jid, did) pair
     await ctx.accountManager.db.db
       .updateTable('neuro_identity_link')
       .set({ lastLoginAt: new Date().toISOString() })
+      .where('jid', '=', jid)
       .where('did', '=', did)
       .execute()
 
@@ -345,7 +366,7 @@ export async function handleQuickLoginCallback(
       throw new Error('Account not found')
     }
 
-    const tokens = await ctx.accountManager.createSession(did, null, false)
+    const tokens = await ctx.accountManager.createSession(did, null, false, jid)
     accessJwt = tokens.accessJwt
     refreshJwt = tokens.refreshJwt
   } else {
@@ -482,8 +503,12 @@ async function handleApprovalCallback(
   // This prevents cross-account deletion/modification attacks
   const accountLink = await ctx.accountManager.db.db
     .selectFrom('neuro_identity_link')
-    .select(['userJid', 'testUserJid', 'isTestUser'])
+    .select(['jid'])
     .where('did', '=', approvalDid)
+    .orderBy(
+      sql<string>`COALESCE(neuro_identity_link.lastLoginAt, '1970-01-01T00:00:00.000Z')`,
+      'desc',
+    )
     .executeTakeFirst()
 
   if (!accountLink) {
@@ -498,8 +523,7 @@ async function handleApprovalCallback(
     throw new Error('Account has no linked WID identity')
   }
 
-  const accountJid =
-    accountLink.isTestUser === 1 ? accountLink.testUserJid : accountLink.userJid
+  const accountJid = accountLink.jid
 
   if (!accountJid) {
     log.error(

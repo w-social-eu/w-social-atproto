@@ -22,10 +22,11 @@ export const createTokens = async (opts: {
   scope?: AuthScope
   jti?: string
   expiresIn?: string | number
+  jid?: string
 }) => {
-  const { did, jwtKey, serviceDid, scope, jti, expiresIn } = opts
+  const { did, jwtKey, serviceDid, scope, jti, expiresIn, jid } = opts
   const [accessJwt, refreshJwt] = await Promise.all([
-    createAccessToken({ did, jwtKey, serviceDid, scope, expiresIn }),
+    createAccessToken({ did, jwtKey, serviceDid, scope, expiresIn, jid }),
     createRefreshToken({ did, jwtKey, serviceDid, jti, expiresIn }),
   ])
   return { accessJwt, refreshJwt }
@@ -37,6 +38,7 @@ export const createAccessToken = (opts: {
   serviceDid: string
   scope?: AuthScope
   expiresIn?: string | number
+  jid?: string
 }): Promise<string> => {
   const {
     did,
@@ -44,8 +46,11 @@ export const createAccessToken = (opts: {
     serviceDid,
     scope = AuthScope.Access,
     expiresIn = '120mins',
+    jid,
   } = opts
-  const signer = new jose.SignJWT({ scope })
+  const claims: Record<string, unknown> = { scope }
+  if (jid !== undefined) claims.jid = jid
+  const signer = new jose.SignJWT(claims)
     .setProtectedHeader({
       typ: 'at+jwt', // https://www.rfc-editor.org/rfc/rfc9068.html
       alg: 'HS256', // only symmetric keys supported

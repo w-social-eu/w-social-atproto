@@ -23,6 +23,8 @@ export type AccessOutput<S extends AuthScope = AuthScope> = {
     type: 'access'
     did: string
     scope: S
+    /** WID JID that was used to authenticate this session, if any */
+    jid?: string
   }
 }
 

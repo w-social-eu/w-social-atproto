@@ -10515,6 +10515,68 @@ export const schemaDict = {
       },
     },
   },
+  ComAtprotoAdminAddNeuroLink: {
+    lexicon: 1,
+    id: 'com.atproto.admin.addNeuroLink',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Add a Neuro/W ID link to an account (many-to-many: one JID can link to multiple accounts).',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['jid', 'did'],
+            properties: {
+              jid: {
+                type: 'string',
+                description: 'The JID (W ID) to link.',
+              },
+              did: {
+                type: 'string',
+                format: 'did',
+                description: 'The DID of the account to link to.',
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['success', 'jid', 'did', 'linkedAt'],
+            properties: {
+              success: {
+                type: 'boolean',
+              },
+              jid: {
+                type: 'string',
+              },
+              did: {
+                type: 'string',
+                format: 'did',
+              },
+              linkedAt: {
+                type: 'string',
+                format: 'datetime',
+              },
+            },
+          },
+        },
+        errors: [
+          {
+            name: 'NotFound',
+            description: 'The account DID was not found on this server.',
+          },
+          {
+            name: 'JidInUse',
+            description: 'This JID is already linked to this account.',
+          },
+        ],
+      },
+    },
+  },
   ComAtprotoAdminDefs: {
     lexicon: 1,
     id: 'com.atproto.admin.defs',
@@ -11292,6 +11354,64 @@ export const schemaDict = {
             },
           },
         },
+      },
+    },
+  },
+  ComAtprotoAdminRemoveNeuroLink: {
+    lexicon: 1,
+    id: 'com.atproto.admin.removeNeuroLink',
+    defs: {
+      main: {
+        type: 'procedure',
+        description: 'Remove a Neuro/W ID link from an account.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['jid', 'did'],
+            properties: {
+              jid: {
+                type: 'string',
+                description: 'The JID (W ID) to unlink.',
+              },
+              did: {
+                type: 'string',
+                format: 'did',
+                description: 'The DID of the account to unlink from.',
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['success', 'jid', 'did'],
+            properties: {
+              success: {
+                type: 'boolean',
+              },
+              jid: {
+                type: 'string',
+              },
+              did: {
+                type: 'string',
+                format: 'did',
+              },
+              warning: {
+                type: 'string',
+                description:
+                  'Set when this was the last link for this account.',
+              },
+            },
+          },
+        },
+        errors: [
+          {
+            name: 'NotFound',
+            description: 'No link found for this (jid, did) pair.',
+          },
+        ],
       },
     },
   },
@@ -16771,6 +16891,64 @@ export const schemaDict = {
           schema: {
             type: 'object',
             properties: {},
+          },
+        },
+      },
+    },
+  },
+  IoTrustanchorQuickloginGetLinkedAccounts: {
+    lexicon: 1,
+    id: 'io.trustanchor.quicklogin.getLinkedAccounts',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Return sessions for all W Social accounts linked to the same WID as the authenticated account. Used to populate the account switcher dynamically.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            properties: {},
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['accounts'],
+            properties: {
+              accounts: {
+                type: 'array',
+                description:
+                  "All accounts (including the caller's) linked to the same WID, ordered by lastLoginAt descending.",
+                items: {
+                  type: 'ref',
+                  ref: 'lex:io.trustanchor.quicklogin.getLinkedAccounts#linkedAccount',
+                },
+              },
+            },
+          },
+        },
+      },
+      linkedAccount: {
+        type: 'object',
+        required: ['accessJwt', 'refreshJwt', 'did', 'handle'],
+        properties: {
+          accessJwt: {
+            type: 'string',
+            description: 'Access token for this account',
+          },
+          refreshJwt: {
+            type: 'string',
+            description: 'Refresh token for this account',
+          },
+          did: {
+            type: 'string',
+            description: 'DID of this account',
+          },
+          handle: {
+            type: 'string',
+            description: 'Handle of this account',
           },
         },
       },
@@ -22350,6 +22528,7 @@ export const ids = {
   ChatBskyModerationGetActorMetadata: 'chat.bsky.moderation.getActorMetadata',
   ChatBskyModerationGetMessageContext: 'chat.bsky.moderation.getMessageContext',
   ChatBskyModerationUpdateActorAccess: 'chat.bsky.moderation.updateActorAccess',
+  ComAtprotoAdminAddNeuroLink: 'com.atproto.admin.addNeuroLink',
   ComAtprotoAdminDefs: 'com.atproto.admin.defs',
   ComAtprotoAdminDeleteAccount: 'com.atproto.admin.deleteAccount',
   ComAtprotoAdminDisableAccountInvites:
@@ -22364,6 +22543,7 @@ export const ids = {
   ComAtprotoAdminImportAccount: 'com.atproto.admin.importAccount',
   ComAtprotoAdminListNeuroAccounts: 'com.atproto.admin.listNeuroAccounts',
   ComAtprotoAdminMigrateAccount: 'com.atproto.admin.migrateAccount',
+  ComAtprotoAdminRemoveNeuroLink: 'com.atproto.admin.removeNeuroLink',
   ComAtprotoAdminSearchAccounts: 'com.atproto.admin.searchAccounts',
   ComAtprotoAdminSendEmail: 'com.atproto.admin.sendEmail',
   ComAtprotoAdminUpdateAccountEmail: 'com.atproto.admin.updateAccountEmail',
@@ -22487,6 +22667,8 @@ export const ids = {
   IoTrustanchorAdminUpdateInvitationEmailStatus:
     'io.trustanchor.admin.updateInvitationEmailStatus',
   IoTrustanchorQuickloginCallback: 'io.trustanchor.quicklogin.callback',
+  IoTrustanchorQuickloginGetLinkedAccounts:
+    'io.trustanchor.quicklogin.getLinkedAccounts',
   IoTrustanchorQuickloginInit: 'io.trustanchor.quicklogin.init',
   IoTrustanchorQuickloginStatus: 'io.trustanchor.quicklogin.status',
   IoTrustanchorServerDeleteAccountWID: 'io.trustanchor.server.deleteAccountWID',

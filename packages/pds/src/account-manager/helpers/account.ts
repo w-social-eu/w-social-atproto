@@ -41,6 +41,7 @@ export const selectAccountQB = (db: AccountDb, flags?: AvailabilityFlags) => {
       'actor.takedownRef',
       'actor.deactivatedAt',
       'actor.deleteAfter',
+      'actor.accountType',
       'account.email',
       'account.emailConfirmedAt',
       'account.invitesDisabled',
@@ -103,9 +104,10 @@ export const registerActor = async (
     did: string
     handle: string
     deactivated?: boolean
+    accountType?: import('../db/schema/actor').AccountType
   },
 ) => {
-  const { did, handle, deactivated } = opts
+  const { did, handle, deactivated, accountType = 'organization' } = opts
   const now = Date.now()
   const createdAt = new Date(now).toISOString()
   const [registered] = await db.executeWithRetry(
@@ -117,6 +119,7 @@ export const registerActor = async (
         createdAt,
         deactivatedAt: deactivated ? createdAt : null,
         deleteAfter: deactivated ? new Date(now + 3 * DAY).toISOString() : null,
+        accountType,
       })
       .onConflict((oc) => oc.doNothing())
       .returning('did'),

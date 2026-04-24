@@ -86,6 +86,7 @@ export type VerifyBearerJwtResult<S extends AuthScope = AuthScope> = {
   aud: string
   jti: string | undefined
   scope: S
+  jid: string | undefined
 }
 
 export class AuthVerifier {
@@ -183,15 +184,16 @@ export class AuthVerifier {
     return async (ctx) => {
       setAuthHeaders(ctx.res)
 
-      const { sub: did, scope } = await this.verifyBearerJwt(
-        ctx.req,
-        verifyJwtOptions,
-      )
+      const {
+        sub: did,
+        scope,
+        jid,
+      } = await this.verifyBearerJwt(ctx.req, verifyJwtOptions)
 
       await this.verifyStatus(did, statusOptions)
 
       return {
-        credentials: { type: 'access', did, scope },
+        credentials: { type: 'access', did, scope, jid },
       }
     }
   }
@@ -488,7 +490,7 @@ export class AuthVerifier {
       throw new InvalidRequestError('Invalid token type', 'InvalidToken')
     }
 
-    const { sub, aud, scope, lxm, cnf, jti } = payload
+    const { sub, aud, scope, lxm, cnf, jti, jid } = payload
 
     if (typeof lxm !== 'undefined') {
       // Service auth tokens should never make it to here. But since service
@@ -515,8 +517,11 @@ export class AuthVerifier {
     if (!isAuthScope(scope) || !scopes.includes(scope as any)) {
       throw new InvalidRequestError('Bad token scope', 'InvalidToken')
     }
+    if (typeof jid !== 'string' && typeof jid !== 'undefined') {
+      throw new InvalidRequestError('Malformed token', 'InvalidToken')
+    }
 
-    return { sub, aud, jti, scope: scope as S }
+    return { sub, aud, jti, scope: scope as S, jid: jid as string | undefined }
   }
 
   protected async verifyServiceJwt(

@@ -161,6 +161,7 @@ export class AccountManager {
     inviteCode,
     deactivated,
     refreshJwt,
+    accountType,
   }: {
     did: string
     handle: string
@@ -171,6 +172,7 @@ export class AccountManager {
     inviteCode?: string
     deactivated?: boolean
     refreshJwt?: string
+    accountType?: import('./db/schema/actor').AccountType
   }) {
     if (password && password.length > scrypt.NEW_PASSWORD_MAX_LENGTH) {
       throw new InvalidRequestError('Password too long')
@@ -186,7 +188,7 @@ export class AccountManager {
         await invite.ensureInviteIsAvailable(dbTxn, inviteCode)
       }
       await Promise.all([
-        account.registerActor(dbTxn, { did, handle, deactivated }),
+        account.registerActor(dbTxn, { did, handle, deactivated, accountType }),
         email
           ? account.registerAccount(dbTxn, { did, email, passwordScrypt })
           : Promise.resolve(),
@@ -271,12 +273,14 @@ export class AccountManager {
     did: string,
     appPassword: password.AppPassDescript | null,
     isSoftDeleted = false,
+    jid?: string,
   ) {
     const { accessJwt, refreshJwt } = await auth.createTokens({
       did,
       jwtKey: this.jwtKey,
       serviceDid: this.serviceDid,
       scope: auth.formatScope(appPassword, isSoftDeleted),
+      jid,
     })
     // For soft deleted accounts don't store refresh token so that it can't be rotated.
     if (!isSoftDeleted) {
@@ -344,6 +348,10 @@ export class AccountManager {
 
   async revokeRefreshToken(id: string) {
     return auth.revokeRefreshToken(this.db, id)
+  }
+
+  async revokeAllSessionsForDid(did: string): Promise<void> {
+    await auth.revokeRefreshTokensByDid(this.db, did)
   }
 
   // Login
