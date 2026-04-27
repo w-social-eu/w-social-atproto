@@ -78,7 +78,7 @@ export default function (server: Server, ctx: AppContext) {
         .executeTakeFirst()
 
       req.log.info(
-        { did, hasNeuroLink: !!neuroLink, legalId: neuroLink?.userJid || neuroLink?.testUserJid },
+        { did, hasNeuroLink: !!neuroLink, legalId: neuroLink?.jid },
         'Retrieved Neuro identity link',
       )
 
@@ -127,7 +127,7 @@ export default function (server: Server, ctx: AppContext) {
               emailConfirmed: !!account.emailConfirmedAt,
               neuroLink: neuroLink
                 ? {
-                    legalId: neuroLink.userJid || neuroLink.testUserJid,
+                    legalId: neuroLink.jid,
                     linkedAt: toIsoString(neuroLink.linkedAt),
                     lastLoginAt: toIsoString(neuroLink.lastLoginAt),
                   }

@@ -20,67 +20,57 @@ export default function (server: Server, ctx: AppContext) {
       }
 
       // Check if the new JID is already linked to a different account
-      const existingLink = await ctx.accountManager.db.db
+      const conflict = await ctx.accountManager.db.db
         .selectFrom('neuro_identity_link')
-        .select(['did', 'userJid', 'testUserJid'])
-        .where('userJid', '=', newJid)
-        .where('isTestUser', '=', 0)
+        .select(['did', 'jid'])
+        .where('jid', '=', newJid)
         .executeTakeFirst()
 
-      if (existingLink && existingLink.did !== did) {
+      if (conflict && conflict.did !== did) {
         throw new InvalidRequestError(
-          `This JID is already linked to account ${existingLink.did}`,
+          `This JID is already linked to account ${conflict.did}`,
           'JidInUse',
         )
       }
 
-      // Get current link (if any)
-      const currentLink = await ctx.accountManager.db.db
+      // Get current oldest link for this DID
+      const currentLinks = await ctx.accountManager.db.db
         .selectFrom('neuro_identity_link')
-        .select(['userJid', 'testUserJid'])
+        .select(['jid'])
         .where('did', '=', did)
-        .executeTakeFirst()
+        .orderBy('linkedAt', 'asc')
+        .execute()
 
-      const oldJid = currentLink?.userJid || currentLink?.testUserJid || null
+      const oldJid = currentLinks[0]?.jid || null
       const updatedAt = new Date().toISOString()
 
-      // Update or insert the link
-      if (currentLink) {
-        // Update existing link
+      if (currentLinks.length > 0) {
         await ctx.accountManager.db.db
           .updateTable('neuro_identity_link')
-          .set({
-            userJid: newJid,
-            testUserJid: null,
-            isTestUser: 0,
-            linkedAt: updatedAt,
-            lastLoginAt: null, // Reset last login
-          })
+          .set({ jid: newJid, lastLoginAt: null })
           .where('did', '=', did)
+          .where('jid', '=', oldJid!)
           .execute()
-
-        req.log.info({ did, oldJid, newJid }, 'Updated Neuro identity link')
       } else {
-        // Create new link
         await ctx.accountManager.db.db
           .insertInto('neuro_identity_link')
           .values({
-            userJid: newJid,
-            testUserJid: null,
+            jid: newJid,
             did,
-            isTestUser: 0,
             linkedAt: updatedAt,
             lastLoginAt: null,
           })
           .execute()
-
-        req.log.info({ did, newJid }, 'Created Neuro identity link')
       }
+
+      req.log.info({ did, oldJid, newJid }, 'Updated Neuro identity link')
 
       return {
         encoding: 'application/json',
         body: {
           success: true,
+          deprecated:
+            'updateNeuroLink is deprecated. Use addNeuroLink/removeNeuroLink instead.',
           did,
           oldJid: oldJid || undefined,
           newJid,

@@ -203,6 +203,9 @@ export function readEnv() {
       'PDS_WSOCIAL_DEFAULT_SUBSCRIBE_LISTS',
     ),
     wsocialDefaultThreadPref: envStr('PDS_WSOCIAL_DEFAULT_THREAD_PREF'),
+
+    // W Admin
+    wadminUrl: envStr('PDS_WADMIN_URL'),
   }
 }
 

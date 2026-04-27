@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import EventEmitter from 'node:events'
 import { Redis } from 'ioredis'
+import { sql } from 'kysely'
 import { AccountDb } from '../db'
 
 // Logger type - use your PDS logger interface
@@ -480,35 +481,26 @@ export class NeuroAuthManager {
   }
 
   /**
-   * Find account by Legal ID or JID (searches both columns)
+  /**
+   * Find all accounts linked to a JID, ordered by most recently used.
    */
-  async findAccountByLegalIdOrJid(
+  async findAccountsByJid(
     jid: string,
-  ): Promise<{ did: string } | null> {
+  ): Promise<{ did: string; lastLoginAt: string | null }[]> {
     if (!this.db) {
       this.logger.error({}, 'Database not configured for Neuro authentication')
       throw new Error('Server configuration error. Please contact support.')
     }
 
-    // First try userJid (real users)
-    let result = await this.db.db
+    return this.db.db
       .selectFrom('neuro_identity_link')
-      .select('did')
-      .where('userJid', '=', jid)
-      .where('isTestUser', '=', 0)
-      .executeTakeFirst()
-
-    // Fallback to testUserJid (test users)
-    if (!result) {
-      result = await this.db.db
-        .selectFrom('neuro_identity_link')
-        .select('did')
-        .where('testUserJid', '=', jid)
-        .where('isTestUser', '=', 1)
-        .executeTakeFirst()
-    }
-
-    return result || null
+      .select(['did', 'lastLoginAt'])
+      .where('jid', '=', jid)
+      .orderBy(
+        sql<string>`COALESCE(lastLoginAt, '1970-01-01T00:00:00.000Z')`,
+        'desc',
+      )
+      .execute()
   }
 
   /**
@@ -518,7 +510,7 @@ export class NeuroAuthManager {
     jid: string,
     did: string,
     email?: string,
-    userName?: string,
+    _userName?: string,
   ): Promise<void> {
     if (!this.db) {
       this.logger.error(
@@ -540,10 +532,8 @@ export class NeuroAuthManager {
     await this.db.db
       .insertInto('neuro_identity_link')
       .values({
-        userJid: jid, // For real users (pseudonymous JID)
-        testUserJid: null, // For test users only
+        jid,
         did,
-        isTestUser: 0, // 0 = real user, 1 = test user
         linkedAt: new Date().toISOString(),
         lastLoginAt: null,
       })
@@ -551,21 +541,18 @@ export class NeuroAuthManager {
   }
 
   /**
-   * Update last login timestamp
+   * Update last login timestamp for a specific (jid, did) pair
    */
-  async updateLastLogin(jid: string): Promise<void> {
+  async updateLastLogin(jid: string, did: string): Promise<void> {
     if (!this.db) {
       throw new Error('Database not configured')
     }
 
-    // Update for either userJid (real) or testUserJid (test)
-    // Try both since we don't know which type this JID is
     await this.db.db
       .updateTable('neuro_identity_link')
       .set({ lastLoginAt: new Date().toISOString() })
-      .where((eb) =>
-        eb.where('userJid', '=', jid).orWhere('testUserJid', '=', jid),
-      )
+      .where('jid', '=', jid)
+      .where('did', '=', did)
       .execute()
   }
 
@@ -588,7 +575,7 @@ export class NeuroAuthManager {
    */
   cleanup(): void {
     // Clear all timeouts to prevent them from firing after shutdown
-    for (const [sessionId, session] of this.sessions.entries()) {
+    for (const [_sessionId, session] of this.sessions.entries()) {
       if (session.timeout) {
         clearTimeout(session.timeout)
       }

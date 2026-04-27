@@ -73,31 +73,41 @@ class Config:
             Config instance with k8s-sourced credentials
 
         Raises:
-            RuntimeError: If kubectl is unavailable or the secret cannot be read
+            SystemExit: If kubectl fails or the kubeconfig is missing
         """
         import subprocess
-        import json
         import base64
+        import json
 
         kubeconfig = Path.home() / ".wsocial" / "kube" / f"{env}.yaml"
         if not kubeconfig.exists():
-            raise RuntimeError(
-                f"Kubeconfig not found: {kubeconfig}\n"
-                f"Download from Rancher UI for the '{env}' cluster and save it there."
-            )
+            print(f"ERROR: kubeconfig not found: {kubeconfig}", file=sys.stderr)
+            sys.exit(1)
 
-        result = subprocess.run(
-            ["kubectl", "--kubeconfig", str(kubeconfig),
-             "get", "secret", "pds", "-n", K8S_NAMESPACE, "-o", "json"],
-            capture_output=True, text=True
-        )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Failed to read k8s secret 'pds' in namespace '{K8S_NAMESPACE}':\n{result.stderr.strip()}"
+        try:
+            result = subprocess.run(
+                [
+                    "kubectl",
+                    "--kubeconfig", str(kubeconfig),
+                    "get", "secret", "pds",
+                    "-n", K8S_NAMESPACE,
+                    "-o", "jsonpath={.data}",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
             )
+        except subprocess.CalledProcessError as e:
+            print(f"ERROR: kubectl failed: {e.stderr.strip()}", file=sys.stderr)
+            sys.exit(1)
+        except FileNotFoundError:
+            print("ERROR: kubectl not found — install kubectl and ensure it is on your PATH", file=sys.stderr)
+            sys.exit(1)
 
-        raw = json.loads(result.stdout)["data"]
-        secrets = {k: base64.b64decode(v).decode() for k, v in raw.items()}
+        raw: dict[str, str] = json.loads(result.stdout)
+        secrets: dict[str, str] = {
+            k: base64.b64decode(v).decode() for k, v in raw.items()
+        }
 
         brevo_template_raw = secrets.get("PDS_BREVO_INVITATION_TEMPLATE_ID")
 
@@ -112,6 +122,8 @@ class Config:
             invitation_email_hash_salt=secrets.get("PDS_INVITATION_EMAIL_HASH_SALT"),
             bsky_app_view_url=secrets.get("PDS_BSKY_APP_VIEW_URL"),
             bsky_app_view_did=secrets.get("PDS_BSKY_APP_VIEW_DID"),
+            nomad_addr=None,
+            nomad_job_name=None,
             k8s_cluster_id=env,
         )
 

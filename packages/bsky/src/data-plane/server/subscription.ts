@@ -6,23 +6,62 @@ import { BackgroundQueue } from './background'
 import { Database } from './db'
 import { IndexingService } from './indexing'
 
+export type RepoSubscriptionOptions = {
+  service: string
+  db: Database
+  idResolver: IdResolver
+  /**
+   * Cap the number of firehose events held in memory by the runner
+   * (queued + in-flight). When set, the firehose consumer loop applies
+   * backpressure to the WebSocket whenever this limit is reached,
+   * preventing OOM on high-volume relays (e.g. `wss://bsky.network`).
+   * If unset, no limit is applied (historical behavior, safe for low-
+   * volume sources like a single-tenant PDS).
+   */
+  maxQueueSize?: number
+  /** Resume reading once the queue drains below this count. */
+  lowWaterMark?: number
+}
+
+/**
+ * Pull bounded-queue watermarks from the environment so the dataplane
+ * service picks them up without a code change. The dataplane process
+ * instantiates `RepoSubscription` directly; callers may also pass the
+ * values explicitly, which take precedence.
+ *
+ * `DATAPLANE_MAX_QUEUE_SIZE`   — hard cap (recommended: 5000 on bsky.network)
+ * `DATAPLANE_LOW_WATER_MARK`   — resume threshold (recommended: 1000)
+ */
+const envQueueLimits = (): {
+  maxQueueSize?: number
+  lowWaterMark?: number
+} => {
+  const max = parseInt(process.env.DATAPLANE_MAX_QUEUE_SIZE || '', 10)
+  const low = parseInt(process.env.DATAPLANE_LOW_WATER_MARK || '', 10)
+  return {
+    maxQueueSize: Number.isFinite(max) && max > 0 ? max : undefined,
+    lowWaterMark: Number.isFinite(low) && low > 0 ? low : undefined,
+  }
+}
+
 export class RepoSubscription {
   firehose: Firehose
   runner: MemoryRunner
   background: BackgroundQueue
   indexingSvc: IndexingService
 
-  constructor(
-    public opts: { service: string; db: Database; idResolver: IdResolver },
-  ) {
+  constructor(public opts: RepoSubscriptionOptions) {
     const { service, db, idResolver } = opts
     this.background = new BackgroundQueue(db)
     this.indexingSvc = new IndexingService(db, idResolver, this.background)
 
+    const env = envQueueLimits()
     const { runner, firehose } = createFirehose({
       idResolver,
       service,
       indexingSvc: this.indexingSvc,
+      maxQueueSize: opts.maxQueueSize ?? env.maxQueueSize,
+      lowWaterMark: opts.lowWaterMark ?? env.lowWaterMark,
     })
     this.runner = runner
     this.firehose = firehose
@@ -34,10 +73,13 @@ export class RepoSubscription {
 
   async restart() {
     await this.destroy()
+    const env = envQueueLimits()
     const { runner, firehose } = createFirehose({
       idResolver: this.opts.idResolver,
       service: this.opts.service,
       indexingSvc: this.indexingSvc,
+      maxQueueSize: this.opts.maxQueueSize ?? env.maxQueueSize,
+      lowWaterMark: this.opts.lowWaterMark ?? env.lowWaterMark,
     })
     this.runner = runner
     this.firehose = firehose
@@ -60,9 +102,15 @@ const createFirehose = (opts: {
   idResolver: IdResolver
   service: string
   indexingSvc: IndexingService
+  maxQueueSize?: number
+  lowWaterMark?: number
 }) => {
-  const { idResolver, service, indexingSvc } = opts
-  const runner = new MemoryRunner({ startCursor: 0 })
+  const { idResolver, service, indexingSvc, maxQueueSize, lowWaterMark } = opts
+  const runner = new MemoryRunner({
+    startCursor: 0,
+    maxQueueSize,
+    lowWaterMark,
+  })
   const firehose = new Firehose({
     idResolver,
     runner,

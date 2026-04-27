@@ -134,6 +134,7 @@ import * as ChatBskyConvoUpdateRead from './types/chat/bsky/convo/updateRead.js'
 import * as ChatBskyModerationGetActorMetadata from './types/chat/bsky/moderation/getActorMetadata.js'
 import * as ChatBskyModerationGetMessageContext from './types/chat/bsky/moderation/getMessageContext.js'
 import * as ChatBskyModerationUpdateActorAccess from './types/chat/bsky/moderation/updateActorAccess.js'
+import * as ComAtprotoAdminAddNeuroLink from './types/com/atproto/admin/addNeuroLink.js'
 import * as ComAtprotoAdminDeleteAccount from './types/com/atproto/admin/deleteAccount.js'
 import * as ComAtprotoAdminDisableAccountInvites from './types/com/atproto/admin/disableAccountInvites.js'
 import * as ComAtprotoAdminDisableInviteCodes from './types/com/atproto/admin/disableInviteCodes.js'
@@ -146,6 +147,7 @@ import * as ComAtprotoAdminGetSubjectStatus from './types/com/atproto/admin/getS
 import * as ComAtprotoAdminImportAccount from './types/com/atproto/admin/importAccount.js'
 import * as ComAtprotoAdminListNeuroAccounts from './types/com/atproto/admin/listNeuroAccounts.js'
 import * as ComAtprotoAdminMigrateAccount from './types/com/atproto/admin/migrateAccount.js'
+import * as ComAtprotoAdminRemoveNeuroLink from './types/com/atproto/admin/removeNeuroLink.js'
 import * as ComAtprotoAdminSearchAccounts from './types/com/atproto/admin/searchAccounts.js'
 import * as ComAtprotoAdminSendEmail from './types/com/atproto/admin/sendEmail.js'
 import * as ComAtprotoAdminUpdateAccountEmail from './types/com/atproto/admin/updateAccountEmail.js'
@@ -242,6 +244,7 @@ import * as IoTrustanchorAdminSetThreadViewPreferences from './types/io/trustanc
 import * as IoTrustanchorAdminSubscribeToLists from './types/io/trustanchor/admin/subscribeToLists.js'
 import * as IoTrustanchorAdminUpdateInvitationEmailStatus from './types/io/trustanchor/admin/updateInvitationEmailStatus.js'
 import * as IoTrustanchorQuickloginCallback from './types/io/trustanchor/quicklogin/callback.js'
+import * as IoTrustanchorQuickloginGetLinkedAccounts from './types/io/trustanchor/quicklogin/getLinkedAccounts.js'
 import * as IoTrustanchorQuickloginInit from './types/io/trustanchor/quicklogin/init.js'
 import * as IoTrustanchorQuickloginStatus from './types/io/trustanchor/quicklogin/status.js'
 import * as IoTrustanchorServerDeleteAccountWID from './types/io/trustanchor/server/deleteAccountWID.js'
@@ -2149,6 +2152,18 @@ export class ComAtprotoAdminNS {
     this._server = server
   }
 
+  addNeuroLink<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      ComAtprotoAdminAddNeuroLink.QueryParams,
+      ComAtprotoAdminAddNeuroLink.HandlerInput,
+      ComAtprotoAdminAddNeuroLink.HandlerOutput
+    >,
+  ) {
+    const nsid = 'com.atproto.admin.addNeuroLink' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
   deleteAccount<A extends Auth = void>(
     cfg: MethodConfigOrHandler<
       A,
@@ -2290,6 +2305,18 @@ export class ComAtprotoAdminNS {
     >,
   ) {
     const nsid = 'com.atproto.admin.migrateAccount' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  removeNeuroLink<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      ComAtprotoAdminRemoveNeuroLink.QueryParams,
+      ComAtprotoAdminRemoveNeuroLink.HandlerInput,
+      ComAtprotoAdminRemoveNeuroLink.HandlerOutput
+    >,
+  ) {
+    const nsid = 'com.atproto.admin.removeNeuroLink' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 
@@ -3544,6 +3571,18 @@ export class IoTrustanchorQuickloginNS {
     >,
   ) {
     const nsid = 'io.trustanchor.quicklogin.callback' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  getLinkedAccounts<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorQuickloginGetLinkedAccounts.QueryParams,
+      IoTrustanchorQuickloginGetLinkedAccounts.HandlerInput,
+      IoTrustanchorQuickloginGetLinkedAccounts.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.quicklogin.getLinkedAccounts' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 
