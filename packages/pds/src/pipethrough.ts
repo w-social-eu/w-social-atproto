@@ -543,17 +543,29 @@ export const PRIVILEGED_METHODS = new Set<string>([
 ])
 
 // Methods whose upstream service-auth header must be stripped before we
-// proxy them. Today this is necessary for one Bluesky AppView quirk: when
-// `app.bsky.unspecced.getPopularFeedGenerators` is called authenticated, the
-// upstream returns the caller's saved feeds and ignores the `query`
-// parameter — turning feed search into "your saved feeds". When called
-// anonymously the same endpoint returns a properly filtered popular-feeds
-// list. We still authenticate the user against *this* PDS; we just omit
-// service auth on the outbound request so the upstream serves the public
-// behaviour. If we ever see additional endpoints with similar
-// authenticated-vs-anonymous divergence, add them here.
+// proxy them. Several Bluesky AppView discovery endpoints in the
+// `app.bsky.unspecced.*` namespace silently change behaviour when they
+// receive an authenticated request:
+//
+//   - `getPopularFeedGenerators` returns the caller's saved feeds and
+//     ignores the `query` parameter — feed search becomes "your saved
+//     feeds".
+//   - `getTrendingTopics` / `getTrends` return a stale, personalized,
+//     near-empty cohort instead of the live global trending list.
+//
+// In every case the same endpoint, called anonymously, returns the proper
+// public response we actually want. Stripping service auth on these
+// outbound calls fixes the symptom without affecting authenticated reads
+// (timelines, profiles, notifications, etc.) which depend on knowing who
+// the user is.
+//
+// We still authenticate the user against *this* PDS — we just don't tell
+// the upstream who they are. If you find another endpoint with the same
+// authenticated-vs-anonymous divergence, add it here.
 export const ANONYMIZED_METHODS = new Set<string>([
   ids.AppBskyUnspeccedGetPopularFeedGenerators,
+  ids.AppBskyUnspeccedGetTrendingTopics,
+  ids.AppBskyUnspeccedGetTrends,
 ])
 
 // These endpoints are related to account management and must be used directly,
