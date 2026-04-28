@@ -79,8 +79,19 @@ export const proxyHandler = (ctx: AppContext): CatchallHandler => {
         'content-type': body && req.headers['content-type'],
         'content-encoding': body && req.headers['content-encoding'],
         'content-length': body && req.headers['content-length'],
+      }
 
-        authorization: `Bearer ${await ctx.serviceAuthJwt(credentials.did, aud, lxm)}`,
+      // Some upstream AppView endpoints (notably Bluesky's
+      // `app.bsky.unspecced.getPopularFeedGenerators`) silently change
+      // behaviour when they receive an authenticated request — e.g. they
+      // return the user's saved feeds and ignore the `query` filter, instead
+      // of returning a globally filtered popular-feeds list. Forwarding such
+      // calls without service auth lets the upstream serve the
+      // anonymous/discovery response we actually want. The user is still
+      // authenticated to *this* PDS — we just don't tell the upstream who
+      // they are.
+      if (!ANONYMIZED_METHODS.has(lxm)) {
+        headers.authorization = `Bearer ${await ctx.serviceAuthJwt(credentials.did, aud, lxm)}`
       }
 
       const dispatchOptions: Dispatcher.RequestOptions = {
@@ -529,6 +540,20 @@ export const CHAT_BSKY_METHODS = new Set<string>([
 export const PRIVILEGED_METHODS = new Set<string>([
   ...CHAT_BSKY_METHODS,
   ids.ComAtprotoServerCreateAccount,
+])
+
+// Methods whose upstream service-auth header must be stripped before we
+// proxy them. Today this is necessary for one Bluesky AppView quirk: when
+// `app.bsky.unspecced.getPopularFeedGenerators` is called authenticated, the
+// upstream returns the caller's saved feeds and ignores the `query`
+// parameter — turning feed search into "your saved feeds". When called
+// anonymously the same endpoint returns a properly filtered popular-feeds
+// list. We still authenticate the user against *this* PDS; we just omit
+// service auth on the outbound request so the upstream serves the public
+// behaviour. If we ever see additional endpoints with similar
+// authenticated-vs-anonymous divergence, add them here.
+export const ANONYMIZED_METHODS = new Set<string>([
+  ids.AppBskyUnspeccedGetPopularFeedGenerators,
 ])
 
 // These endpoints are related to account management and must be used directly,
