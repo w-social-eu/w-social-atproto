@@ -1,32 +1,33 @@
 /**
  * Override for getPopularFeedGenerators.
- *
- * Pipethroughs anonymously to the upstream AppView. The previous
- * implementation read a curated list from a wadmin backend
- * (`<wadminUrl>/api/wsocial/feeds`) but in practice that endpoint served a
- * fixed 3-feed list which silently replaced the live upstream response and
- * — critically — ignored the `query` parameter, breaking feed search.
- * Restoring upstream is the fix for the "feed search returns the same 3
- * feeds for any query" bug.
- *
- * Anonymous pipethrough (no `iss` option) is required because Bluesky's
- * AppView returns the caller's saved feeds and ignores `query` when called
- * authenticated. Calling without service auth gives us the proper search
- * behaviour.
- *
- * If/when W-curated popular feeds are brought back, the right shape is to
- * merge wadmin entries on top of the upstream response (and to bypass
- * wadmin entirely whenever `params.query` is set, since wadmin can't
- * search).
+ * Pulls hydrated GeneratorViews from the admin backend. On any failure
+ * (missing URL, non-2xx, network error, malformed body) returns an empty
+ * array so the endpoint never fails loudly.
  */
 import { AppContext } from '../../../../context'
 import { Server } from '../../../../lexicon'
-import { pipethrough } from '../../../../pipethrough'
+import type { GeneratorView } from '../../../../lexicon/types/app/bsky/feed/defs'
 
 export default function (server: Server, ctx: AppContext) {
   server.app.bsky.unspecced.getPopularFeedGenerators({
-    handler: async ({ req }) => {
-      return pipethrough(ctx, req)
+    handler: async () => {
+      let feeds: GeneratorView[] = []
+      const wadminUrl = ctx.cfg.wadmin.url
+      if (wadminUrl) {
+        try {
+          const res = await fetch(`${wadminUrl}/api/wsocial/feeds`)
+          if (res.ok) {
+            const data = (await res.json()) as { feeds?: GeneratorView[] }
+            if (Array.isArray(data.feeds)) feeds = data.feeds
+          }
+        } catch {
+          // fall through to empty
+        }
+      }
+      return {
+        encoding: 'application/json' as const,
+        body: { feeds },
+      }
     },
   })
 }
