@@ -329,8 +329,7 @@ class AccountMigrator:
         yield MigrationProgress("import_prefs", "Preferences imported")
 
     def _step_transfer_blobs(self) -> Generator[MigrationProgress, None, None]:
-        # Pre-count all blob CIDs
-        yield MigrationProgress("transfer_blobs", "Counting blobs on bsky.social")
+        yield MigrationProgress("transfer_blobs", f"Counting blobs on {self._old_sess.host}")
         all_cids = self._list_all_blobs(self._old_sess)
         total = len(all_cids)
         self._all_blob_cids = all_cids
@@ -339,9 +338,11 @@ class AccountMigrator:
             yield MigrationProgress("transfer_blobs", "No blobs to transfer", skipped=True)
             return
 
-        # Check how many are already on the new PDS
-        status = _check_account_status(self._new_sess)
-        already = status.get("importedBlobs", 0)
+        yield MigrationProgress("transfer_blobs", "Counting blobs already on new PDS")
+        existing_cids = set(self._list_all_blobs(self._new_sess))
+        pending_cids = [cid for cid in all_cids if cid not in existing_cids]
+        already = total - len(pending_cids)
+
         yield MigrationProgress(
             "transfer_blobs",
             f"Found {total} blobs ({already} already on new PDS)",
@@ -349,8 +350,13 @@ class AccountMigrator:
             blob_total=total,
         )
 
-        done = 0
-        for cid in all_cids:
+        if not pending_cids:
+            yield MigrationProgress("transfer_blobs", "All blobs already transferred — skipping",
+                                    blob_done=total, blob_total=total, skipped=True)
+            return
+
+        done = already
+        for cid in pending_cids:
             blob_bytes = _xrpc_get_blob(self._old_sess, cid, self._did)
             try:
                 _xrpc_post(
