@@ -255,6 +255,16 @@ export const getAccountAdminStatus = async (
   return { takedown, deactivated }
 }
 
+export const updateAccountType = async (
+  db: AccountDb,
+  did: string,
+  accountType: import('../db/schema/actor').AccountType,
+) => {
+  await db.executeWithRetry(
+    db.db.updateTable('actor').set({ accountType }).where('did', '=', did),
+  )
+}
+
 export const updateAccountTakedownStatus = async (
   db: AccountDb,
   did: string,

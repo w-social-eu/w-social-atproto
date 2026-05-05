@@ -240,6 +240,7 @@ import * as IoTrustanchorAdminListInvitations from './types/io/trustanchor/admin
 import * as IoTrustanchorAdminLoadInventory from './types/io/trustanchor/admin/loadInventory.js'
 import * as IoTrustanchorAdminPurgeInvitations from './types/io/trustanchor/admin/purgeInvitations.js'
 import * as IoTrustanchorAdminSetAccountPassword from './types/io/trustanchor/admin/setAccountPassword.js'
+import * as IoTrustanchorAdminSetAccountType from './types/io/trustanchor/admin/setAccountType.js'
 import * as IoTrustanchorAdminSetThreadViewPreferences from './types/io/trustanchor/admin/setThreadViewPreferences.js'
 import * as IoTrustanchorAdminSubscribeToLists from './types/io/trustanchor/admin/subscribeToLists.js'
 import * as IoTrustanchorAdminUpdateInvitationEmailStatus from './types/io/trustanchor/admin/updateInvitationEmailStatus.js'
@@ -3515,6 +3516,18 @@ export class IoTrustanchorAdminNS {
     >,
   ) {
     const nsid = 'io.trustanchor.admin.setAccountPassword' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  setAccountType<A extends Auth = void>(
+    cfg: MethodConfigOrHandler<
+      A,
+      IoTrustanchorAdminSetAccountType.QueryParams,
+      IoTrustanchorAdminSetAccountType.HandlerInput,
+      IoTrustanchorAdminSetAccountType.HandlerOutput
+    >,
+  ) {
+    const nsid = 'io.trustanchor.admin.setAccountType' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 

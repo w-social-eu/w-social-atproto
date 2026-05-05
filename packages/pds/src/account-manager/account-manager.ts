@@ -580,4 +580,11 @@ export class AccountManager {
       ]),
     )
   }
+
+  async updateAccountType(
+    did: string,
+    accountType: import('./db/schema/actor').AccountType,
+  ) {
+    await account.updateAccountType(this.db, did, accountType)
+  }
 }

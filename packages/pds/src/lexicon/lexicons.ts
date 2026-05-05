@@ -16650,6 +16650,47 @@ export const schemaDict = {
       },
     },
   },
+  IoTrustanchorAdminSetAccountType: {
+    lexicon: 1,
+    id: 'io.trustanchor.admin.setAccountType',
+    defs: {
+      main: {
+        type: 'procedure',
+        description:
+          'Set the account type for any account (admin only). Valid types: personal, bot, organization, test.',
+        input: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['did', 'accountType'],
+            properties: {
+              did: {
+                type: 'string',
+                description: 'DID of the account to update',
+              },
+              accountType: {
+                type: 'string',
+                knownValues: ['personal', 'bot', 'organization', 'test'],
+                description: 'New account type',
+              },
+            },
+          },
+        },
+        output: {
+          encoding: 'application/json',
+          schema: {
+            type: 'object',
+            required: ['success'],
+            properties: {
+              success: {
+                type: 'boolean',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   IoTrustanchorAdminSetThreadViewPreferences: {
     lexicon: 1,
     id: 'io.trustanchor.admin.setThreadViewPreferences',
@@ -22661,6 +22702,7 @@ export const ids = {
   IoTrustanchorAdminPurgeInvitations: 'io.trustanchor.admin.purgeInvitations',
   IoTrustanchorAdminSetAccountPassword:
     'io.trustanchor.admin.setAccountPassword',
+  IoTrustanchorAdminSetAccountType: 'io.trustanchor.admin.setAccountType',
   IoTrustanchorAdminSetThreadViewPreferences:
     'io.trustanchor.admin.setThreadViewPreferences',
   IoTrustanchorAdminSubscribeToLists: 'io.trustanchor.admin.subscribeToLists',

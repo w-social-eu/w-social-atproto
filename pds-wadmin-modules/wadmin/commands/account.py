@@ -154,6 +154,32 @@ def set_email(ctx, did: str, email: str):
     console.print(f"  Email: {email}")
 
 
+ACCOUNT_TYPES = ["personal", "bot", "organization", "test", "service"]
+
+
+@account.command("set-type")
+@click.argument("did")
+@click.argument("account_type", metavar="TYPE", type=click.Choice(ACCOUNT_TYPES))
+@click.pass_context
+def set_type(ctx, did: str, account_type: str):
+    """Set the account type (personal, bot, organization, test)."""
+    client: PDSClient = ctx.obj["client"]
+
+    response = client.call(
+        "POST",
+        "io.trustanchor.admin.setAccountType",
+        data={"did": did, "accountType": account_type},
+    )
+
+    if not response.success:
+        print_error("Failed to set account type", response.error or "Unknown error")
+        raise click.Abort()
+
+    print_success(f"Account type updated")
+    console.print(f"  DID:  {did}")
+    console.print(f"  Type: {account_type}")
+
+
 @account.command()
 @click.argument("did")
 @click.argument("target_pds_url")
