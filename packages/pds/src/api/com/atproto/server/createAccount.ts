@@ -52,6 +52,7 @@ export default function (server: Server, ctx: AppContext) {
 
       let didDoc: DidDocument | undefined
       let creds: { accessJwt: string; refreshJwt: string }
+      let accountCreated = false
       await ctx.actorStore.create(did, signingKey)
       try {
         const commit = await ctx.actorStore.transact(did, (actorTxn) =>
@@ -83,6 +84,7 @@ export default function (server: Server, ctx: AppContext) {
           inviteCode,
           deactivated,
         })
+        accountCreated = true
 
         // If password looks like a Neuro Legal ID, link the account
         if (password && password.includes('@') && password.includes('legal.')) {
@@ -139,6 +141,17 @@ export default function (server: Server, ctx: AppContext) {
       } catch (err) {
         // this will only be reached if the actor store _did not_ exist before
         await ctx.actorStore.destroy(did)
+        // If the DB write committed before the failure, undo it. Without this,
+        // the user ends up with an actor record but no signing key on disk,
+        // causing every subsequent PDS request to fail with ENOENT.
+        if (accountCreated) {
+          await ctx.accountManager.deleteAccount(did).catch((deleteErr) => {
+            req.log.error(
+              { err: deleteErr, did },
+              'failed to rollback account DB records after creation error',
+            )
+          })
+        }
         throw err
       }
 
