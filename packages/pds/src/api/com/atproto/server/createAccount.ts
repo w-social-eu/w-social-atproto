@@ -11,6 +11,7 @@ import { AppContext } from '../../../../context'
 import { baseNormalizeAndValidate } from '../../../../handle'
 import { Server } from '../../../../lexicon'
 import { InputSchema as CreateAccountInput } from '../../../../lexicon/types/com/atproto/server/createAccount'
+import { CommitDataWithOps } from '../../../../actor-store/repo/transactor'
 import { syncEvtDataFromCommit } from '../../../../sequencer'
 import { sendIdentityEventWithRetry } from '../../../../sequencer/identity-event-helper'
 import { safeResolveDidDoc } from './util'
@@ -52,13 +53,18 @@ export default function (server: Server, ctx: AppContext) {
 
       let didDoc: DidDocument | undefined
       let creds: { accessJwt: string; refreshJwt: string }
+
+      // Phase 1: irreversible side effects — actor store + PLC + DB write.
+      // The catch block only covers this phase. If anything here fails the
+      // actor store is safe to destroy because the DB was never committed.
       await ctx.actorStore.create(did, signingKey)
+      // eslint-disable-next-line prefer-const
+      let commit!: CommitDataWithOps
       try {
-        const commit = await ctx.actorStore.transact(did, (actorTxn) =>
+        commit = await ctx.actorStore.transact(did, (actorTxn) =>
           actorTxn.repo.createRepo([]),
         )
 
-        // Generate a real did with PLC
         if (plcOp) {
           try {
             await ctx.plcClient.sendOperation(did, plcOp)
@@ -83,15 +89,24 @@ export default function (server: Server, ctx: AppContext) {
           inviteCode,
           deactivated,
         })
+      } catch (err) {
+        // Only reached when the DB write has NOT committed — safe to destroy.
+        await ctx.actorStore.destroy(did)
+        throw err
+      }
 
-        // If password looks like a Neuro Legal ID, link the account
-        if (password && password.includes('@') && password.includes('legal.')) {
-          if (!ctx.neuroAuthManager) {
-            throw new InvalidRequestError(
-              'Neuro authentication is not configured on this server. Please use a regular password instead.',
-            )
-          }
+      // Phase 2: best-effort steps after the account is committed to the DB.
+      // Failures here must NOT destroy the actor store or delete DB records —
+      // the account exists and is usable. Log and continue in every case.
 
+      // Neuro Legal ID linking
+      if (password && password.includes('@') && password.includes('legal.')) {
+        if (!ctx.neuroAuthManager) {
+          req.log.error(
+            { did },
+            'neuro auth manager not configured, skipping legal id link',
+          )
+        } else {
           try {
             req.log.info(
               { did, legalId: password },
@@ -101,77 +116,67 @@ export default function (server: Server, ctx: AppContext) {
           } catch (err) {
             req.log.error(
               { err, did, legalId: password },
-              'Failed to link Neuro identity',
+              'Failed to link Neuro identity — account created, link skipped',
             )
-            const errorMsg = err instanceof Error ? err.message : String(err)
+          }
+        }
+      }
 
-            if (errorMsg.includes('UNIQUE constraint failed')) {
-              throw new InvalidRequestError(
-                'This Neuro Legal ID is already linked to another account. Each Legal ID can only be used for one account.',
-              )
-            } else {
-              throw new InvalidRequestError(
-                `Failed to link Neuro Legal ID: ${errorMsg}. Please ensure you entered a valid Neuro Legal ID or use a regular password instead.`,
-              )
+      if (!deactivated) {
+        // Auto-verify email when an invite code from a pending_invitations row is used
+        // and the submitted email matches the invited email. This is safe because
+        // the invite was sent to that specific address, proving ownership.
+        if (ctx.cfg.invites.required && inviteCode && email) {
+          try {
+            const pendingInv =
+              await ctx.invitationManager.getInvitationByInviteCode(inviteCode)
+            if (
+              pendingInv &&
+              pendingInv.email.toLowerCase() === email.toLowerCase()
+            ) {
+              await ctx.accountManager.db.db
+                .updateTable('account')
+                .set({ emailConfirmedAt: new Date().toISOString() })
+                .where('did', '=', did)
+                .execute()
+              req.log.info({ did }, 'Auto-verified email via invite code match')
             }
+          } catch (err) {
+            req.log.warn({ err }, 'Failed to auto-verify email via invite code')
           }
         }
 
-        if (!deactivated) {
-          // Auto-verify email when an invite code from a pending_invitations row is used
-          // and the submitted email matches the invited email. This is safe because
-          // the invite was sent to that specific address, proving ownership.
-          if (ctx.cfg.invites.required && inviteCode && email) {
-            try {
-              const pendingInv =
-                await ctx.invitationManager.getInvitationByInviteCode(
-                  inviteCode,
-                )
-              if (
-                pendingInv &&
-                pendingInv.email.toLowerCase() === email.toLowerCase()
-              ) {
-                await ctx.accountManager.db.db
-                  .updateTable('account')
-                  .set({ emailConfirmedAt: new Date().toISOString() })
-                  .where('did', '=', did)
-                  .execute()
-                req.log.info(
-                  { did },
-                  'Auto-verified email via invite code match',
-                )
-              }
-            } catch (err) {
-              // Non-fatal: log and continue; email verification can happen later
-              req.log.warn(
-                { err },
-                'Failed to auto-verify email via invite code',
-              )
-            }
-          }
+        await sendIdentityEventWithRetry(
+          ctx.sequencer,
+          ctx.backgroundQueue,
+          did,
+          handle,
+          req.log,
+          'account creation',
+        )
 
-          await sendIdentityEventWithRetry(
-            ctx.sequencer,
-            ctx.backgroundQueue,
-            did,
-            handle,
-            req.log,
-            'account creation',
-          )
-
+        try {
           await ctx.sequencer.sequenceAccountEvt(did, AccountStatus.Active)
           await ctx.sequencer.sequenceCommit(did, commit)
-          await ctx.sequencer.sequenceSyncEvt(
-            did,
-            syncEvtDataFromCommit(commit),
+          await ctx.sequencer.sequenceSyncEvt(did, syncEvtDataFromCommit(commit))
+        } catch (err) {
+          req.log.error(
+            { err, did },
+            'sequencer failed during account creation — account created, events skipped',
           )
         }
+      }
+
+      try {
         await ctx.accountManager.updateRepoRoot(did, commit.cid, commit.rev)
+      } catch (err) {
+        req.log.error({ err, did }, 'updateRepoRoot failed after account creation')
+      }
+
+      try {
         await ctx.actorStore.clearReservedKeypair(signingKey.did(), did)
       } catch (err) {
-        // this will only be reached if the actor store _did not_ exist before
-        await ctx.actorStore.destroy(did)
-        throw err
+        req.log.warn({ err, did }, 'clearReservedKeypair failed')
       }
 
       return {
